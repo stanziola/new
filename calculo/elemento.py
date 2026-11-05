@@ -1,4 +1,5 @@
 import numpy as np
+from configuracion import TOL_LONGITUD 
 
 def k_local(e, g, a, l, iy, iz, j):
     return (e / l**3) * np.array([
@@ -21,7 +22,7 @@ def angulos(nodo_i, nodo_f):
     dy = nodo_f[1] - nodo_i[1]
     dz = nodo_f[2] - nodo_i[2]
     l = np.sqrt(dx**2 + dy**2 + dz**2)
-    if l < 1e-12:
+    if l < TOL_LONGITUD:
         raise ValueError("Barra de longitud 0")
     gamma = np.arctan2(dy, dx)
     beta = -np.arctan2(dz, np.sqrt(dx**2 + dy**2))   # negativo por la convención de B
@@ -34,17 +35,17 @@ def rotacion(alfa, beta, gamma):
 
     A = np.array([[1,   0,   0],
                   [0,  ca,  sa],
-                  [0, -sa,  ca]])      
+                  [0, -sa,  ca]])  
 
     B = np.array([[cb, 0, -sb],
                   [0,  1,   0],
-                  [sb, 0,  cb]])       
+                  [sb, 0,  cb]])    
 
     C = np.array([[ cg, sg, 0],
                   [-sg, cg, 0],
-                  [  0,  0, 1]])      
+                  [  0,  0, 1]])
 
-    return A @ B @ C                   
+    return A @ B @ C           
 
 def transformacion(r):
     t = np.zeros((12, 12))
@@ -53,7 +54,7 @@ def transformacion(r):
     return t
 
 def k_global_barra(e, g, a, iy, iz, j, nodo_i, nodo_f, alfa=0.0):
-    gamma, beta, l = angulos(nodo_i, nodo_f)
+    beta, gamma, l = angulos(nodo_i, nodo_f)
     r = rotacion(alfa, beta, gamma)
     t = transformacion(r)
     return t.T @ k_local(e, g, a, l, iy, iz, j) @ t
