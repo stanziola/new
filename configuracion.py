@@ -2,7 +2,7 @@ def configurar():
     import sys
     import numpy as np
     import pandas as pd
-    
+
     sys.stdout.reconfigure(encoding="utf-8")
 
     pd.set_option("display.max_columns", None)

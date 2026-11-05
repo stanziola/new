@@ -1,5 +1,5 @@
 import numpy as np
-from configuracion import TOL_LONGITUD 
+from configuracion import TOL_LONGITUD
 
 def k_local(e, g, a, l, iy, iz, j):
     return (e / l**3) * np.array([
@@ -35,17 +35,17 @@ def rotacion(alfa, beta, gamma):
 
     A = np.array([[1,   0,   0],
                   [0,  ca,  sa],
-                  [0, -sa,  ca]])  
+                  [0, -sa,  ca]])
 
     B = np.array([[cb, 0, -sb],
                   [0,  1,   0],
-                  [sb, 0,  cb]])    
+                  [sb, 0,  cb]])
 
     C = np.array([[ cg, sg, 0],
                   [-sg, cg, 0],
                   [  0,  0, 1]])
 
-    return A @ B @ C           
+    return A @ B @ C
 
 def transformacion(r):
     t = np.zeros((12, 12))

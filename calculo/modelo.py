@@ -7,7 +7,7 @@ class Nodo:
     x: float
     y: float
     z: float
-    apoyo: list = field(default_factory=lambda: [False] * 6)   # ux, uy, uz, rx, ry, rz
+    apoyo: list = field(default_factory=lambda: [False] * 6)   # Dx, Dy, Dz, Phix, Phiy, Phiz
     carga: list = field(default_factory=lambda: [0.0] * 6)     # Fx, Fy, Fz, Mx, My, Mz
 
     @property
@@ -106,3 +106,66 @@ class Modelo:
         else:
             invertir = dy < 0
         return (nj, ni) if invertir else (ni, nj)
+
+    # ---------- CONSULTAS ----------
+    def elementos_conectados(self, nid):
+        """IDs de las barras que llegan al nodo nid."""
+        return [eid for eid, el in self.elementos.items() if nid in (el.ni, el.nj)]
+
+    # ---------- MODIFICAR ----------
+    def mover_nodo(self, nid, x, y, z):
+        if nid not in self.nodos:
+            raise KeyError(f"El nodo {nid} no existe")
+        nuevo = Nodo(x, y, z)
+        for eid in self.elementos_conectados(nid):
+            el = self.elementos[eid]
+            otro = el.nj if el.ni == nid else el.ni
+            if nuevo.distancia(self.nodos[otro]) < TOL_LONGITUD:
+                raise ValueError(f"Mover el nodo {nid} ahí deja la barra {eid} con longitud 0")
+        n = self.nodos[nid]
+        n.x, n.y, n.z = x, y, z
+        for eid in self.elementos_conectados(nid):      # puede haber cambiado la dirección
+            el = self.elementos[eid]
+            el.ni, el.nj = self._ordenar(el.ni, el.nj)
+
+    def restringir(self, nid, dx=True, dy=True, dz=True, phix=True, phiy=True, phiz=True):
+        if nid not in self.nodos:
+            raise KeyError(f"El nodo {nid} no existe")
+        self.nodos[nid].apoyo = [dx, dy, dz, phix, phiy, phiz]
+
+    def cargar(self, nid, fx=0.0, fy=0.0, fz=0.0, mx=0.0, my=0.0, mz=0.0):
+        if nid not in self.nodos:
+            raise KeyError(f"El nodo {nid} no existe")
+        self.nodos[nid].carga = [fx, fy, fz, mx, my, mz]
+
+    # ---------- ELIMINAR ----------
+    def eliminar_elemento(self, eid):
+        if eid not in self.elementos:
+            raise KeyError(f"El elemento {eid} no existe")
+        del self.elementos[eid]
+
+    def eliminar_nodo(self, nid):
+        """Elimina el nodo y las barras conectadas. Devuelve los IDs de barras borradas."""
+        if nid not in self.nodos:
+            raise KeyError(f"El nodo {nid} no existe")
+        borradas = self.elementos_conectados(nid)
+        for eid in borradas:
+            del self.elementos[eid]
+        del self.nodos[nid]
+        return borradas
+
+    def eliminar_material(self, mid):
+        if mid not in self.materiales:
+            raise KeyError(f"El material {mid} no existe")
+        en_uso = [eid for eid, el in self.elementos.items() if el.material == mid]
+        if en_uso:
+            raise ValueError(f"El material {mid} está en uso en las barras {en_uso}")
+        del self.materiales[mid]
+
+    def eliminar_seccion(self, sid):
+        if sid not in self.secciones:
+            raise KeyError(f"La sección {sid} no existe")
+        en_uso = [eid for eid, el in self.elementos.items() if el.seccion == sid]
+        if en_uso:
+            raise ValueError(f"La sección {sid} está en uso en las barras {en_uso}")
+        del self.secciones[sid]

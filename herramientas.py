@@ -1,6 +1,6 @@
 import pandas as pd
 
-GDL = ["Dx", "Dy", "Dz", "Φx", "Φy", "Φz"]
+GDL = ["Dx", "Dy", "Dz", "Phix", "Phiy", "Phiz"]
 
 def etiquetas_gdl(nodos):
     return [f"{g}{n}" for n in nodos for g in GDL]
