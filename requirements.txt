@@ -1,2 +1,5 @@
-numpy 
+numpy
 pandas
+PySide6
+pyvista
+pyvistaqt
