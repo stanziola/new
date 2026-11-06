@@ -12,5 +12,11 @@ def configurar():
 
     np.set_printoptions(precision=3, suppress=True, linewidth=250)
 
+# Tolerancias
 TOL_LONGITUD = 1e-9
 TOL_RELATIVA = 1e-9
+
+# Etiquetas para mostrar resultados
+GDL = ["Dx", "Dy", "Dz", "Phix", "Phiy", "Phiz"]       # desplazamientos
+FUERZAS = ["Fx", "Fy", "Fz", "Mx", "My", "Mz"]         # ejes globales (cargas, reacciones)
+FUERZAS_LOCALES = ["N", "Vy", "Vz", "T", "My", "Mz"]   # ejes locales de barra
