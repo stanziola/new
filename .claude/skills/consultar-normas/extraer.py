@@ -1,13 +1,13 @@
-"""Extrae el texto legible de ACI 318-19 o ASCE 7-05 (codigos/*.pdf).
+"""Extrae el texto legible de ACI 318-19 o ASCE 7-05 (docs/codigos/*.pdf).
 
 Los dos PDF usan fuentes "corridas": muchos caracteres salen desplazados -29 posiciones
 (por ejemplo 'ZKHUH' en lugar de 'where'). Este script detecta esas fuentes por objeto de
 fuente y las decodifica, descarta la marca de agua y separa las dos columnas de cada página.
 
 Uso (desde la raíz del proyecto; la salida conviene dejarla en la scratchpad, no en el repo):
-  python extraer.py "codigos/ACI 318-19.pdf" <salida.txt> aci
+  python extraer.py "docs/codigos/ACI 318-19.pdf" <salida.txt> aci
       -> <salida.txt> con la columna izquierda (CÓDIGO) y <salida>_comentario.txt (COMENTARIO)
-  python extraer.py "codigos/ASCE 7-05.pdf" <salida.txt> asce
+  python extraer.py "docs/codigos/ASCE 7-05.pdf" <salida.txt> asce
       -> columna izquierda y luego derecha de cada página
 
 Cada página queda marcada con  ===== p. N =====  (N = página del PDF, desde 1).

@@ -187,7 +187,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
 - **Normas:**
   - ACI 7, 8, 9.8, 8.8 y 22.6;
   - **DDM y EFM no están en el ACI 318-19**: hace falta el ACI 318-14 o un libro;
-  - metal deck compuesto: **ANSI/SDI C**, AISI S100-2013 y AISC 360-10, que **no están en `codigos/`**.
+  - metal deck compuesto: **ANSI/SDI C**, AISI S100-2013 y AISC 360-10, que **no están en `docs/codigos/`**.
 - **Teoría:** líneas de fluencia (opcional), método directo, áreas tributarias, comportamiento compuesto.
 - **Verificaciones:**
   - h mínimo para ℓ = 4 m (143 mm con ambos extremos continuos);
@@ -296,7 +296,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 
 1. **Unidades del programa:** ¿todo en SI (kN, m, MPa) por dentro, con conversión solo en la entrada y la salida?
 2. **Viguetas:** ¿se trata de losas nervadas coladas en sitio o de viguetas pretensadas prefabricadas con bloques (sistemas de fabricante)?
-3. **Metal deck:** ¿losa compuesta o la lámina solo como encofrado? ¿Las vigas de apoyo son de acero (AISC 360-10)? Hacen falta SDI C, AISI S100 y AISC 360 en `codigos/`.
+3. **Metal deck:** ¿losa compuesta o la lámina solo como encofrado? ¿Las vigas de apoyo son de acero (AISC 360-10)? Hacen falta SDI C, AISI S100 y AISC 360 en `docs/codigos/`.
 4. **Sistema estructural objetivo:** ¿solo pórticos especiales de concreto, o también muros y sistemas duales?
 5. **Análisis sísmico:** ¿basta con la FLE al principio, o se quiere el modal desde el inicio?
 6. **Cimentaciones:** no están en la hoja de ruta. ¿Se agregan después (ACI 13 y REP 6)?

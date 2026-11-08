@@ -20,7 +20,7 @@ El REP 2021 1.8.2 (p. 20–21) exige usar solo programas cuya validez esté veri
      - vigas controladas por tracción;
      - viento de servicio (×1.6) frente a viento de resistencia (×1.0).
 2. **Unidades.** Haz el análisis dimensional de cada término.
-   - El ACI de `codigos/` está en psi e in; las constantes con raíces (√f'c) **no son adimensionales**: 57 000√f'c solo vale en psi y 4700√f'c en MPa.
+   - El ACI de `docs/codigos/` está en psi e in; las constantes con raíces (√f'c) **no son adimensionales**: 57 000√f'c solo vale en psi y 4700√f'c en MPa.
    - El análisis del programa usa kN y m. Los `iteracion*.py` usan `pint` con in, ksi y tonf.
    - Comprueba todas las conversiones (1 ksi = 6.895 MPa, 1 in = 25.4 mm, 1 kip = 4.448 kN, 1 tonf = 9.807 kN).
 3. **Rango de validez.** ¿Se cumplen las condiciones de la fórmula? Por ejemplo:

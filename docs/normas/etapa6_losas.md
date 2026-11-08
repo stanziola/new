@@ -4,7 +4,7 @@
 
 **Qué norma manda:**
 - Concreto: ACI 318-19 (REP 8.1).
-- **Metal deck:** la lámina es acero formado en frío, que el REP 9.2 manda diseñar con **AISI S100-2013**. La losa **compuesta** no la cubre el ACI (1.4.10); la norma de práctica es **ANSI/SDI C** (Steel Deck Institute). Las vigas compuestas se diseñan con **AISC 360-10**, capítulo I (REP 9.1). **Ninguna de estas tres normas está en `codigos/`.**
+- **Metal deck:** la lámina es acero formado en frío, que el REP 9.2 manda diseñar con **AISI S100-2013**. La losa **compuesta** no la cubre el ACI (1.4.10); la norma de práctica es **ANSI/SDI C** (Steel Deck Institute). Las vigas compuestas se diseñan con **AISC 360-10**, capítulo I (REP 9.1). **Ninguna de estas tres normas está en `docs/codigos/`.**
 
 ## Losas en una dirección: ACI cap. 7 (p. 91–100)
 
@@ -70,7 +70,7 @@ Para analizar losas continuas sirve el método simplificado de 6.5 (Tabla 6.5.2,
 ## Diferencias o contradicciones encontradas
 
 1. **DDM y EFM:** no están en el ACI 318-19. Si se quieren usar para losas en dos direcciones, hace falta el ACI 318-14 o un libro.
-2. **Metal deck compuesto:** no lo cubren las normas de `codigos/`. Hacen falta SDI C, AISI S100-2013 y AISC 360-10 (las dos últimas las cita el REP), además del catálogo del fabricante.
+2. **Metal deck compuesto:** no lo cubren las normas de `docs/codigos/`. Hacen falta SDI C, AISI S100-2013 y AISC 360-10 (las dos últimas las cita el REP), además del catálogo del fabricante.
 3. **"Viguetas":** si se refiere a viguetas **pretensadas prefabricadas con bloques** (vigueta y bovedilla), son sistemas de fabricante: llevan las disposiciones de concreto pretensado del ACI más las tablas del fabricante. El REP 7.5 trata la aprobación de sistemas alternativos (en el capítulo de vivienda). **Hay que preguntar al usuario qué sistema de viguetas usa.**
 
 ## Para el programa (qué implementar y cómo verificarlo)

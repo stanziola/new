@@ -25,15 +25,11 @@ SEPARACION_ETIQUETA = 0.04            # fracción del tamaño del modelo, hacia 
 # ---------- Cubo de vistas (esquina superior derecha) ----------
 CUBO_VIEWPORT = (0.82, 0.74, 1.0, 1.0)  # xmin, ymin, xmax, ymax como fracción de la vista
 CUBO_FRANJA = 0.2                     # ancho de aristas y esquinas clicables, fracción del lado
-CUBO_COLOR_CARA = (225, 225, 225)     # RGB 0-255
-CUBO_COLOR_LETRA = (60, 60, 60)
+CUBO_COLOR_CARA = (255, 255, 255)     # RGB 0-255, blanco como en Civil 3D
+CUBO_COLOR_RESALTADO = (190, 190, 190)  # cara, arista o esquina bajo el mouse
 CUBO_COLOR_BORDE = (120, 120, 120)
-CUBO_COLOR_ANILLO = (160, 196, 232)
-CUBO_LETRAS = {                       # texto de cada cara según su normal
-    (1, 0, 0): "+X", (-1, 0, 0): "-X",
-    (0, 1, 0): "+Y", (0, -1, 0): "-Y",
-    (0, 0, 1): "+Z", (0, 0, -1): "-Z",
-}
+CUBO_ANIM_DURACION_MS = 350           # duración del giro al hacer clic en el cubo
+CUBO_ANIM_INTERVALO_MS = 15           # tiempo entre cuadros de la animación (~60 por segundo)
 
 # ---------- Selección ----------
 COLOR_SELECCION = "orange"

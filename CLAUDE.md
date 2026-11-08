@@ -11,7 +11,7 @@ Programa en Python para analizar pórticos 3D por el método de rigidez y, por e
 | Ensamble y análisis | K global, vector F, solución K·U = F con apoyos, reacciones, fuerzas en los extremos de cada barra (ejes locales) y detección de mecanismo | `calculo/ensamble.py`, `calculo/analisis.py` |
 | Salida | Ver matrices con etiquetas de GDL (o guardarlas en CSV para Excel) e imprimir el modelo y los resultados | `salida/consola.py` |
 | Interfaz 3D | Ventana PySide6 + PyVista: barras, nodos, apoyos y números de nodo; rotar, zoom y desplazar | `interfaz/ventana.py`, `interfaz/dibujo.py` |
-| — Cubo de vistas | Arriba a la derecha, como el de Civil 3D. Gira con la cámara. Clic en una cara, arista o esquina = vista desde ese lado (26 vistas) | `interfaz/cubo_vistas.py` |
+| — Cubo de vistas | Arriba a la derecha, como el de Civil 3D: blanco plano (sin iluminación), sin letras ni aro. Gira con la cámara. Al pasar el mouse se sombrea en gris la cara, arista o esquina (la esquina completa, sus 3 parches). Clic = giro animado (~0.35 s, slerp de cuaterniones) hasta la vista desde ese lado (26 vistas) | `interfaz/cubo_vistas.py`, `interfaz/animacion.py` |
 | — Panel de herramientas | Barra a la derecha. **Seleccionar** (ícono de cursor) es la herramienta por defecto | `interfaz/ventana.py`, `interfaz/iconos.py` |
 | — Selección | Clic sobre un nodo o una barra: se resalta en naranja y sus datos salen en la barra de estado. Clic en el vacío deselecciona. Arrastrar rota | `interfaz/seleccion.py` |
 | Estilo | Colores, tamaños y tolerancias de la interfaz | `interfaz/estilo.py` |
@@ -32,11 +32,11 @@ Programa en Python para analizar pórticos 3D por el método de rigidez y, por e
 
 ```
 calculo/        modelo, elemento, ensamble, análisis (no depende de la interfaz)
-interfaz/       ventana PySide6 + PyVista, cubo de vistas, selección, íconos, estilo
+interfaz/       ventana PySide6 + PyVista, cubo de vistas (y su animación), selección, íconos, estilo
 salida/         impresión en consola y CSV
 ejemplos/       modelos de prueba
 pruebas/        comprobaciones automáticas
-codigos/        PDF de ACI 318-19, ASCE 7-05 y REP 2021
+docs/codigos/   PDF de ACI 318-19, ASCE 7-05 y REP 2021
 docs/normas/    notas de normas por etapa (cláusula, fórmula y página del PDF) + índice
 docs/plan_de_estudio.md   hoja de ruta, plan de estudio, verificaciones y hallazgos
 .claude/skills/ revisar-pedido, verificar-calculos, consultar-normas (con scripts para leer los PDF)

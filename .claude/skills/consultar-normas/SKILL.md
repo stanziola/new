@@ -1,6 +1,6 @@
 ---
 name: consultar-normas
-description: Busca, lee y cita disposiciones del REP 2021, ASCE 7-05 y ACI 318-19 usando las notas de docs/normas/ y los PDF de codigos/. Úsala siempre que haya que citar, aplicar, explicar o comprobar una cláusula, tabla, ecuación o valor de estas normas, en vez de responder de memoria.
+description: Busca, lee y cita disposiciones del REP 2021, ASCE 7-05 y ACI 318-19 usando las notas de docs/normas/ y los PDF de docs/codigos/. Úsala siempre que haya que citar, aplicar, explicar o comprobar una cláusula, tabla, ecuación o valor de estas normas, en vez de responder de memoria.
 ---
 
 # Consultar normas
@@ -19,8 +19,8 @@ Resumen y mapa de páginas: `docs/normas/indice.md`.
 2. **Texto del PDF**, si hace falta la redacción exacta o algo que no está en las notas.
    - Generar los textos una vez por sesión, en la scratchpad, con los scripts de esta carpeta. Tardan unos 30 s:
      ```
-     python .claude/skills/consultar-normas/extraer.py "codigos/ACI 318-19.pdf" <scratchpad>/aci.txt aci
-     python .claude/skills/consultar-normas/extraer.py "codigos/ASCE 7-05.pdf" <scratchpad>/asce.txt asce
+     python .claude/skills/consultar-normas/extraer.py "docs/codigos/ACI 318-19.pdf" <scratchpad>/aci.txt aci
+     python .claude/skills/consultar-normas/extraer.py "docs/codigos/ASCE 7-05.pdf" <scratchpad>/asce.txt asce
      ```
      El ACI genera `aci.txt` (código, la columna izquierda) y `aci_comentario.txt` (comentario R…).
    - Buscar:
@@ -34,8 +34,8 @@ Resumen y mapa de páginas: `docs/normas/indice.md`.
    - Algunos símbolos del ACI salen como otros glifos (`Ȝ` = λ, `ȕ` = β, `Ɛ` = ℓ, `İ` = ε, `ȡ` = ρ, `ȥ` = ψ). En las tablas de combinaciones, `a, i, t, b` = D, L, W, E.
 3. **Imagen de la página**, para **tablas, ecuaciones** y todo el **REP 2021**, que es un escaneo sin texto:
    ```
-   python .claude/skills/consultar-normas/ver_pagina.py "codigos/REP 2021.pdf" 28 <scratchpad>/rep28.png
-   python .claude/skills/consultar-normas/ver_pagina.py "codigos/ASCE 7-05.pdf" 150 <scratchpad>/t.png 1.6 0 0.08 1 0.8
+   python .claude/skills/consultar-normas/ver_pagina.py "docs/codigos/REP 2021.pdf" 28 <scratchpad>/rep28.png
+   python .claude/skills/consultar-normas/ver_pagina.py "docs/codigos/ASCE 7-05.pdf" 150 <scratchpad>/t.png 1.6 0 0.08 1 0.8
    ```
    Después se lee el PNG con la herramienta de lectura.
    - En el cuerpo del REP, **página impresa N = página PDF N + 14**.
@@ -63,7 +63,7 @@ Resumen y mapa de páginas: `docs/normas/indice.md`.
   - 5.12 describe S1 como de "periodos cortos";
   - 8.3 cita los caps. 3 y 5 del ACI 318-19;
   - 8.5 dice "anexo 2" cuando es el Anexo 1.
-- **No están en `codigos/`:**
+- **No están en `docs/codigos/`:**
   - ACI 318-14 (DDM y EFM de losas);
   - ANSI/SDI C, AISI S100-2013 y AISC 360-10 (metal deck, acero);
   - ASCE 7-05 en SI.

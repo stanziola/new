@@ -9,7 +9,7 @@
 - El REP 2021 8.1 (p. 100) remite a **ACI 318-19**. El REP no modifica las propiedades de los materiales.
 - El REP 8.3 pide control de calidad por un laboratorio independiente certificado, con atención especial a concretos de 35 MPa (5000 psi) o más en columnas y muros.
 
-> El ACI de `codigos/` está en **unidades inglesas** (psi, in). Entre corchetes va el equivalente SI usual del ACI 318-19M, para comparar.
+> El ACI de `docs/codigos/` está en **unidades inglesas** (psi, in). Entre corchetes va el equivalente SI usual del ACI 318-19M, para comparar.
 
 ## Concreto: ACI 19.2 (p. 357–359)
 

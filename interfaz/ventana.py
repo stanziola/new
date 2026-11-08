@@ -31,6 +31,9 @@ class Ventana(QMainWindow):
         # Clic = presionar y soltar casi en el mismo punto. Arrastrar sigue rotando la vista.
         self.vista.iren.add_observer("LeftButtonPressEvent", self._al_presionar)
         self.vista.iren.add_observer("LeftButtonReleaseEvent", self._al_soltar)
+        # Al pasar el mouse sobre el cubo se sombrea la vista que daría el clic.
+        self.vista.iren.add_observer("MouseMoveEvent", self._al_mover)
+        self.vista.iren.add_observer("LeaveEvent", lambda *_: self.cubo.quitar_resaltado())
 
     # ---------- Panel de herramientas (derecha) ----------
     def _crear_herramientas(self):
@@ -60,7 +63,12 @@ class Ventana(QMainWindow):
 
     # ---------- Clic en la vista ----------
     def _al_presionar(self, *_):
+        self.cubo.detener_animacion()          # si el cubo estaba girando, manda el usuario
         self._pos_presion = self.vista.iren.get_event_position()
+
+    def _al_mover(self, *_):
+        if self._pos_presion is None:          # mientras se arrastra para rotar, no se resalta
+            self.cubo.resaltar(*self.vista.iren.get_event_position())
 
     def _al_soltar(self, *_):
         if self._pos_presion is None:
@@ -73,7 +81,7 @@ class Ventana(QMainWindow):
         self._clic(x, y)
 
     def _clic(self, x, y):
-        if self.cubo.clic(x, y):               # clic sobre el cubo: cambia la vista
+        if self.cubo.clic(x, y):               # clic sobre el cubo: gira hasta esa vista
             return
         if self.accion_seleccionar.isChecked():
             self.seleccionar(elemento_en(self.vista.renderer, self.modelo, x, y,

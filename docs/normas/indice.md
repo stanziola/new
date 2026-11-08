@@ -1,6 +1,6 @@
 # Índice de normas: ACI 318-19, ASCE 7-05 y REP 2021
 
-Los PDF están en `codigos/`. Todas las páginas de este índice son **páginas del PDF** (las que muestra el visor), no las impresas en el documento.
+Los PDF están en `docs/codigos/`. Todas las páginas de este índice son **páginas del PDF** (las que muestra el visor), no las impresas en el documento.
 Las notas por tema están en los archivos `etapaN_*.md` de esta carpeta.
 
 ## 1. Qué norma manda
