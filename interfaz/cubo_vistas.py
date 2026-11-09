@@ -15,17 +15,14 @@ Cómo funciona:
 - Una arista está formada por 2 parches (uno en cada cara que llega a ella) y una esquina por 3.
   Todos guardan la misma dirección, así que para resaltar la esquina completa se pintan todos
   los parches con esa dirección, no solo el que está bajo el mouse.
-- La animación la mueve un QTimer: en cada cuadro se calcula una cámara intermedia con
-  interfaz/animacion.py y se vuelve a dibujar.
+- El giro lo hace el AnimadorCamara (interfaz/camara.py), el mismo que usa el botón Encuadre.
 """
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QElapsedTimer, QTimer
 from vtkmodules.vtkInteractionWidgets import vtkOrientationMarkerWidget
 from vtkmodules.vtkRenderingCore import vtkActor, vtkCellPicker, vtkPolyDataMapper
 
 from interfaz import estilo as es
-from interfaz.animacion import interpolar_camara, suavizar
 
 # Normal de cada cara y dos ejes en su plano (u x v = normal, para que el parche mire hacia afuera)
 CARAS = [
@@ -88,26 +85,15 @@ def _actor(malla):
     return actor
 
 
-def _leer_camara(camara):
-    """(posición, foco, arriba) de una cámara de VTK, como arreglos de numpy."""
-    return (np.array(camara.GetPosition()), np.array(camara.GetFocalPoint()),
-            np.array(camara.GetViewUp()))
-
-
-def _poner_camara(camara, posicion, foco, arriba):
-    camara.SetFocalPoint(*foco)
-    camara.SetPosition(*posicion)
-    camara.SetViewUp(*arriba)
-
-
 class CuboVistas:
-    def __init__(self, vista):
+    def __init__(self, vista, animador):
         self.vista = vista
+        self.animador = animador                # AnimadorCamara compartido con Encuadre
         self.malla = pv.merge([_parches(), _borde()])
         self._colores_base = np.array(self.malla.cell_data["color"])    # copia, para quitar el gris
         self._direcciones = np.array(self.malla.cell_data["direccion"], dtype=float)
         self._resaltado = None                  # dirección resaltada ahora (None = nada)
-        self._ultimo_mouse = (-1, -1)           # para actualizar el gris al terminar el giro
+        self._ultimo_mouse = (-1, -1)           # para actualizar el gris al terminar un giro
 
         self.widget = vtkOrientationMarkerWidget()
         self.widget.SetOrientationMarker(_actor(self.malla))
@@ -119,12 +105,8 @@ class CuboVistas:
         self.picker = vtkCellPicker()
         self.picker.SetTolerance(0.0005)
 
-        # Animación del giro: el timer llama a _paso cada pocos milisegundos
-        self._animacion = QTimer(vista)
-        self._animacion.setInterval(es.CUBO_ANIM_INTERVALO_MS)
-        self._animacion.timeout.connect(self._paso)
-        self._reloj = QElapsedTimer()           # mide el tiempo real desde que empezó el giro
-        self._inicio = self._fin = None         # cámaras de inicio y fin: (posición, foco, arriba)
+        # Al terminar cualquier giro (del cubo o de Encuadre), el gris se pone al día
+        self.animador.terminada.connect(self._al_terminar_giro)
 
     def contiene(self, x, y):
         """True si el punto (x, y), en píxeles de la vista, cae dentro de la zona del cubo."""
@@ -150,7 +132,7 @@ class CuboVistas:
     def resaltar(self, x, y):
         """Sombrea en gris la cara, arista o esquina bajo el mouse; fuera del cubo, quita el gris."""
         self._ultimo_mouse = (x, y)
-        if self._animacion.isActive():
+        if self.animador.activa():
             return                              # mientras gira, sigue en gris la vista elegida
         d = self._direccion_en(x, y)
         if (d is None and self._resaltado is None) or (
@@ -167,7 +149,11 @@ class CuboVistas:
         """Vuelve el cubo a blanco (por ejemplo, cuando el mouse sale de la ventana)."""
         self.resaltar(-1, -1)                   # (-1, -1) está fuera del cubo
 
-    # ---------- Clic y animación ----------
+    def _al_terminar_giro(self):
+        """La cámara terminó de girar: resalta lo que ahora está bajo el mouse."""
+        self.resaltar(*self._ultimo_mouse)
+
+    # ---------- Clic ----------
     def clic(self, x, y):
         """Si el clic cae sobre el cubo, gira la cámara hasta mirar desde ese lado y devuelve True."""
         d = self._direccion_en(x, y)
@@ -175,40 +161,9 @@ class CuboVistas:
             return False
         d /= np.linalg.norm(d)
         arriba = (0, 1, 0) if abs(d[2]) > 0.99 else (0, 0, 1)   # vista superior o inferior: +Y arriba
-        self._animar_hacia(d, arriba)
+        self.animador.animar(lambda: self.vista.view_vector(d, viewup=arriba, render=False))
         return True
 
-    def _animar_hacia(self, d, arriba):
-        """Arranca el giro desde la cámara actual hasta la vista en la dirección d."""
-        camara = self.vista.renderer.GetActiveCamera()
-        self._inicio = _leer_camara(camara)
-        # view_vector pone la vista final con el zoom ajustado al modelo. Se usa solo para
-        # calcularla: se guarda y la cámara vuelve al inicio sin dibujar.
-        self.vista.view_vector(d, viewup=arriba, render=False)
-        self._fin = _leer_camara(camara)
-        _poner_camara(camara, *self._inicio)
-        self._reloj.start()
-        self._animacion.start()
-
-    def _paso(self):
-        """Un cuadro de la animación: pone la cámara intermedia según el tiempo transcurrido."""
-        t = min(self._reloj.elapsed() / es.CUBO_ANIM_DURACION_MS, 1.0)
-        camara = self.vista.renderer.GetActiveCamera()
-        if t < 1.0:
-            _poner_camara(camara, *interpolar_camara(self._inicio, self._fin, suavizar(t)))
-        else:
-            _poner_camara(camara, *self._fin)   # el último cuadro, exacto
-            self._animacion.stop()
-        self.vista.renderer.ResetCameraClippingRange()   # que no se corte el modelo al moverse
-        self.vista.render()
-        if t >= 1.0:
-            self.resaltar(*self._ultimo_mouse)  # el cubo giró: resalta lo que ahora está bajo el mouse
-
-    def detener_animacion(self):
-        """Corta el giro; la cámara se queda donde iba (por ejemplo, si el usuario empieza a rotar)."""
-        self._animacion.stop()
-
     def apagar(self):
-        """Detiene la animación y desactiva el widget (se llama antes de cerrar la ventana)."""
-        self._animacion.stop()
+        """Desactiva el widget (se llama antes de cerrar la ventana)."""
         self.widget.SetEnabled(0)

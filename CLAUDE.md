@@ -10,11 +10,12 @@ Programa en Python para analizar pórticos 3D por el método de rigidez y, por e
 | Elemento | Matriz de rigidez local 12×12 de barra 3D (Euler-Bernoulli), ángulos α, β y γ, rotación R = A(α)·B(β)·C(γ) y transformación | `calculo/elemento.py` |
 | Ensamble y análisis | K global, vector F, solución K·U = F con apoyos, reacciones, fuerzas en los extremos de cada barra (ejes locales) y detección de mecanismo | `calculo/ensamble.py`, `calculo/analisis.py` |
 | Salida | Ver matrices con etiquetas de GDL (o guardarlas en CSV para Excel) e imprimir el modelo y los resultados | `salida/consola.py` |
-| Interfaz 3D | Ventana PySide6 + PyVista: barras, nodos, apoyos y números de nodo; rotar, zoom y desplazar | `interfaz/ventana.py`, `interfaz/dibujo.py` |
-| — Cubo de vistas | Arriba a la derecha, como el de Civil 3D: blanco plano (sin iluminación), sin letras ni aro. Gira con la cámara. Al pasar el mouse se sombrea en gris la cara, arista o esquina (la esquina completa, sus 3 parches). Clic = giro animado (~0.35 s, slerp de cuaterniones) hasta la vista desde ese lado (26 vistas) | `interfaz/cubo_vistas.py`, `interfaz/animacion.py` |
-| — Panel de herramientas | Barra a la derecha. **Seleccionar** (ícono de cursor) es la herramienta por defecto | `interfaz/ventana.py`, `interfaz/iconos.py` |
+| Interfaz 3D | Ventana PySide6 + PyVista: barras, nodos, apoyos, números de nodo y rejilla de piso; rotar, zoom y desplazar | `interfaz/ventana.py`, `interfaz/dibujo.py` |
+| — Cubo de vistas | Arriba a la derecha, como el de Civil 3D: blanco plano (sin iluminación), sin letras ni aro. Gira con la cámara. Al pasar el mouse se sombrea en gris la cara, arista o esquina (la esquina completa, sus 3 parches). Clic = giro animado (~0.35 s, slerp de cuaterniones) hasta la vista desde ese lado (26 vistas) | `interfaz/cubo_vistas.py`, `interfaz/animacion.py`, `interfaz/camara.py` |
+| — Panel de herramientas | Barra a la izquierda, solo íconos. **Seleccionar** (flecha de contorno) es la herramienta por defecto | `interfaz/ventana.py`, `interfaz/iconos.py` |
+| — Barra inferior | A la derecha de la barra de estado. **Rejilla** (F7): rejilla de piso con paso 1-2-5 automático, que no cuenta para el encuadre. **Snap** (F9): deshabilitado hasta que exista la herramienta de dibujo. **Etiquetas**: números de nodo. **Encuadre**: ajusta la vista al modelo con el mismo giro del cubo | `interfaz/ventana.py`, `interfaz/dibujo.py` |
 | — Selección | Clic sobre un nodo o una barra: se resalta en naranja y sus datos salen en la barra de estado. Clic en el vacío deselecciona. Arrastrar rota | `interfaz/seleccion.py` |
-| Estilo | Colores, tamaños y tolerancias de la interfaz | `interfaz/estilo.py` |
+| Estilo y tema | Colores, tamaños, tolerancias y la "personalización base" (valores por defecto que el usuario podrá cambiar más adelante). Tema en blanco y negro: estilo Fusion, paleta en grises y hoja de estilo. Íconos vectoriales propios | `interfaz/estilo.py`, `interfaz/tema.py`, `interfaz/iconos.py` |
 | Ejemplo | Pórtico 3D de 5 nodos y 4 barras | `ejemplos/portico.py` |
 | Pruebas | Simetría de K, traslación rígida, equilibrio, voladizo e inestabilidad | `pruebas/verificacion.py` |
 | Diagramas de interacción | Columna rectangular 2D, circular 2D y rectangular biaxial 3D (con ventana tkinter). Usan ACI 318-19 y `pint`. Son scripts sueltos: todavía no están conectados al modelo | `iteracion2drect.py`, `iteracion2dcir.py`, `iteracion3drect.py` |
@@ -32,7 +33,7 @@ Programa en Python para analizar pórticos 3D por el método de rigidez y, por e
 
 ```
 calculo/        modelo, elemento, ensamble, análisis (no depende de la interfaz)
-interfaz/       ventana PySide6 + PyVista, cubo de vistas (y su animación), selección, íconos, estilo
+interfaz/       ventana PySide6 + PyVista, cubo de vistas, animación de cámara, selección, íconos, tema y estilo
 salida/         impresión en consola y CSV
 ejemplos/       modelos de prueba
 pruebas/        comprobaciones automáticas
@@ -60,7 +61,13 @@ main.py                   punto de entrada
 - **Interfaz:**
   - un clic es presionar y soltar con menos de `TOL_CLIC_PX` de movimiento;
   - en la selección, los nodos tienen prioridad sobre las barras (tolerancia `TOL_SELECCION_PX`);
-  - el cubo usa su propio `vtkOrientationMarkerWidget`, porque `add_orientation_widget` de PyVista borraría los ejes de `add_axes`.
+  - el cubo usa su propio `vtkOrientationMarkerWidget`, porque `add_orientation_widget` de PyVista borraría los ejes de `add_axes`;
+  - **colores:** la interfaz (íconos, barras, botones) va solo en blanco, negro y grises; el dibujo 3D puede tener color;
+  - **íconos propios** en `iconos.py`: línea negra de 1.5 en una cuadrícula de 24×24, sin relleno; deshabilitados en gris;
+  - lo que está activo se sombrea en gris; una acción (como Encuadre) no queda activa;
+  - **organización:** a la izquierda, las herramientas que cambian lo que hace el clic (una activa a la vez); abajo a la derecha, cómo se ve el modelo y Encuadre. Solo íconos con tooltip mientras el símbolo sea claro;
+  - **atajos** como en Civil 3D: F7 rejilla, F9 snap;
+  - la cámara la mueve un solo `AnimadorCamara` (cubo y Encuadre): un giro nuevo reemplaza al anterior.
 
 ## Normas
 
@@ -102,6 +109,10 @@ El detalle (qué estudiar, cómo verificar y cuándo se considera terminada cada
 - **Al empezar cada pedido, usar la skill `revisar-pedido`.** El usuario quiere que en todo lo que diga se busquen contradicciones (con las normas, con el código y sus convenciones, con la hoja de ruta) y formas mejores de hacerlo. La respuesta va breve, al inicio.
 - Todo cálculo, fórmula o resultado: skill **`verificar-calculos`**. Toda cita de norma: skill **`consultar-normas`**. Nunca citar de memoria sin comprobar.
 - **No escribir ni modificar código sin un pedido explícito.** Frases como "vamos con…" significan conversar. Ante la duda, preguntar.
+- **Al agregar botones o funciones**, sugerir:
+  - dónde van (organización);
+  - si llevan ícono, palabra o ambos;
+  - qué parámetros conviene que el usuario configure. Los valores base quedan en `estilo.py` ("personalización base") o en `configuracion.py`; más adelante irán a un botón de Configuración.
 - **Commits:** no ejecutarlos. Dar el comando listo para pegar en PowerShell, en una línea:
 
   `git add .` y luego `git commit -m "Asunto" -m "- punto 1`n- punto 2"`
