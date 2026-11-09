@@ -10,7 +10,7 @@ Al terminar se emite la señal `terminada`; el cubo la usa para actualizar su re
 import numpy as np
 from PySide6.QtCore import QElapsedTimer, QObject, QTimer, Signal
 
-from interfaz import estilo as es
+from configuracion import interfaz as ui
 from interfaz.animacion import interpolar_camara, suavizar
 
 
@@ -35,7 +35,7 @@ class AnimadorCamara(QObject):
         super().__init__(vista)             # la vista es su "padre" en Qt: se libera junto con ella
         self.vista = vista
         self._timer = QTimer(self)
-        self._timer.setInterval(es.ANIM_CAMARA_INTERVALO_MS)
+        self._timer.setInterval(ui.ANIM_CAMARA_INTERVALO_MS)
         self._timer.timeout.connect(self._paso)
         self._reloj = QElapsedTimer()       # mide el tiempo real desde que empezó el giro
         self._inicio = self._fin = None     # cámaras de inicio y fin: (posición, foco, arriba)
@@ -64,7 +64,8 @@ class AnimadorCamara(QObject):
 
     def _paso(self):
         """Un cuadro de la animación: pone la cámara intermedia según el tiempo transcurrido."""
-        t = min(self._reloj.elapsed() / es.ANIM_CAMARA_DURACION_MS, 1.0)
+        duracion = ui.ANIM_CAMARA_DURACION_MS
+        t = 1.0 if duracion <= 0 else min(self._reloj.elapsed() / duracion, 1.0)   # 0 = sin animación
         camara = self.vista.renderer.GetActiveCamera()
         if t < 1.0:
             poner_camara(camara, *interpolar_camara(self._inicio, self._fin, suavizar(t)))

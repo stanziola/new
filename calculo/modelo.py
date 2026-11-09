@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass, field
-from configuracion import TOL_LONGITUD, TOL_RELATIVA
+from configuracion.calculo import TOL_LONGITUD, TOL_RELATIVA
 
 @dataclass
 class Nodo:
@@ -36,8 +36,8 @@ class Seccion:
 class Elemento:
     ni: int            # ID del nodo inicial
     nj: int            # ID del nodo final
-    material: int      # ID del material
-    seccion: int       # ID de la sección
+    material: int      # ID del material (None = sin asignar todavía)
+    seccion: int       # ID de la sección (None = sin asignar todavía)
     alfa: float = 0.0  # giro de la sección, en GRADOS
 
 class Modelo:
@@ -68,7 +68,9 @@ class Modelo:
         self.secciones[sid] = Seccion(nombre, a, iy, iz, j)
         return sid
 
-    def agregar_elemento(self, ni, nj, material, seccion, alfa=0.0):
+    def agregar_elemento(self, ni, nj, material=None, seccion=None, alfa=0.0):
+        """Agrega una barra. El material y la sección pueden quedar sin asignar (None): la barra
+        se dibuja, pero el análisis se niega hasta que se asignen."""
         # 1. Que los nodos existan
         for nid in (ni, nj):
             if nid not in self.nodos:
@@ -83,10 +85,10 @@ class Modelo:
         if a.distancia(b) < TOL_LONGITUD:
             raise ValueError(f"Los nodos {ni} y {nj} están en la misma posición: {a.coords} y {b.coords}")
 
-        # 4. Que el material y la sección existan
-        if material not in self.materiales:
+        # 4. Que el material y la sección existan (si se dieron)
+        if material is not None and material not in self.materiales:
             raise KeyError(f"El material {material} no existe")
-        if seccion not in self.secciones:
+        if seccion is not None and seccion not in self.secciones:
             raise KeyError(f"La sección {seccion} no existe")
 
         # 5. Ordenar según la convención y guardar
@@ -111,6 +113,25 @@ class Modelo:
     def elementos_conectados(self, nid):
         """IDs de las barras que llegan al nodo nid."""
         return [eid for eid, el in self.elementos.items() if nid in (el.ni, el.nj)]
+
+    def nodo_en(self, x, y, z):
+        """ID del nodo que está en (x, y, z), o None (con la tolerancia TOL_LONGITUD)."""
+        for nid, n in self.nodos.items():
+            if math.dist(n.coords, (x, y, z)) < TOL_LONGITUD:
+                return nid
+        return None
+
+    def elemento_entre(self, ni, nj):
+        """ID de la barra que une los nodos ni y nj (en cualquier orden), o None."""
+        for eid, el in self.elementos.items():
+            if {el.ni, el.nj} == {ni, nj}:
+                return eid
+        return None
+
+    def sin_asignar(self):
+        """IDs de las barras a las que les falta el material o la sección."""
+        return [eid for eid, el in self.elementos.items()
+                if el.material is None or el.seccion is None]
 
     # ---------- MODIFICAR ----------
     def mover_nodo(self, nid, x, y, z):

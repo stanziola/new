@@ -1,5 +1,5 @@
 import numpy as np
-from configuracion import TOL_LONGITUD
+from configuracion.calculo import TOL_LONGITUD
 
 def k_local(e, g, a, l, iy, iz, j):
     return (e / l**3) * np.array([

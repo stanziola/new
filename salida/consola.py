@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from configuracion import GDL, FUERZAS, FUERZAS_LOCALES
+from configuracion.formato import GDL, FUERZAS, FUERZAS_LOCALES
 
 
 def etiquetas_gdl(nodos):
@@ -45,7 +45,9 @@ def mostrar(m, titulo):
         print(f"  {nid}: {n.coords}{extra}")
     print("Elementos:")
     for eid, el in m.elementos.items():
-        print(f"  {eid}: {el.ni} -> {el.nj}  mat={el.material}  sec={el.seccion}  alfa={el.alfa}°")
+        mat = "sin asignar" if el.material is None else el.material
+        sec = "sin asignar" if el.seccion is None else el.seccion
+        print(f"  {eid}: {el.ni} -> {el.nj}  mat={mat}  sec={sec}  alfa={el.alfa}°")
 
 
 def mostrar_resultados(m, res):

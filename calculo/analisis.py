@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import numpy as np
+from configuracion.calculo import COND_MAXIMA
 from .ensamble import ensamblar_k, ensamblar_f, indices_nodos, gdl_barra
 from .elemento import angulos, rotacion, transformacion, k_local
 
@@ -20,6 +21,10 @@ def vector_apoyos(modelo):
 
 def resolver(modelo):
     """Resuelve K·U = F y calcula reacciones y fuerzas internas."""
+    faltan = modelo.sin_asignar()
+    if faltan:
+        raise ValueError(f"Las barras {', '.join(map(str, faltan))} no tienen material o "
+                         "sección asignados")
     K, ids = ensamblar_k(modelo)
     F = ensamblar_f(modelo)
 
@@ -31,7 +36,7 @@ def resolver(modelo):
         raise ValueError("Todos los GDL están restringidos: no hay nada que resolver")
 
     Kll = K[np.ix_(libres, libres)]
-    if np.linalg.cond(Kll) > 1e12:
+    if np.linalg.cond(Kll) > COND_MAXIMA:
         raise ValueError("La estructura es inestable (mecanismo): revisa apoyos y conexiones")
 
     U = np.zeros_like(F)

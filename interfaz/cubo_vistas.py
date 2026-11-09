@@ -22,7 +22,8 @@ import pyvista as pv
 from vtkmodules.vtkInteractionWidgets import vtkOrientationMarkerWidget
 from vtkmodules.vtkRenderingCore import vtkActor, vtkCellPicker, vtkPolyDataMapper
 
-from interfaz import estilo as es
+from configuracion import colores
+from configuracion import interfaz as ui
 
 # Normal de cada cara y dos ejes en su plano (u x v = normal, para que el parche mire hacia afuera)
 CARAS = [
@@ -37,7 +38,7 @@ CARAS = [
 
 def _parches():
     """Superficie del cubo (lado 1) con 9 parches por cara y la dirección de vista de cada uno."""
-    f = es.CUBO_FRANJA
+    f = ui.CUBO_FRANJA
     cortes = [-0.5, -0.5 + f, 0.5 - f, 0.5]
     signo = [-1, 0, 1]                      # parche izquierdo/abajo, centro, derecho/arriba
     puntos, caras, direcciones = [], [], []
@@ -53,7 +54,8 @@ def _parches():
                 direcciones.append(n + signo[i] * u + signo[j] * v)
     malla = pv.PolyData(np.array(puntos), faces=np.array(caras))
     malla.cell_data["direccion"] = np.array(direcciones)
-    malla.cell_data["color"] = np.tile(np.array(es.CUBO_COLOR_CARA, dtype=np.uint8), (malla.n_cells, 1))
+    malla.cell_data["color"] = np.tile(np.array(colores.rgb(colores.CUBO_CARA), dtype=np.uint8),
+                                       (malla.n_cells, 1))
     return malla
 
 
@@ -61,7 +63,8 @@ def _borde():
     """Líneas de las aristas del cubo (solo decoración: su dirección es 0 y no se pueden elegir)."""
     borde = pv.Box(bounds=(-0.5, 0.5, -0.5, 0.5, -0.5, 0.5)).extract_all_edges()
     borde.cell_data["direccion"] = np.zeros((borde.n_cells, 3))
-    borde.cell_data["color"] = np.tile(np.array(es.CUBO_COLOR_BORDE, dtype=np.uint8), (borde.n_cells, 1))
+    borde.cell_data["color"] = np.tile(np.array(colores.rgb(colores.CUBO_BORDE), dtype=np.uint8),
+                                       (borde.n_cells, 1))
     return borde
 
 
@@ -99,14 +102,36 @@ class CuboVistas:
         self.widget.SetOrientationMarker(_actor(self.malla))
         self.widget.SetInteractor(vista.iren.interactor)
         self.widget.SetDefaultRenderer(vista.renderer)  # copia la cámara de la vista principal
-        self.widget.SetViewport(*es.CUBO_VIEWPORT)
         self.widget.SetEnabled(1)
         self.widget.InteractiveOff()            # el cubo no se arrastra ni cambia de tamaño
+        self.ajustar_tamano()
         self.picker = vtkCellPicker()
         self.picker.SetTolerance(0.0005)
 
         # Al terminar cualquier giro (del cubo o de Encuadre), el gris se pone al día
         self.animador.terminada.connect(self._al_terminar_giro)
+
+    def ajustar_tamano(self):
+        """Cubo cuadrado con lado CUBO_TAMANO (fracción del alto de la vista), arriba a la derecha.
+
+        Se llama al crear el cubo, al cambiar el tamaño de la ventana y al cambiar Configuración.
+        """
+        ancho, alto = self.vista.ren_win.GetSize()
+        if ancho <= 0 or alto <= 0:
+            return
+        lado_y = min(ui.CUBO_TAMANO, 1.0)
+        lado_x = min(lado_y * alto / ancho, 1.0)          # mismo lado en píxeles que en vertical
+        self.widget.SetViewport(1.0 - lado_x, 1.0 - lado_y, 1.0, 1.0)
+
+    def actualizar_colores(self):
+        """Toma los colores vigentes del cubo (después de cambiarlos en Configuración)."""
+        es_borde = ~self._direcciones.any(axis=1)        # las líneas del borde tienen dirección 0
+        base = np.empty((len(self._direcciones), 3), dtype=np.uint8)
+        base[:] = colores.rgb(colores.CUBO_CARA)
+        base[es_borde] = colores.rgb(colores.CUBO_BORDE)
+        self._colores_base = base
+        self._resaltado = None
+        self.malla.cell_data["color"] = base.copy()
 
     def contiene(self, x, y):
         """True si el punto (x, y), en píxeles de la vista, cae dentro de la zona del cubo."""
@@ -139,10 +164,10 @@ class CuboVistas:
                 d is not None and self._resaltado is not None and np.array_equal(d, self._resaltado)):
             return                              # no cambió: no se recolorea ni se vuelve a dibujar
         self._resaltado = d
-        colores = self._colores_base.copy()
+        nuevos = self._colores_base.copy()
         if d is not None:
-            colores[np.all(self._direcciones == d, axis=1)] = es.CUBO_COLOR_RESALTADO
-        self.malla.cell_data["color"] = colores
+            nuevos[np.all(self._direcciones == d, axis=1)] = colores.rgb(colores.CUBO_RESALTADO)
+        self.malla.cell_data["color"] = nuevos
         self.vista.render()
 
     def quitar_resaltado(self):

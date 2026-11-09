@@ -2,7 +2,7 @@
     python -m pruebas.verificacion
 """
 import numpy as np
-from configuracion import configurar
+from configuracion.formato import configurar
 from calculo.modelo import Modelo
 from calculo.analisis import resolver
 from ejemplos.portico import crear_portico

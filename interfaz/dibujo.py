@@ -1,19 +1,22 @@
-"""Dibujo del modelo en la vista 3D: barras, nodos, apoyos, números de nodo y rejilla de piso.
+"""Dibujo del modelo en la vista 3D: barras, nodos, apoyos, números de nodo, rejilla y previsualización.
 
-Las funciones devuelven sus actores, para poder mostrarlos u ocultarlos después. Se devuelven en
-vez de buscarlos por nombre porque pyvista cambia algunos nombres: a las etiquetas, por ejemplo,
-les agrega "-labels".
+Las funciones devuelven sus actores, para poder mostrarlos, ocultarlos o borrarlos después. Se
+devuelven en vez de buscarlos por nombre porque pyvista cambia algunos nombres: a las etiquetas,
+por ejemplo, les agrega "-labels".
+Nada de esto mueve la cámara (reset_camera=False): agregar un nodo no debe cambiar la vista.
 """
 import numpy as np
 import pyvista as pv
 from calculo.ensamble import indices_nodos
-from interfaz import estilo as es
+from configuracion import colores
+from configuracion import interfaz as ui
 
 
 def dibujar_modelo(vista, modelo):
-    """Dibuja barras, nodos, apoyos y números de nodo en la vista 3D.
+    """Dibuja barras, nodos, apoyos y números de nodo.
 
-    Devuelve {"barras": actor, "nodos": ..., "apoyos": ..., "etiquetas": ...} con lo que se dibujó.
+    Devuelve {"barras": actor, "barras_sin_asignar": ..., "nodos": ..., "apoyos": ...,
+    "etiquetas": ...} con lo que se dibujó.
     """
     actores = {}
     if not modelo.nodos:
@@ -23,78 +26,113 @@ def dibujar_modelo(vista, modelo):
     ids = list(idx)
     puntos = np.array([modelo.nodos[nid].coords for nid in ids], dtype=float)
 
-    # Barras: cada línea es [2, punto_i, punto_j]
-    if modelo.elementos:
-        lineas = []
-        for el in modelo.elementos.values():
-            lineas += [2, idx[el.ni], idx[el.nj]]
-        barras = pv.PolyData(puntos, lines=np.array(lineas))
-        actores["barras"] = vista.add_mesh(barras, color=es.COLOR_BARRA,
-                                           line_width=es.GROSOR_BARRA, name="barras")
+    # Barras: cada línea es [2, punto_i, punto_j]. Las que no tienen material o sección van aparte,
+    # con otro color, para que se note que les falta algo.
+    asignadas, sin_asignar = [], []
+    for el in modelo.elementos.values():
+        lista = sin_asignar if el.material is None or el.seccion is None else asignadas
+        lista += [2, idx[el.ni], idx[el.nj]]
+    for nombre, lineas, color in (("barras", asignadas, colores.BARRA),
+                                  ("barras_sin_asignar", sin_asignar, colores.BARRA_SIN_ASIGNAR)):
+        if lineas:
+            actores[nombre] = vista.add_mesh(pv.PolyData(puntos, lines=np.array(lineas)), color=color,
+                                             line_width=ui.GROSOR_BARRA, name=nombre,
+                                             reset_camera=False)
 
     # Nodos
-    actores["nodos"] = vista.add_points(puntos, color=es.COLOR_NODO, point_size=es.TAMANO_NODO,
-                                        render_points_as_spheres=True, name="nodos")
+    actores["nodos"] = vista.add_points(puntos, color=colores.NODO, point_size=ui.TAMANO_NODO,
+                                        render_points_as_spheres=True, name="nodos",
+                                        reset_camera=False)
 
     # Apoyos: nodos con algún GDL restringido
     apoyos = [i for i, nid in enumerate(ids) if any(modelo.nodos[nid].apoyo)]
     if apoyos:
-        actores["apoyos"] = vista.add_points(puntos[apoyos], color=es.COLOR_APOYO,
-                                             point_size=es.TAMANO_APOYO,
-                                             render_points_as_spheres=True, name="apoyos")
+        actores["apoyos"] = vista.add_points(puntos[apoyos], color=colores.APOYO,
+                                             point_size=ui.TAMANO_APOYO,
+                                             render_points_as_spheres=True, name="apoyos",
+                                             reset_camera=False)
 
     # Número de cada nodo, un poco arriba del punto
     tamano = np.ptp(puntos, axis=0).max() or 1.0      # tamaño del modelo
-    arriba = puntos + [0, 0, es.SEPARACION_ETIQUETA * tamano]
+    arriba = puntos + [0, 0, ui.SEPARACION_ETIQUETA * tamano]
     actores["etiquetas"] = vista.add_point_labels(
-        arriba, [str(nid) for nid in ids], font_size=es.TAMANO_LETRA,
-        text_color=es.COLOR_ETIQUETA, shape=None, show_points=False, always_visible=True,
-        name="etiquetas")
+        arriba, [str(nid) for nid in ids], font_size=ui.TAMANO_LETRA,
+        text_color=colores.ETIQUETA, shape=None, show_points=False, always_visible=True,
+        name="etiquetas", reset_camera=False)
     return actores
 
 
-def paso_rejilla(largo, divisiones):
-    """Paso "redondo" (1, 2 o 5 x 10^k) que da cerca de `divisiones` divisiones en `largo`.
+def dibujar_rejilla(vista, rejilla, cuenta_para_camara=False):
+    """Dibuja la rejilla (ver plano_trabajo.geometria_rejilla) y devuelve su actor.
 
-    Ejemplo: largo 5 con 10 divisiones da 0.5; largo 20 da 2. Como solo depende del tamaño del
-    modelo, sirve en cualquier unidad (m, cm, ft).
+    - Queda un poco detrás del plano (0.1 % del tamaño del modelo), para que no se pise con las
+      barras que están justo en el plano.
+    - Normalmente no cuenta para el encuadre ni para el zoom (SetUseBounds(False)): la vista se
+      ajusta al modelo, no a la rejilla. Con el modelo vacío sí cuenta, para que se vea.
     """
-    bruto = largo / divisiones
-    potencia = 10.0 ** np.floor(np.log10(bruto))
-    m = bruto / potencia                    # entre 1 y 10
-    # Se corta en la media geométrica entre redondos vecinos: √2, √10 y √50
-    redondo = 1 if m < np.sqrt(2) else 2 if m < np.sqrt(10) else 5 if m < np.sqrt(50) else 10
-    return float(f"{redondo * potencia:.12g}")   # quita restos como 0.5000000000000001
-
-
-def dibujar_rejilla(vista, modelo):
-    """Rejilla de piso en la base del modelo. Devuelve su actor, o None si no hay nodos.
-
-    - Está en el plano z = z mínimo del modelo, un poco más abajo (0.1 % del tamaño) para que no
-      se pise con las barras que están a nivel de suelo.
-    - Su borde cae en múltiplos del paso y sobresale de la planta del modelo.
-    - No cuenta para el encuadre ni para el zoom (SetUseBounds(False)): la vista se ajusta al
-      modelo, no a la rejilla.
-    """
-    if not modelo.nodos:
-        return None
-    puntos = np.array([n.coords for n in modelo.nodos.values()], dtype=float)
-    minimo, maximo = puntos.min(axis=0), puntos.max(axis=0)
-    tamano = np.ptp(puntos, axis=0).max() or 1.0                          # tamaño en 3D
-    largo = max(maximo[0] - minimo[0], maximo[1] - minimo[1]) or tamano   # lado mayor en planta
-    paso = paso_rejilla(largo, es.REJILLA_DIVISIONES)
-    margen = es.REJILLA_MARGEN * largo
-    x0, y0 = np.floor((minimo[:2] - margen) / paso) * paso
-    x1, y1 = np.ceil((maximo[:2] + margen) / paso) * paso
-    z = minimo[2] - 0.001 * tamano
-
-    extremos = ([((x, y0, z), (x, y1, z)) for x in np.arange(x0, x1 + paso / 2, paso)]
-                + [((x0, y, z), (x1, y, z)) for y in np.arange(y0, y1 + paso / 2, paso)])
-    pts = np.array([p for par in extremos for p in par], dtype=float)
-    n = len(extremos)
+    a, b = rejilla.ejes
+    (u0, v0), (u1, v1) = rejilla.minimo, rejilla.maximo
+    paso = rejilla.paso
+    segmentos = ([((u, v0), (u, v1)) for u in np.arange(u0, u1 + paso / 2, paso)]
+                 + [((u0, v), (u1, v)) for v in np.arange(v0, v1 + paso / 2, paso)])
+    pts = np.zeros((2 * len(segmentos), 3))
+    pts[:, rejilla.normal] = rejilla.posicion - 0.001 * rejilla.escala
+    for i, (p, q) in enumerate(segmentos):
+        pts[2 * i, [a, b]] = p
+        pts[2 * i + 1, [a, b]] = q
+    n = len(segmentos)
     lineas = np.column_stack([np.full(n, 2), np.arange(0, 2 * n, 2), np.arange(1, 2 * n, 2)]).ravel()
-    actor = vista.add_mesh(pv.PolyData(pts, lines=lineas), color=es.COLOR_REJILLA,
-                           line_width=es.GROSOR_REJILLA, lighting=False, pickable=False,
+    actor = vista.add_mesh(pv.PolyData(pts, lines=lineas), color=colores.REJILLA,
+                           line_width=ui.GROSOR_REJILLA, lighting=False, pickable=False,
                            reset_camera=False, name="rejilla")
-    actor.SetUseBounds(False)
+    actor.SetUseBounds(cuenta_para_camara)
     return actor
+
+
+class Previsualizacion:
+    """Puntos y línea grises que muestran dónde va a quedar el nodo o la barra antes de colocarlos.
+
+    Se crean una sola vez y después solo se mueven sus puntos: es mucho más rápido que borrar y
+    volver a crear actores en cada movimiento del mouse.
+    """
+
+    def __init__(self, vista):
+        self.vista = vista
+        self._puntos = pv.PolyData(np.zeros((2, 3)))                      # inicio y punto actual
+        self._linea = pv.PolyData(np.zeros((2, 3)), lines=np.array([2, 0, 1]))
+        self.actor_puntos = vista.add_mesh(self._puntos, style="points", render_points_as_spheres=True,
+                                           reset_camera=False, pickable=False,
+                                           name="previsualizacion_puntos")
+        self.actor_linea = vista.add_mesh(self._linea, reset_camera=False, pickable=False,
+                                          name="previsualizacion_linea")
+        for actor in (self.actor_puntos, self.actor_linea):
+            actor.SetUseBounds(False)
+            actor.SetVisibility(False)
+        self.visible = False
+        self.actualizar_estilo()
+
+    def actualizar_estilo(self):
+        """Toma el color y los tamaños vigentes (por ejemplo, después de cambiar Configuración)."""
+        color = [c / 255 for c in colores.rgb(colores.PREVISUALIZACION)]
+        for actor in (self.actor_puntos, self.actor_linea):
+            actor.GetProperty().SetColor(color)
+        self.actor_puntos.GetProperty().SetPointSize(ui.TAMANO_PREVISUALIZACION)
+        self.actor_linea.GetProperty().SetLineWidth(ui.GROSOR_PREVISUALIZACION)
+
+    def mostrar(self, punto=None, desde=None):
+        """Muestra el punto donde quedaría el nodo y, si hay `desde`, la barra desde ahí."""
+        if punto is None:
+            self.ocultar()
+            return
+        inicio = punto if desde is None else desde
+        self._puntos.points = np.array([inicio, punto], dtype=float)
+        self.actor_puntos.SetVisibility(True)
+        if desde is not None:
+            self._linea.points = np.array([desde, punto], dtype=float)
+        self.actor_linea.SetVisibility(desde is not None)
+        self.visible = True
+
+    def ocultar(self):
+        self.actor_puntos.SetVisibility(False)
+        self.actor_linea.SetVisibility(False)
+        self.visible = False
