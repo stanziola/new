@@ -47,6 +47,10 @@ def _hoja_de_estilo():
     return f"""
         QToolBar {{ background: {c.INTERFAZ_FONDO}; border: none; spacing: 2px; padding: 3px; }}
         QToolBar#herramientas {{ border-right: 1px solid {c.INTERFAZ_BORDE}; }}
+        QToolBar#definir {{ border-bottom: 1px solid {c.INTERFAZ_BORDE}; }}
+        QDockWidget::title {{ background: {c.INTERFAZ_HOVER}; padding: 5px;
+                             border-bottom: 1px solid {c.INTERFAZ_BORDE}; }}
+        QTreeWidget {{ border: none; }}
         QToolBar#barra_comandos {{ border-top: 1px solid {c.INTERFAZ_BORDE}; spacing: 8px; }}
         QToolBar::separator:horizontal {{ background: {c.INTERFAZ_BORDE}; width: 1px; margin: 3px 5px; }}
         QToolBar::separator:vertical {{ background: {c.INTERFAZ_BORDE}; height: 1px; margin: 5px 3px; }}

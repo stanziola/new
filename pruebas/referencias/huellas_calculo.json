@@ -1,0 +1,15 @@
+{
+  "aprobado": "2026-11-08",
+  "archivos": {
+    "calculo/__init__.py": "36f0aa08a207ec5d91ccc664d50f88ca76081013fcd7dbd3f8bb8a4bc799cd16",
+    "calculo/analisis.py": "6d0527e74b0616dc37a0cefd44eb798a6b3f04787e39012e85b3862de793f707",
+    "calculo/elemento.py": "76db00bb2d5dbdb4a968c64512634c7369735ce590871c6ed90d0b6d16739f94",
+    "calculo/ensamble.py": "4eae66b5f19901db5e02028fc2ab9f53db9c2cb9f96fbb8a457fec8d2d130023",
+    "calculo/interaccion/__init__.py": "1135f810c04dc98373bf1425f0659e5a61a16e9b545711d1bfa86dc0eda23c71",
+    "calculo/interaccion/biaxial.py": "71037217898b2efad33101573ab5a02f6242aaca3051c49b1e21a770d3e07d3d",
+    "calculo/interaccion/circular.py": "c8bf9e5bebb3e7952ad7f98d125a51657c90efb43501ca21551a782e2fc9e30c",
+    "calculo/interaccion/comun.py": "d2d7324b26b03030433dbb8260ff5d6efbae58f3989ddba27f3f1e83c5c195dc",
+    "calculo/interaccion/rectangular.py": "03b40aa8b679939da349ebddeb95a55c65f873291c430399288c4c72468d70d1",
+    "calculo/tolerancias.py": "cb27b68b8d66efd8d62cb047946991d92973a95af83542b1b9da0acf653a6636"
+  }
+}

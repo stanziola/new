@@ -1,150 +1,21 @@
+"""Diagrama de interacción de columna rectangular biaxial: ventana tkinter con la sección y el diagrama.
+
+El cálculo está en calculo/interaccion (cálculo sagrado). Aquí solo la ventana y los gráficos.
+"""
 import math
 import tkinter as tk
 from tkinter import ttk, messagebox
 import matplotlib
 matplotlib.use("TkAgg")
 import numpy as np
-import pint
 from matplotlib.figure import Figure
 from matplotlib.patches import Polygon
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
-ureg = pint.UnitRegistry()
-ureg.define("tonne_force = 1000 * kilogram_force")
+from calculo.interaccion.biaxial import _barras, curva, superficie
+from calculo.interaccion.comun import propiedades_seccion, ureg
 
-DIAM_ESPECIAL = {9: 1.128, 10: 1.270, 11: 1.410}
-module_s = 29000 * ureg.ksi
-KIP_TF = 0.45359237                  # kip -> tonne_force
-KIPIN_TFM = 0.45359237 * 0.0254      # kip*in -> tonne_force*m
-
-# ---------- Funciones base ----------
-def area_barra(n, cantidad=1):
-    diam = DIAM_ESPECIAL.get(n, n / 8) * ureg.inch
-    return cantidad * math.pi * diam**2 / 4
-
-def nb(nx, ny):
-    return 2 * (nx + ny - 2)
-
-def Ast(n, cantidad):
-    return area_barra(n, cantidad)
-
-def fy(n):
-    return 60 * ureg.ksi if n >= 4 else 40 * ureg.ksi
-
-def rho(Ast, b, h):
-    return (Ast / (b * h)).to("dimensionless").magnitude * 100
-
-def beta1(fc):
-    fc = fc.to("ksi").magnitude
-    if fc <= 2.5:
-        raise ValueError("fc debe ser mayor a 2.5 ksi")
-    elif fc <= 4:
-        return 0.85
-    elif fc >= 8:
-        return 0.65
-    else:
-        return 1.05 - 0.05 * fc
-
-def _recortar(poly, u, t0):
-    """Recorta el polígono y conserva los puntos con p·u >= t0."""
-    out = []
-    n = len(poly)
-    for i in range(n):
-        p, q = poly[i], poly[(i + 1) % n]
-        fp, fq = p @ u - t0, q @ u - t0
-        if fp >= 0:
-            out.append(p)
-        if fp * fq < 0:
-            out.append(p + (q - p) * fp / (fp - fq))
-    return np.array(out)
-
-def _area_centroide(poly):
-    if len(poly) < 3:
-        return 0.0, 0.0, 0.0
-    x, y = poly[:, 0], poly[:, 1]
-    x1, y1 = np.roll(x, -1), np.roll(y, -1)
-    cr = x * y1 - x1 * y
-    A = cr.sum() / 2
-    if abs(A) < 1e-12:
-        return 0.0, 0.0, 0.0
-    cx = ((x + x1) * cr).sum() / (6 * A)
-    cy = ((y + y1) * cr).sum() / (6 * A)
-    return abs(A), cx, cy
-
-def _barras(b, h, d, nx, ny):
-    xs = np.linspace(-b/2 + d, b/2 - d, nx)
-    ys = np.linspace(-h/2 + d, h/2 - d, ny)
-    bars = []
-    for j, y in enumerate(ys):
-        for x in (xs if j in (0, ny - 1) else (xs[0], xs[-1])):
-            bars.append((x, y))
-    return np.array(bars)
-
-def propiedades_seccion(b, h, d, nx, ny, fc, nob):
-    if nx < 2 or ny < 2:
-        raise ValueError("nx y ny deben ser al menos 2")
-    if min(b, h) <= 2 * d:
-        raise ValueError("b y h deben ser mayores que 2·d")
-    nbarras = nb(nx, ny)
-    As_total = Ast(nob, nbarras).to("cm^2")
-    fy_val = fy(nob)
-    return {
-        "b": b, "h": h, "d": d, "nx": nx, "ny": ny, "fc": fc, "nob": nob,
-        "nbarras": nbarras,
-        "As_total": As_total,
-        "cuantia": rho(As_total, b, h),
-        "beta1": beta1(fc),
-        "fy": fy_val,
-        "epsilon_y": (fy_val / module_s).magnitude,
-    }
-
-def phipnmn_biaxial(c, theta, sec):
-    """Unidades internas: in, ksi, kip. theta = dirección de la fibra comprimida (rad)."""
-    b = sec["b"].to("inch").magnitude
-    h = sec["h"].to("inch").magnitude
-    d = sec["d"].to("inch").magnitude
-    fc = sec["fc"].to("ksi").magnitude
-    fy_val = sec["fy"].to("ksi").magnitude
-    Es = module_s.to("ksi").magnitude
-    ey = sec["epsilon_y"]
-    As1 = area_barra(sec["nob"]).to("inch**2").magnitude
-    As_total = sec["As_total"].to("inch**2").magnitude
-    nx, ny = sec["nx"], sec["ny"]
-
-    u = np.array([np.cos(theta), np.sin(theta)])
-    tmax = (b / 2) * abs(u[0]) + (h / 2) * abs(u[1])
-    a = min(sec["beta1"] * c, 2 * tmax)
-
-    rect = np.array([[-b/2, -h/2], [b/2, -h/2], [b/2, h/2], [-b/2, h/2]])
-    A, cx, cy = _area_centroide(_recortar(rect, u, tmax - a))
-    Cc = 0.85 * fc * A
-    P = Cc
-    Mx = Cc * cy
-    My = Cc * cx
-
-    bars = _barras(b, h, d, nx, ny)
-    t = tmax - bars @ u
-    es = np.clip(0.003 * (c - t) / c, -ey, ey)
-    fs = es * Es
-    fs = np.where(t < a, fs - 0.85 * fc, fs)
-    F = fs * As1
-    P += F.sum()
-    Mx += (F * bars[:, 1]).sum()
-    My += (F * bars[:, 0]).sum()
-
-    et = 0.003 * (t.max() - c) / c
-    if et <= ey:
-        phi = 0.65
-    elif et >= ey + 0.003:
-        phi = 0.90
-    else:
-        phi = 0.65 + 0.25 * (et - ey) / 0.003
-
-    P0 = 0.85 * fc * (b * h - As_total) + fy_val * As_total
-    phi_P = min(phi * P, 0.80 * 0.65 * P0)
-
-    return phi, P, Mx, My, phi_P, phi * Mx, phi * My
 
 # ---------- Interfaz ----------
 class App:
@@ -233,22 +104,8 @@ class App:
 
     def curva(self, th):
         key = round(th, 6)
-        if key in self.cache:
-            return self.cache[key]
-        sec = self.sec
-        b = sec["b"].to("inch").magnitude
-        h = sec["h"].to("inch").magnitude
-        cth, sth = math.cos(th), math.sin(th)
-        D = b * abs(cth) + h * abs(sth)
-        cs = np.geomspace(0.001 * D, 3 * D, 100)
-        Pn, Mn, PPn, PMn = [], [], [], []
-        for ci in cs:
-            _, P, Mx, My, phi_P, phi_Mx, phi_My = phipnmn_biaxial(ci, th, sec)
-            Pn.append(P * KIP_TF)
-            Mn.append((My * cth + Mx * sth) * KIPIN_TFM)
-            PPn.append(phi_P * KIP_TF)
-            PMn.append((phi_My * cth + phi_Mx * sth) * KIPIN_TFM)
-        self.cache[key] = (Pn, Mn, PPn, PMn)
+        if key not in self.cache:
+            self.cache[key] = curva(self.sec, th)
         return self.cache[key]
 
     def dibujar(self):
@@ -310,18 +167,7 @@ class App:
     def ver_3d(self):
         if self.sec is None:
             return
-        sec = self.sec
-        b = sec["b"].to("inch").magnitude
-        h = sec["h"].to("inch").magnitude
-        X, Y, Z = [], [], []
-        for deg in range(0, 361, 10):
-            th = math.radians(deg)
-            D = b * abs(math.cos(th)) + h * abs(math.sin(th))
-            cs = np.geomspace(0.001 * D, 3 * D, 60)
-            r = [phipnmn_biaxial(c, th, sec) for c in cs]
-            X.append([x[6] * KIPIN_TFM for x in r])   # φMy
-            Y.append([x[5] * KIPIN_TFM for x in r])   # φMx
-            Z.append([x[4] * KIP_TF for x in r])      # φPn
+        X, Y, Z = superficie(self.sec)
 
         win = tk.Toplevel(self.root)
         win.title("Superficie de interacción 3D")
@@ -337,6 +183,7 @@ class App:
         NavigationToolbar2Tk(canvas, win)
         canvas.get_tk_widget().pack(fill="both", expand=True)
         canvas.draw()
+
 
 if __name__ == "__main__":
     root = tk.Tk()

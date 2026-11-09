@@ -86,6 +86,28 @@ def _elemento(p, color):
     _punto(p, color, (18, 6), 2.4)
 
 
+def _mas(p, centro, brazo=3.0):
+    """El "+" de agregar."""
+    x, y = centro
+    p.drawLine(QPointF(x, y - brazo), QPointF(x, y + brazo))
+    p.drawLine(QPointF(x - brazo, y), QPointF(x + brazo, y))
+
+
+def _material(p, color):
+    """Un bloque (cubo en perspectiva) con un "+": agregar material."""
+    p.drawPolygon(_poligono([(3, 9), (9, 6), (15, 9), (9, 12)]))               # cara de arriba
+    p.drawPolyline(_poligono([(3, 9), (3, 17), (9, 20), (15, 17), (15, 9)]))   # contorno de abajo
+    p.drawLine(QPointF(9, 12), QPointF(9, 20))                                 # arista del frente
+    _mas(p, (19.5, 5.5))
+
+
+def _seccion(p, color):
+    """Un perfil en I con un "+": agregar sección."""
+    p.drawPolygon(_poligono([(3, 5), (15, 5), (15, 8), (10.5, 8), (10.5, 16), (15, 16), (15, 19),
+                             (3, 19), (3, 16), (7.5, 16), (7.5, 8), (3, 8)]))
+    _mas(p, (19.5, 5.5))
+
+
 def _rejilla(p, color):
     p.drawRoundedRect(QRectF(4, 4, 16, 16), 1.5, 1.5)
     for c in (4 + 16 / 3, 4 + 32 / 3):
@@ -116,6 +138,8 @@ _DIBUJOS = {
     "seleccionar": _seleccionar,
     "nodo": _nodo,
     "elemento": _elemento,
+    "material": _material,
+    "seccion": _seccion,
     "rejilla": _rejilla,
     "snap": _snap,
     "etiqueta": _etiqueta,
@@ -124,5 +148,6 @@ _DIBUJOS = {
 
 
 def icono(nombre):
-    """QIcon vectorial: "seleccionar", "nodo", "elemento", "rejilla", "snap", "etiqueta" o "encuadre"."""
+    """QIcon vectorial: "seleccionar", "nodo", "elemento", "material", "seccion", "rejilla", "snap",
+    "etiqueta" o "encuadre"."""
     return QIcon(IconoVectorial(_DIBUJOS[nombre]))

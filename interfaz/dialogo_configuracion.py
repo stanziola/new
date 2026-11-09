@@ -1,25 +1,29 @@
-"""Diálogo de Configuración: se arma solo a partir de preferencias.PARAMETROS.
+"""Diálogo de Configuración: cada cambio se aplica en el momento y se guarda.
 
-Cada parámetro dice su tipo (entero, real, color...) y su pestaña, y según el tipo se crea el
-control. Así, para agregar una opción nueva a Configuración basta una línea en PARAMETROS.
-
-Unidades: los valores con magnitud (por ejemplo, el paso de la rejilla) se muestran en las unidades
-de pantalla vigentes al abrir el diálogo y se guardan en internas. Si el usuario no toca un valor,
-se conserva el original exacto: así, abrir y aceptar en ft no deja restos de redondeo en los datos.
+- Abajo solo hay dos botones: Restablecer (vuelve todo a la personalización base) y Salir.
+- Las pestañas se arman desde preferencias.PARAMETROS. La de Unidades es una tabla como la de
+  Ftool: magnitud, unidad y decimales.
+- Los valores con unidades se muestran en la unidad vigente. Si cambias una unidad, esos campos se
+  vuelven a mostrar convertidos; el valor guardado (en unidades internas) no cambia.
+- Los cambios se aplican con una pequeña espera (RETARDO_CONFIGURACION_MS): si escribes "125",
+  no se redibuja con "1", "12" y "125", sino una sola vez.
 """
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
-                               QDoubleSpinBox, QFormLayout, QKeySequenceEdit, QLabel, QMessageBox,
-                               QPushButton, QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtCore import Signal, QTimer
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import (QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFormLayout,
+                               QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+                               QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
-from configuracion import preferencias, unidades
+from configuracion import formato, preferencias, unidades
+from configuracion import interfaz as ui
 from interfaz.plano_trabajo import NOMBRE_EJE, PLANOS
 
-GRUPOS = ["Unidades", "Formato", "Rejilla", "Vista", "Interfaz", "Colores"]
+GRUPOS = ["Unidades", "Rejilla", "Vista", "Interfaz", "Colores"]
 
 
 class BotonColor(QPushButton):
     """Botón que muestra un color y abre el selector de colores al hacer clic."""
+    cambiado = Signal(str)
 
     def __init__(self, color, parent=None):
         super().__init__(parent)
@@ -38,160 +42,177 @@ class BotonColor(QPushButton):
 
     def _elegir(self):
         nuevo = QColorDialog.getColor(QColor(self._color), self, "Elegir color")
-        if nuevo.isValid():
+        if nuevo.isValid() and nuevo.name() != self._color:
             self.poner_color(nuevo.name())
+            self.cambiado.emit(nuevo.name())
 
 
 class DialogoConfiguracion(QDialog):
-    def __init__(self, ventana, plano, posicion):
+    def __init__(self, ventana):
         super().__init__(ventana)
+        self.ventana = ventana
         self.setWindowTitle("Configuración")
-        self.resize(560, 520)
-        # Factores de las unidades que se ven al abrir (aunque el usuario cambie las unidades aquí)
-        self._factores = {m: unidades.factor(m) for m in unidades.MAGNITUDES}
-        self._controles = {}        # Parametro -> control
-        self._iniciales = {}        # Parametro -> lo que mostraba el control al abrir
+        self.resize(620, 560)
+        self._controles = {}                       # Parametro -> control
+        self._reloj = QTimer(self)
+        self._reloj.setSingleShot(True)
+        self._reloj.setInterval(ui.RETARDO_CONFIGURACION_MS)
+        self._reloj.timeout.connect(self._aplicar)
 
         pestanas = QTabWidget()
-        formularios = {}
+        paginas = {}
         for grupo in GRUPOS:
             contenido = QWidget()
-            formularios[grupo] = QFormLayout(contenido)
+            paginas[grupo] = contenido
             desplazable = QScrollArea()
             desplazable.setWidgetResizable(True)
             desplazable.setWidget(contenido)
             pestanas.addTab(desplazable, grupo)
+        por_clave = {p.clave: p for p in preferencias.PARAMETROS}
 
-        # Plano de trabajo: es de este modelo (se guarda en su archivo), no una preferencia
+        # ---------- Unidades: tabla magnitud | unidad | decimales (como Ftool) ----------
+        tabla = QGridLayout(paginas["Unidades"])
+        for col, texto in enumerate(("Magnitud", "Unidad", "Decimales")):
+            tabla.addWidget(QLabel(f"<b>{texto}</b>"), 0, col)
+        for fila, magnitud in enumerate(unidades.UNIDADES, start=1):
+            tabla.addWidget(QLabel(unidades.NOMBRES[magnitud]), fila, 0)
+            for col, clave in ((1, f"unidades.{magnitud.upper()}"), (2, f"formato.DECIMALES_{magnitud.upper()}")):
+                p = por_clave[clave]
+                tabla.addWidget(self._registrar(p), fila, col)
+        tabla.setRowStretch(len(unidades.UNIDADES) + 1, 1)
+
+        # ---------- Rejilla: primero el plano de trabajo (de este modelo) ----------
+        formularios = {g: QFormLayout(paginas[g]) for g in GRUPOS if g != "Unidades"}
         self._plano = QComboBox()
         self._plano.addItems(list(PLANOS))
-        self._plano.setCurrentText(plano)
-        self._posicion_original = posicion
         self._posicion = QDoubleSpinBox()
         self._posicion.setDecimals(4)
         self._posicion.setRange(-1e7, 1e7)
-        self._posicion.setSuffix(" " + unidades.simbolo("longitud"))
-        self._posicion.setValue(posicion / self._factores["longitud"])
-        self._posicion_inicial = self._posicion.value()
         self._etiqueta_posicion = QLabel()
-        self._plano.currentTextChanged.connect(self._nombrar_posicion)
-        self._nombrar_posicion()
         formularios["Rejilla"].addRow("Plano de trabajo (de este modelo)", self._plano)
         formularios["Rejilla"].addRow(self._etiqueta_posicion, self._posicion)
+        self._plano.currentTextChanged.connect(self._cambio_plano)
+        self._posicion.valueChanged.connect(self._cambio_plano)
 
         for p in preferencias.PARAMETROS:
-            control = self._crear_control(p)
-            self._mostrar(p, control, p.valor())
-            self._controles[p] = control
-            self._iniciales[p] = self._leer(p, control)
-            formularios[p.grupo].addRow(p.etiqueta, control)
+            if p.grupo != "Unidades":
+                formularios[p.grupo].addRow(p.etiqueta, self._registrar(p))
 
-        botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-                                   | QDialogButtonBox.RestoreDefaults)
-        botones.button(QDialogButtonBox.Ok).setText("Aceptar")
-        botones.button(QDialogButtonBox.Cancel).setText("Cancelar")
-        botones.button(QDialogButtonBox.RestoreDefaults).setText("Restablecer valores base")
-        botones.accepted.connect(self.accept)
-        botones.rejected.connect(self.reject)
-        botones.button(QDialogButtonBox.RestoreDefaults).clicked.connect(self._restablecer)
+        # ---------- Abajo: Restablecer a la izquierda, Salir a la derecha ----------
+        restablecer = QPushButton("Restablecer")
+        restablecer.setToolTip("Vuelve todo a la personalización base")
+        restablecer.clicked.connect(self._restablecer)
+        salir = QPushButton("Salir")
+        salir.clicked.connect(self.accept)
+        abajo = QHBoxLayout()
+        abajo.addWidget(restablecer)
+        abajo.addStretch(1)
+        abajo.addWidget(salir)
 
         diseno = QVBoxLayout(self)
         diseno.addWidget(pestanas)
-        diseno.addWidget(botones)
+        diseno.addLayout(abajo)
+        self._mostrar_todo()
 
-    # ---------- Controles según el tipo ----------
-    def _factor(self, p):
-        return self._factores[p.magnitud] if p.magnitud else 1.0
-
-    def _crear_control(self, p):
+    # ---------- Controles ----------
+    def _registrar(self, p):
+        """Crea el control del parámetro y lo conecta: cada cambio se aplica."""
         if p.tipo == "entero":
             control = QSpinBox()
             control.setRange(int(p.minimo), int(min(p.maximo, 2**31 - 1)))
-            return control
-        if p.tipo == "real":
+            control.valueChanged.connect(lambda *_, p=p: self._cambio(p))
+        elif p.tipo == "real":
             control = QDoubleSpinBox()
             control.setDecimals(p.decimales)
-            control.setRange(p.minimo / self._factor(p), p.maximo / self._factor(p))
-            if p.magnitud:
-                control.setSuffix(" " + unidades.simbolo(p.magnitud))
-            return control
-        if p.tipo == "bool":
-            return QCheckBox()
-        if p.tipo == "opcion":
+            control.valueChanged.connect(lambda *_, p=p: self._cambio(p))
+        elif p.tipo == "opcion":
             control = QComboBox()
             control.addItems(list(p.opciones))
-            return control
-        if p.tipo == "color":
-            return BotonColor(p.valor())
-        if p.tipo == "atajo":
-            control = QKeySequenceEdit()
-            control.setClearButtonEnabled(True)
-            return control
-        raise ValueError(f"Tipo de parámetro desconocido: {p.tipo}")
+            control.currentTextChanged.connect(lambda *_, p=p: self._cambio(p))
+        elif p.tipo == "color":
+            control = BotonColor(p.valor())
+            control.cambiado.connect(lambda *_, p=p: self._cambio(p))
+        else:
+            raise ValueError(f"Tipo de parámetro sin control: {p.tipo}")
+        self._controles[p] = control
+        return control
 
-    def _mostrar(self, p, control, valor):
-        """Pone en el control un valor dado en unidades internas."""
+    def _factor(self, p):
+        return unidades.factor(p.magnitud) if p.magnitud else 1.0
+
+    def _mostrar(self, p, control):
+        """Pone en el control el valor vigente del parámetro, sin disparar un cambio."""
+        control.blockSignals(True)
+        valor = p.valor()
         if p.tipo == "entero":
             control.setValue(int(valor))
         elif p.tipo == "real":
-            control.setValue(valor / self._factor(p))
-        elif p.tipo == "bool":
-            control.setChecked(bool(valor))
+            f = self._factor(p)
+            control.setRange(p.minimo / f, p.maximo / f)
+            control.setSuffix(f" {unidades.simbolo(p.magnitud)}" if p.magnitud else "")
+            control.setValue(valor / f)
         elif p.tipo == "opcion":
             control.setCurrentText(valor)
         elif p.tipo == "color":
             control.poner_color(valor)
-        elif p.tipo == "atajo":
-            control.setKeySequence(QKeySequence(valor))
+        control.blockSignals(False)
 
+    def _mostrar_plano(self):
+        for control in (self._plano, self._posicion):
+            control.blockSignals(True)
+        self._plano.setCurrentText(self.ventana.plano)
+        self._posicion.setSuffix(f" {unidades.simbolo('longitud')}")
+        self._posicion.setValue(self.ventana.posicion_plano / unidades.factor("longitud"))
+        self._etiqueta_posicion.setText(f"Posición del plano ({NOMBRE_EJE[PLANOS[self.ventana.plano]]} =)")
+        for control in (self._plano, self._posicion):
+            control.blockSignals(False)
+
+    def _mostrar_todo(self):
+        for p, control in self._controles.items():
+            self._mostrar(p, control)
+        self._mostrar_plano()
+
+    # ---------- Cambios ----------
     def _leer(self, p, control):
-        """Lo que muestra el control, tal cual (en unidades de pantalla)."""
         if p.tipo in ("entero", "real"):
-            return control.value()
-        if p.tipo == "bool":
-            return control.isChecked()
+            valor = control.value()
+            return valor * self._factor(p) if p.tipo == "real" else valor
         if p.tipo == "opcion":
             return control.currentText()
-        if p.tipo == "color":
-            return control.color()
-        return control.keySequence().toString()
+        return control.color()
 
-    def _nombrar_posicion(self):
-        eje = NOMBRE_EJE[PLANOS[self._plano.currentText()]]
-        self._etiqueta_posicion.setText(f"Posición del plano ({eje} =)")
+    def _cambio(self, p):
+        p.poner(self._leer(p, self._controles[p]))
+        if p.modulo is unidades:                   # cambió una unidad: reconvertir lo que la usa
+            for otro, control in self._controles.items():
+                if otro.magnitud:
+                    self._mostrar(otro, control)
+            self._mostrar_plano()
+        self._reloj.start()
+
+    def _cambio_plano(self, *_):
+        plano = self._plano.currentText()
+        posicion = self._posicion.value() * unidades.factor("longitud")
+        if abs(posicion - self.ventana.posicion_plano) < 0.5 * 10.0 ** -4 * unidades.factor("longitud"):
+            posicion = self.ventana.posicion_plano          # no la tocó: se conserva exacta
+        self.ventana.cambiar_plano(plano, posicion)
+        self._mostrar_plano()
 
     def _restablecer(self):
-        for p, control in self._controles.items():
-            self._mostrar(p, control, preferencias.base(p))
+        preferencias.restablecer()
+        self._mostrar_todo()
+        self._reloj.start()
 
-    # ---------- Resultado ----------
-    def _valor_final(self, p, control):
-        """Valor interno a guardar. Si el control no cambió, el original exacto; si quedó como la
-        base, la base exacta; si no, lo escrito convertido a internas."""
-        leido = self._leer(p, control)
-        if leido == self._iniciales[p]:
-            return p.valor()                              # no lo tocó: el original exacto
-        if p.tipo != "real":
-            return leido                                  # enteros, textos y colores no se convierten
-        base = preferencias.base(p)
-        if abs(leido - base / self._factor(p)) < 0.5 * 10.0 ** -control.decimals():
-            return base                                   # lo dejó en la base: la base exacta
-        return leido * self._factor(p)
-
-    def plano_elegido(self):
-        """(plano, posición en m) elegidos para el modelo."""
-        if self._posicion.value() == self._posicion_inicial:
-            posicion = self._posicion_original
-        else:
-            posicion = self._posicion.value() * self._factores["longitud"]
-        return self._plano.currentText(), posicion
-
-    def accept(self):
-        valores = {p: self._valor_final(p, c) for p, c in self._controles.items()}
-        for p, valor in valores.items():
-            p.poner(valor)
+    def _aplicar(self):
         try:
             preferencias.guardar()
         except OSError as e:
             QMessageBox.warning(self, "Configuración", f"No se pudieron guardar las preferencias:\n{e}")
-        super().accept()
+        self.ventana.aplicar_configuracion()
+
+    def done(self, resultado):
+        """Al salir (con Salir, Esc o la X), aplica lo que estuviera esperando."""
+        if self._reloj.isActive():
+            self._reloj.stop()
+            self._aplicar()
+        super().done(resultado)

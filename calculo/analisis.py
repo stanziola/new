@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import numpy as np
-from configuracion.calculo import COND_MAXIMA
+from .tolerancias import COND_MAXIMA
 from .ensamble import ensamblar_k, ensamblar_f, indices_nodos, gdl_barra
 from .elemento import angulos, rotacion, transformacion, k_local
 

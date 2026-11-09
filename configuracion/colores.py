@@ -1,7 +1,8 @@
 """Colores, todos en hexadecimal ("#rrggbb"), que entienden Qt y pyvista.
 
-- La interfaz (íconos, barras, botones, menús) va solo en blanco, negro y grises.
-- El dibujo 3D puede tener color.
+- La interfaz (íconos, barras, botones, menús, paneles) va solo en blanco, negro y grises.
+- El dibujo 3D: nodos, barras y apoyos en gris; gris oscuro al pasar el mouse; negro al
+  seleccionar. La previsualización usa el mismo gris normal, transparente.
 Para VTK, rgb() los pasa a (r, g, b).
 """
 # ---------- Interfaz (solo grises) ----------
@@ -18,14 +19,13 @@ ICONO_DESHABILITADO = "#b0b0b0"
 
 # ---------- Dibujo 3D (personalización base) ----------
 FONDO_VISTA = "#ffffff"
-BARRA = "#4682b4"                     # azul acero
-BARRA_SIN_ASIGNAR = "#9e9e9e"         # barra sin material o sin sección
-NODO = "#000000"
-APOYO = "#ff0000"
-SELECCION = "#ffa500"
+ELEMENTO = "#9a9a9a"                  # nodos, barras y apoyos, sin seleccionar
+RESALTADO = "#4a4a4a"                 # al pasar el mouse con Seleccionar
+SELECCIONADO = "#000000"
+SIN_ASIGNAR = "#c8c8c8"               # barras sin material o sección (un gris más claro)
 ETIQUETA = "#000000"
 REJILLA = "#d4d4d4"
-PREVISUALIZACION = "#8c8c8c"          # dónde va a quedar el nodo o la barra antes de colocarlos
+EJE_X = "#ff0000"                     # flecha del eje X (fijo)
 
 # ---------- Cubo de vistas ----------
 CUBO_CARA = "#ffffff"

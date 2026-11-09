@@ -36,6 +36,21 @@ CARAS = [
 ]
 
 
+def viewport_esquina(ancho, alto, tamano, esquina):
+    """Viewport (x0, y0, x1, y1) de un cuadrado de lado `tamano` (fracción del alto) en una esquina.
+
+    Cuadrado en píxeles y a MARGEN_ESQUINA_PX del borde. Lo usan el cubo (arriba a la derecha) y
+    los ejes X, Y, Z (abajo a la izquierda), para que queden proporcionados.
+    """
+    lado = min(tamano, 0.9) * alto                     # lado en píxeles
+    m = ui.MARGEN_ESQUINA_PX
+    if esquina == "arriba_derecha":
+        x0, y0 = ancho - m - lado, alto - m - lado
+    else:                                              # abajo a la izquierda
+        x0, y0 = m, m
+    return (max(x0, 0) / ancho, max(y0, 0) / alto, min(x0 + lado, ancho) / ancho, min(y0 + lado, alto) / alto)
+
+
 def _parches():
     """Superficie del cubo (lado 1) con 9 parches por cara y la dirección de vista de cada uno."""
     f = ui.CUBO_FRANJA
@@ -112,16 +127,15 @@ class CuboVistas:
         self.animador.terminada.connect(self._al_terminar_giro)
 
     def ajustar_tamano(self):
-        """Cubo cuadrado con lado CUBO_TAMANO (fracción del alto de la vista), arriba a la derecha.
+        """Cubo cuadrado con lado CUBO_TAMANO (fracción del alto de la vista), arriba a la derecha,
+        separado MARGEN_ESQUINA_PX de la esquina.
 
         Se llama al crear el cubo, al cambiar el tamaño de la ventana y al cambiar Configuración.
         """
         ancho, alto = self.vista.ren_win.GetSize()
         if ancho <= 0 or alto <= 0:
             return
-        lado_y = min(ui.CUBO_TAMANO, 1.0)
-        lado_x = min(lado_y * alto / ancho, 1.0)          # mismo lado en píxeles que en vertical
-        self.widget.SetViewport(1.0 - lado_x, 1.0 - lado_y, 1.0, 1.0)
+        self.widget.SetViewport(*viewport_esquina(ancho, alto, ui.CUBO_TAMANO, "arriba_derecha"))
 
     def actualizar_colores(self):
         """Toma los colores vigentes del cubo (después de cambiarlos en Configuración)."""

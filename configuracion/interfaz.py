@@ -1,57 +1,56 @@
-"""Interfaz: tamaños, tiempos, tolerancias del mouse, atajos, rejilla, snap, cubo y etiquetas.
+"""Interfaz: tamaños, tiempos, rejilla, cubo y ejes.
 
-Lo marcado "personalización base" son valores por defecto que el usuario puede cambiar desde
-Configuración (ver preferencias.py). Los valores con unidades están en unidades internas (m).
+Lo marcado "personalización base" lo puede cambiar el usuario en Configuración (preferencias.py).
+Lo demás son constantes internas. Los valores con unidades están en unidades internas (m).
 """
 # ---------- Ventana ----------
 TITULO_VENTANA = "Análisis estructural 3D"
-TAMANO_VENTANA = (1200, 800)          # ancho, alto en píxeles
+TAMANO_VENTANA = (1400, 860)          # ancho, alto en píxeles
 
 # ---------- Íconos (personalización base) ----------
-TAMANO_ICONO = 24                     # barra de herramientas (izquierda), en píxeles
+TAMANO_ICONO = 24                     # barra de herramientas (izquierda) y barra Definir, en píxeles
 TAMANO_ICONO_INFERIOR = 20            # barra inferior
 ICONO_GROSOR = 1.5                    # grosor de línea, en la cuadrícula de 24 x 24 de los íconos
 
-# ---------- Dibujo del modelo (personalización base) ----------
-GROSOR_BARRA = 4
-TAMANO_NODO = 8
-TAMANO_APOYO = 16
-ETIQUETAS_VISIBLES = True             # números de nodo encendidos al abrir
+# ---------- Vista (personalización base: solo estos dos) ----------
+GROSOR_BARRA = 4                      # en píxeles; la barra seleccionada usa el mismo
+TAMANO_NODO = 9                       # en píxeles; el nodo seleccionado usa el mismo
+
+# Derivados y fijos
+FACTOR_APOYO = 2.0                    # los apoyos son esferas de este múltiplo del tamaño del nodo
+OPACIDAD_PREVISUALIZACION = 0.35      # el gris normal, transparente, antes de colocar
+ETIQUETAS_VISIBLES = True
 TAMANO_LETRA = 14
 SEPARACION_ETIQUETA = 0.04            # fracción del tamaño del modelo, hacia arriba
-GROSOR_SELECCION = 10                 # barra seleccionada, en píxeles
-TAMANO_SELECCION = 22                 # nodo seleccionado, en píxeles
-TAMANO_PREVISUALIZACION = 14          # punto gris donde va a quedar el nodo
-GROSOR_PREVISUALIZACION = 2           # línea gris de la barra antes de colocarla
 
-# ---------- Rejilla y plano de trabajo (personalización base) ----------
+# ---------- Rejilla (personalización base) ----------
+REJILLA_DISTANCIA = 1.0               # distancia entre líneas, en m
+REJILLA_LINEAS_X = 11                 # líneas en cada eje: de 0 a (n - 1) · distancia
+REJILLA_LINEAS_Y = 11
+REJILLA_LINEAS_Z = 11
 REJILLA_VISIBLE = True                # encendida al abrir
-REJILLA_DIVISIONES = 10               # divisiones aproximadas en el lado mayor (paso automático)
-REJILLA_PASO = 0.0                    # 0 = automático; si no, paso fijo en m
-REJILLA_MARGEN = 0.25                 # cuánto sobresale del modelo, fracción de su lado mayor
-REJILLA_TAMANO_VACIO = 10.0           # lado de la rejilla cuando el modelo está vacío, en m
-REJILLA_MAX_LINEAS = 500              # tope de líneas por dirección (si no, el paso se agranda)
 GROSOR_REJILLA = 1
 
-# ---------- Snap (personalización base) ----------
-SNAP_ACTIVO = True                    # encendido al abrir
+# ---------- Mouse y snap (fijos) ----------
+SNAP_ACTIVO = True
 TOL_SNAP_PX = 12                      # distancia en pantalla para pegarse a un nodo
-
-# ---------- Mouse ----------
-TOL_SELECCION_PX = 8                  # distancia máxima del clic al nodo o barra
+TOL_SELECCION_PX = 8                  # distancia para resaltar y seleccionar
 TOL_CLIC_PX = 4                       # si el mouse se mueve más que esto, es arrastre (rotar), no clic
 
-# ---------- Atajos de teclado (personalización base, como en Civil 3D) ----------
+# ---------- Atajos (fijos, como en Civil 3D) ----------
 ATAJO_REJILLA = "F7"
 ATAJO_SNAP = "F9"
 
-# ---------- Cubo de vistas (esquina superior derecha) ----------
-CUBO_TAMANO = 0.26                    # personalización base: lado, fracción del alto de la vista
+# ---------- Cubo de vistas y ejes (personalización base) ----------
+CUBO_TAMANO = 0.20                    # lado del cubo, fracción del alto de la vista
+EJES_TAMANO = 0.16                    # lado de los ejes X, Y, Z, fracción del alto de la vista
+MARGEN_ESQUINA_PX = 8                 # separación del cubo y los ejes a sus esquinas
 CUBO_FRANJA = 0.2                     # ancho de aristas y esquinas clicables, fracción del lado
 
 # ---------- Animación de la cámara (cubo de vistas y Encuadre) ----------
 ANIM_CAMARA_DURACION_MS = 350         # personalización base: duración del giro (0 = sin animación)
 ANIM_CAMARA_INTERVALO_MS = 15         # tiempo entre cuadros (~60 por segundo)
 
-# ---------- Mensajes ----------
-DURACION_MENSAJE_MS = 3000            # cuánto se ve un aviso en la barra de estado
+# ---------- Mensajes y configuración ----------
+DURACION_MENSAJE_MS = 3000            # cuánto se ve un aviso en la barra de comandos
+RETARDO_CONFIGURACION_MS = 150        # espera antes de aplicar un cambio de Configuración

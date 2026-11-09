@@ -1,4 +1,7 @@
-from calculo.modelo import Modelo
+from modelo import Concreto, Modelo
+
+KSI = 6894.757293168361        # kN/m² por ksi (1 kip/in² = 4.4482216152605 kN / 0.0254² m²)
+
 
 def crear_portico():
     """Pórtico 3D de prueba: 5 nodos, 4 barras, un empotramiento y una articulación."""
@@ -8,7 +11,10 @@ def crear_portico():
     m.agregar_material("Acero", e=200e6, g=77e6)
     m.agregar_material("Concreto", e=25e6, g=10e6)
     m.agregar_seccion("Viga 30x50", a=0.15, iy=3.125e-3, iz=1.125e-3, j=2.8e-3)
-    m.agregar_seccion("Col 40x40", a=0.16, iy=2.133e-3, iz=2.133e-3, j=3.6e-3)
+    # Refuerzo DE EJEMPLO (para ver el diagrama de interacción): 8 barras #6, f'c = 4 ksi
+    m.agregar_seccion("Col 40x40", a=0.16, iy=2.133e-3, iz=2.133e-3, j=3.6e-3,
+                      concreto=Concreto(forma="rectangular", fc=4 * KSI, d=0.06, barra=6,
+                                        b=0.40, h=0.40, nx=3, ny=3))
 
     # Nodos 1 a 5
     m.agregar_nodo(0, 0, 0)

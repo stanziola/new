@@ -6,58 +6,80 @@ Programa en Python para analizar pórticos 3D por el método de rigidez y, por e
 
 | Parte | Qué hace | Dónde |
 |---|---|---|
-| Modelo | Nodos, materiales (E, G), secciones (A, Iy, Iz, J) y barras, con validaciones; apoyos y cargas **nodales**; modificar y eliminar. Una barra puede quedar **sin material o sección** (`None`): se dibuja en gris y el análisis se niega hasta asignarlos | `calculo/modelo.py` |
-| Archivo | Guardar y abrir modelos en `.json` (texto legible): unidades internas, contadores de IDs y plano de la rejilla; revisa la consistencia al abrir | `calculo/archivo.py` |
-| Elemento | Matriz de rigidez local 12×12 de barra 3D (Euler-Bernoulli), ángulos α, β y γ, rotación R = A(α)·B(β)·C(γ) y transformación | `calculo/elemento.py` |
-| Ensamble y análisis | K global, vector F, solución K·U = F con apoyos, reacciones, fuerzas en los extremos de cada barra (ejes locales) y detección de mecanismo | `calculo/ensamble.py`, `calculo/analisis.py` |
+| **Cálculo (sagrado)** | Todo lo que decide los resultados, separado del resto y protegido (ver "Cálculo sagrado" en Convenciones). No importa nada del resto del programa | `calculo/` |
+| — Elemento | Matriz de rigidez local 12×12 de barra 3D (Euler-Bernoulli), ángulos α, β y γ, rotación R = A(α)·B(β)·C(γ), transformación y `k_global_barra` | `calculo/elemento.py` |
+| — Ensamble y análisis | K global, vector F, solución K·U = F con apoyos, reacciones, fuerzas en los extremos de cada barra (ejes locales) y detección de mecanismo | `calculo/ensamble.py`, `calculo/analisis.py` |
+| — Tolerancias | `TOL_LONGITUD`, `TOL_RELATIVA` y `COND_MAXIMA` (límite de inestabilidad) | `calculo/tolerancias.py` |
+| — Diagramas de interacción | Columna rectangular (un eje), circular y rectangular biaxial (cualquier θ y superficie 3D). ACI 318-19 con `pint` | `calculo/interaccion/` |
+| Modelo | Nodos, materiales (E, G), secciones (A, Iy, Iz, J) y barras, con validaciones; apoyos y cargas **nodales**; modificar y eliminar. Una barra puede quedar **sin material o sección** (`None`): se dibuja en un gris más claro y el análisis se niega hasta asignarlos. Una sección puede guardar su **refuerzo** (`Concreto`: forma, b × h o D, d, f'c, número de barra y nx·ny o nbarras, en unidades internas) | `modelo/estructura.py` |
+| Archivo | Guardar y abrir modelos en `.json` (texto legible): unidades internas, contadores de IDs, plano de la rejilla y refuerzo de las secciones; revisa la consistencia al abrir. Los archivos anteriores, sin refuerzo, abren igual | `modelo/archivo.py` |
 | Salida | Ver matrices con etiquetas de GDL (o guardarlas en CSV para Excel) e imprimir el modelo y los resultados | `salida/consola.py` |
-| Interfaz 3D | Ventana PySide6 + PyVista: barras, nodos, apoyos, números de nodo y rejilla; rotar, zoom y desplazar | `interfaz/ventana.py`, `interfaz/dibujo.py` |
-| — Menús | **Archivo**: Nuevo, Abrir, Guardar, Guardar como (aviso de cambios sin guardar y `*` en el título). **Definir**: materiales, secciones y combinaciones, deshabilitados (etapas 1 y 3). **Configuración**: diálogo armado desde `PARAMETROS`, incluye unidades y el plano de trabajo | `interfaz/ventana.py`, `interfaz/dialogo_configuracion.py` |
-| — Cubo de vistas | Arriba a la derecha, como el de Civil 3D: blanco plano (sin iluminación), sin letras ni aro. Gira con la cámara. Al pasar el mouse se sombrea en gris la cara, arista o esquina (la esquina completa, sus 3 parches). Clic = giro animado (~0.35 s, slerp de cuaterniones) hasta la vista desde ese lado (26 vistas) | `interfaz/cubo_vistas.py`, `interfaz/animacion.py`, `interfaz/camara.py` |
+| Interfaz 3D | Ventana PySide6 + PyVista: barras, nodos, apoyos, números de nodo y rejilla; rotar, zoom y desplazar. Nodos, barras y apoyos en **gris**; con Seleccionar, **gris oscuro** al pasar el mouse y **negro** al seleccionar, con el mismo tamaño | `interfaz/ventana.py`, `interfaz/dibujo.py` |
+| — Menús | **Archivo**: Nuevo, Abrir, Guardar, Guardar como (aviso de cambios sin guardar y `*` en el título). **Ver**: muestra u oculta los paneles. **Definir**: materiales, secciones y combinaciones, deshabilitados (etapas 1 y 3). **Configuración** | `interfaz/ventana.py` |
+| — Barra Definir | Arriba: íconos de agregar **material** y **sección**. Son las mismas acciones del menú Definir, deshabilitadas ("Próximamente") | `interfaz/ventana.py`, `interfaz/iconos.py` |
+| — Explorador del modelo | Panel a la izquierda (movible, flotante y cerrable). Pestaña **Modelo**: Nodos, Elementos y Apoyos. Pestaña **Tablas**: matrices de rigidez globales (una por elemento) y diagramas de interacción (uno por sección con refuerzo). Elegir un ítem lo selecciona en 3D y lo muestra en Propiedades; seleccionar en 3D lo marca en el árbol | `interfaz/explorador.py` |
+| — Propiedades | Panel a la derecha, de solo lectura, en unidades de pantalla. Nodo: posición, apoyo, cargas y barras conectadas. Barra: nodos, L, α, β, γ, material y sección. Sección con refuerzo: b × h (o D), d, f'c, barras, As, ρ, β1 y fy, y los botones **Ver 2D** y **Ver 3D** (el diagrama se calcula solo al pedirlo, porque pesa) | `interfaz/propiedades.py`, `interfaz/diagramas.py`, `interfaz/concreto.py` |
+| — Matriz de rigidez | Ventana con la K global 12×12 de un elemento (sale de `k_global_barra`, sin repetir fórmulas): etiquetas de GDL con los IDs de los nodos, unidades por bloque (F/L, F y F·L) y botón **Copiar** para pegar en Excel | `interfaz/tablas.py` |
+| — Cubo de vistas | Arriba a la derecha, como el de Civil 3D: blanco plano (sin iluminación), sin letras ni aro. Gira con la cámara. Al pasar el mouse se sombrea en gris la cara, arista o esquina (la esquina completa, sus 3 parches). Clic = giro animado (~0.35 s, slerp de cuaterniones) hasta la vista desde ese lado (26 vistas). El cubo y los ejes (abajo a la izquierda, X en rojo) son cuadrados en píxeles, con el mismo margen a su esquina | `interfaz/cubo_vistas.py`, `interfaz/animacion.py`, `interfaz/camara.py` |
 | — Herramientas | Barra a la izquierda, solo íconos, una activa a la vez. **Seleccionar**, **Nodo** (un clic) y **Elemento** (dos clics, no encadena; crea o reutiliza los nodos; usa el primer material y sección, o queda sin asignar). Cada herramienta es una clase con los mismos métodos (polimorfismo) | `interfaz/herramientas.py`, `interfaz/iconos.py` |
-| — Plano de trabajo y snap | La rejilla está en un plano **XY, XZ o YZ** a una coordenada (Configuración). El puntero cae en ese plano. Con **Snap** (F9) se pega a nodos (en pantalla) y a las intersecciones de la rejilla; antes de colocar se ve en **gris** dónde quedará el nodo o la barra | `interfaz/plano_trabajo.py`, `interfaz/dibujo.py` |
-| — Barra de comandos | Encima de la barra de estado: qué se espera y un campo para coordenadas exactas en unidades de pantalla: `x, y, z`; `u, v` en el plano de la rejilla; `@dx, dy, dz` relativo. Los números escritos sobre la vista van ahí. Esc cancela | `interfaz/ventana.py`, `interfaz/plano_trabajo.py` |
-| — Barra inferior | A la izquierda, la **posición del puntero** (y si se pegó a un nodo o a la rejilla, y el largo L). A la derecha: **Rejilla** (F7), **Snap** (F9), **Etiquetas** y **Encuadre** (con el mismo giro del cubo) | `interfaz/ventana.py` |
-| — Selección | Clic sobre un nodo o una barra con Seleccionar: se resalta en naranja. Sus datos ya no salen en la barra de estado: `texto_seleccion` queda para el futuro panel de propiedades | `interfaz/seleccion.py` |
-| Configuración | Carpeta separada por tema: cálculo, unidades, formato, interfaz, colores. Las preferencias del usuario se guardan aparte (`%APPDATA%\Analisis3D\preferencias.json`) y se aplican encima de la "personalización base" | `configuracion/` |
+| — Plano de trabajo y snap | La rejilla está en un plano **XY, XZ o YZ** a una coordenada (Configuración). Empieza en el origen, con N líneas por eje separadas una distancia d. El puntero cae en ese plano. Con **Snap** (F9) se pega a nodos (en pantalla) y a las intersecciones de la rejilla (solo dentro de ella); antes de colocar se ve dónde quedará el nodo o la barra, en el mismo gris pero transparente | `interfaz/plano_trabajo.py`, `interfaz/dibujo.py` |
+| — Barra de comandos | Encima de la barra de estado. Solo se activa con **Nodo** o **Elemento** (con Seleccionar queda en gris): qué se espera y un campo para coordenadas exactas en unidades de pantalla: `x, y, z`; `u, v` en el plano de la rejilla; `@dx, dy, dz` relativo. Los números escritos sobre la vista van ahí. Esc cancela | `interfaz/ventana.py`, `interfaz/plano_trabajo.py` |
+| — Barra inferior | A la izquierda, la **posición del puntero** (si se pegó a un nodo, y el largo L). A la derecha: **Rejilla** (F7), **Snap** (F9), **Etiquetas** y **Encuadre** (con el mismo giro del cubo) | `interfaz/ventana.py` |
+| — Selección | Clic sobre un nodo o una barra con Seleccionar (los nodos tienen prioridad). Sus datos salen en Propiedades | `interfaz/seleccion.py` |
+| Configuración | Carpeta separada por tema: unidades, formato, interfaz, colores y preferencias. **Unidades como en Ftool**: unidad y decimales por magnitud. El diálogo **aplica cada cambio en el momento** y lo guarda; abajo solo **Restablecer** (izquierda) y **Salir** (derecha). Pestañas: Unidades, Rejilla, Vista, Interfaz y Colores. Las preferencias se guardan aparte (`%APPDATA%\Analisis3D\preferencias.json`) y se aplican encima de la "personalización base" | `configuracion/`, `interfaz/dialogo_configuracion.py` |
 | Tema | Interfaz en blanco y negro: estilo Fusion, paleta en grises y hoja de estilo. Íconos vectoriales propios | `interfaz/tema.py`, `interfaz/iconos.py` |
-| Ejemplo | Pórtico 3D de 5 nodos y 4 barras | `ejemplos/portico.py` |
-| Pruebas | Simetría de K, traslación rígida, equilibrio, voladizo e inestabilidad | `pruebas/verificacion.py` |
-| Diagramas de interacción | Columna rectangular 2D, circular 2D y rectangular biaxial 3D (con ventana tkinter). Usan ACI 318-19 y `pint`. Son scripts sueltos: todavía no están conectados al modelo | `iteracion2drect.py`, `iteracion2dcir.py`, `iteracion3drect.py` |
+| Ejemplo | Pórtico 3D de 5 nodos y 4 barras. La sección "Col 40x40" lleva un refuerzo **de ejemplo** (8 #6, f'c = 4 ksi) | `ejemplos/portico.py` |
+| Pruebas | Simetría de K, traslación rígida, equilibrio, voladizo e inestabilidad; al final, la integridad del cálculo | `pruebas/verificacion.py` |
+| Integridad del cálculo | Huellas SHA-256 de cada archivo de `calculo/` y resultados de referencia (un pórtico y puntos de los tres diagramas). Dice qué archivo cambió y si cambiaron los números | `pruebas/integridad.py`, `pruebas/referencias/` |
+| Diagramas (scripts) | Dibujan con matplotlib (el biaxial, en una ventana tkinter) usando `calculo/interaccion/`. Se ven y se usan igual que antes | `iteracion2drect.py`, `iteracion2dcir.py`, `iteracion3drect.py` |
 | Combinaciones (borrador) | Imprime las combinaciones de resistencia de ASCE 7-05 (incompletas: falta Lr) | `combinacionescarga.py` |
 
 ## Cómo ejecutar (desde la raíz)
 
 - `python main.py`: abre la interfaz con el pórtico de ejemplo. Escríbelo en una terminal aparte: el botón ▷ de VS Code escribe en la terminal donde está Claude.
-- `python -m pruebas.verificacion`: corre las comprobaciones. Escribe `K_global.csv`, que git ignora.
+- `python -m pruebas.verificacion`: corre las comprobaciones y, al final, la integridad del cálculo. Escribe `K_global.csv`, que git ignora.
+- `python -m pruebas.integridad`: revisa solo el cálculo sagrado. Con `--aprobar` acepta el estado actual, **después** de revisar el cambio.
 - `python iteracion3drect.py`: diagrama de interacción biaxial con ventana. Los otros dos `iteracion*.py` muestran el gráfico directamente.
 
-**Dependencias:** las de `requirements.txt` (numpy, pandas, PySide6, pyvista, pyvistaqt). Los `iteracion*.py` además usan **`pint` y `matplotlib`, que no están en `requirements.txt`**.
+**Dependencias:** `pip install -r requirements.txt` (matplotlib, numpy, pandas, pint, PySide6, pyvista, pyvistaqt).
 
 ## Estructura
 
 ```
-calculo/        modelo, elemento, ensamble, análisis y archivo .json (no depende de la interfaz)
-configuracion/  calculo, unidades, formato, interfaz, colores y preferencias (ver su __init__.py)
-interfaz/       ventana, herramientas, plano de trabajo, diálogo de configuración, cubo de vistas,
-                animación de cámara, selección, dibujo, íconos y tema
+calculo/        SAGRADO: elemento, ensamble, análisis, tolerancias e interaccion/ (diagramas
+                ACI 318-19). No importa nada del resto del programa
+modelo/         datos del modelo (estructura.py, con el refuerzo de las secciones) y archivo .json
+configuracion/  unidades, formato, interfaz, colores y preferencias (ver su __init__.py)
+interfaz/       ventana, explorador, propiedades, tablas (matriz K), diagramas, concreto (adaptador
+                del refuerzo al cálculo), herramientas, plano de trabajo, diálogo de configuración,
+                cubo de vistas, animación de cámara, selección, dibujo, íconos y tema
 salida/         impresión en consola y CSV
 ejemplos/       modelos de prueba
-pruebas/        comprobaciones automáticas
+pruebas/        comprobaciones automáticas, integridad del cálculo y sus referencias
 docs/codigos/   PDF de ACI 318-19, ASCE 7-05 y REP 2021
 docs/normas/    notas de normas por etapa (cláusula, fórmula y página del PDF) + índice
 docs/plan_de_estudio.md   hoja de ruta, plan de estudio, verificaciones y hallazgos
+.claude/settings.json     hace que Claude Code pida permiso antes de editar calculo/
 .claude/skills/ revisar-pedido, verificar-calculos, consultar-normas (con scripts para leer los PDF)
 main.py                   punto de entrada (carga las preferencias, el tema y la ventana)
+iteracion*.py             gráficos de los diagramas de interacción (usan calculo/interaccion/)
 ```
 
 ## Convenciones (no cambiarlas sin decidirlo con el usuario)
 
+- **Cálculo sagrado (`calculo/`):**
+  - ahí está solo lo que decide los resultados: rigidez, ensamble, análisis, tolerancias y diagramas de interacción. No importa nada de `modelo/`, `configuracion/` ni `interfaz/`: recibe datos y devuelve números;
+  - **no se cambia sin un pedido explícito del usuario que nombre `calculo/`**. Si otro cambio lo necesita, se para y se pregunta;
+  - Claude Code pide permiso antes de editar cualquier archivo de ahí (`.claude/settings.json`: `"ask": ["Edit(calculo/**)"]`);
+  - después de un cambio: `python -m pruebas.integridad`. Si cambian los resultados de referencia, cambió el cálculo: se justifica (skill `verificar-calculos`) y, ya revisado, `python -m pruebas.integridad --aprobar`;
+  - los commits que lo cambian empiezan con **"CALCULO:"**;
+  - lo que adapta los datos del modelo al cálculo vive afuera. Por ejemplo, `interfaz/concreto.py` pasa el refuerzo (en kN y m) a las cantidades `pint` de los diagramas, y sus salidas de tonf a kN.
 - **Unidades:**
   - el modelo guarda **todo en kN y m (unidades internas)**: E y G en kN/m², A en m², I en m⁴;
-  - la interfaz muestra y recibe en las unidades de pantalla elegidas en Configuración y convierte con `configuracion/unidades.py` (exponentes de fuerza y longitud por magnitud). Cambiar de unidades no toca los datos;
+  - la interfaz muestra y recibe en **unidades de pantalla por magnitud, como en Ftool**. Cada magnitud (longitud, área, inercia, fuerza, momento, carga distribuida y esfuerzo) tiene su unidad (`unidades.LONGITUD`…) y sus decimales (`formato.DECIMALES_LONGITUD`…). Se convierte con `configuracion/unidades.py` (`a_interna`, `a_pantalla`, `simbolo`) y se escribe con `formato.cantidad`. Cambiar de unidades no toca los datos;
+  - las matrices de rigidez mezclan magnitudes: cada bloque se convierte con `unidades.compuesta(a, b)`, que da F^a·L^b con las unidades elegidas (F/L, F o F·L);
   - **tonf es la tonelada métrica** (9.80665 kN). En `pint`, `ton_force` es la tonelada corta (8.896 kN): no usarla;
-  - los diagramas de interacción usan `pint`: entrada en cm, ksi y número de barra; salida en `tonne_force = 1000 kgf` y tonf·m.
+  - los diagramas de interacción (`calculo/interaccion/`) usan `pint`: reciben cantidades con unidades (los scripts dan cm, ksi y número de barra) y devuelven `tonne_force = 1000 kgf` y tonf·m.
 - **Orientación de barras:**
   - R = A(α)·B(β)·C(γ), estilo Mathcad;
   - γ = atan2(dy, dx);
@@ -67,20 +89,30 @@ main.py                   punto de entrada (carga las preferencias, el tema y la
 - **IDs:** empiezan en 1 y **no se reutilizan** (`_sig_id`). El archivo `.json` guarda los contadores para que esto siga valiendo al reabrir.
 - **GDL por nodo:** [Dx, Dy, Dz, Phix, Phiy, Phiz]. **Cargas:** [Fx, Fy, Fz, Mx, My, Mz]. **Fuerzas locales:** [N, Vy, Vz, T, My, Mz] del nodo i y luego del j.
 - **Signos:** fuerzas que los nodos ejercen sobre la barra. El orden en K es el orden de creación de los nodos.
-- **Configuración:** todo valor ajustable vive en `configuracion/`.
-  - Lo que el usuario puede cambiar se lee en el momento (`colores.BARRA`, `ui.TAMANO_ICONO`), nunca con `from ... import CONSTANTE`; si no, no vería sus cambios. Las constantes fijas (tolerancias, nombres de GDL) sí se pueden importar.
+- **Configuración:** todo valor ajustable de presentación vive en `configuracion/`. Las tolerancias del cálculo no: están en `calculo/tolerancias.py`.
+  - Lo que el usuario puede cambiar se lee en el momento (`colores.ELEMENTO`, `ui.TAMANO_ICONO`), nunca con `from ... import CONSTANTE`; si no, no vería sus cambios. Las constantes fijas (tolerancias, nombres de GDL) sí se pueden importar.
   - Para hacer algo configurable se agrega una línea a `preferencias.PARAMETROS` y el diálogo se arma solo.
   - Los valores con unidades (`magnitud`) se guardan en internas.
+  - El diálogo aplica cada cambio en el momento y lo guarda. Espera `RETARDO_CONFIGURACION_MS` para no redibujar con cada tecla: si se escribe "125", redibuja una vez y no tres.
+  - Quedan fuera del diálogo, como constantes internas: los atajos (F7 y F9), las distancias de selección, de snap y de clic, y los tamaños de apoyo, letra y previsualización.
 - **Interfaz:**
   - un clic es presionar y soltar con menos de `TOL_CLIC_PX` de movimiento;
   - en la selección, los nodos tienen prioridad sobre las barras (tolerancia `TOL_SELECCION_PX`);
-  - el cubo usa su propio `vtkOrientationMarkerWidget`, porque `add_orientation_widget` de PyVista borraría los ejes de `add_axes`;
-  - **colores:** la interfaz (íconos, barras, botones) va solo en blanco, negro y grises; el dibujo 3D puede tener color;
+  - el cubo usa su propio `vtkOrientationMarkerWidget`, porque `add_orientation_widget` de PyVista borraría los ejes de `add_axes`. El cubo y los ejes van en viewports cuadrados en píxeles, con `MARGEN_ESQUINA_PX` a su esquina, y se recalculan al cambiar el tamaño de la ventana;
+  - **colores:** la interfaz (íconos, barras, botones) va solo en blanco, negro y grises; el dibujo 3D puede tener color (por ahora, el eje X en rojo);
+  - **colores de la vista:** nodos, barras y apoyos en `colores.ELEMENTO` (gris); al pasar el mouse con Seleccionar, `RESALTADO` (gris oscuro); lo seleccionado, `SELECCIONADO` (negro); sin material o sección, `SIN_ASIGNAR` (gris más claro). Se cambia el color de cada celda (escalares RGB en actores VTK armados a mano en `dibujo._agregar`, porque `add_mesh` copia la malla) y no se dibuja nada encima: así no cambia el tamaño ni parpadea. La previsualización usa el mismo gris con `OPACIDAD_PREVISUALIZACION`;
   - **íconos propios** en `iconos.py`: línea negra de 1.5 en una cuadrícula de 24×24, sin relleno; deshabilitados en gris;
   - lo que está activo se sombrea en gris; una acción (como Encuadre) no queda activa;
-  - **organización:** arriba, menús con palabras (son categorías); a la izquierda, las herramientas que cambian lo que hace el clic (una activa a la vez); abajo, la barra de comandos y, en la barra de estado, la posición del puntero y, a la derecha, cómo se ve el modelo y Encuadre. Solo íconos con tooltip mientras el símbolo sea claro;
+  - **organización:**
+    - arriba, menús con palabras (son categorías): Archivo · Ver · Definir · Configuración; debajo, la barra Definir con íconos;
+    - a la izquierda, las herramientas que cambian lo que hace el clic (una activa a la vez) y el Explorador del modelo;
+    - a la derecha, Propiedades;
+    - los paneles se pueden mover, desacoplar y cerrar; se vuelven a abrir desde **Ver**;
+    - abajo, la barra de comandos y, en la barra de estado, la posición del puntero y, a la derecha, cómo se ve el modelo y Encuadre;
+    - solo íconos con tooltip mientras el símbolo sea claro;
   - **atajos** como en Civil 3D: F7 rejilla, F9 snap;
-  - la cámara la mueve un solo `AnimadorCamara` (cubo y Encuadre): un giro nuevo reemplaza al anterior.
+  - la cámara la mueve un solo `AnimadorCamara` (cubo y Encuadre): un giro nuevo reemplaza al anterior;
+  - lo que pesa, como los diagramas de interacción, se calcula solo cuando el usuario lo pide (Ver 2D y Ver 3D).
 
 ## Normas
 
@@ -113,10 +145,10 @@ El detalle (qué estudiar, cómo verificar y cuándo se considera terminada cada
 - Sin deformación por cortante.
 - Secciones con **inercia bruta**: todavía sin los modificadores de agrietamiento del ACI (Tabla 6.6.3.1.1).
 - Sin diafragmas, masas ni análisis dinámico.
-- La inestabilidad se detecta con cond(Kll) > `COND_MAXIMA` (1e12, en `configuracion/calculo.py`), un criterio que depende de las unidades.
-- Las barras sin material o sección se pueden dibujar, pero el análisis las rechaza hasta que se asignen (todavía no hay menú Definir).
+- La inestabilidad se detecta con cond(Kll) > `COND_MAXIMA` (1e12, en `calculo/tolerancias.py`), un criterio que depende de las unidades.
+- Las barras sin material o sección se pueden dibujar, pero el análisis las rechaza hasta que se asignen (Definir todavía está deshabilitado).
 - Sin Deshacer (Ctrl+Z).
-- Los diagramas de interacción son scripts aparte. Los hallazgos pendientes de revisión (β1, columna con espiral, barras #14/#18, cuantía en pórtico especial) están en `docs/plan_de_estudio.md`.
+- Los diagramas de interacción se ven por sección (Propiedades → Ver 2D o Ver 3D), pero todavía no se usan para diseñar. Los hallazgos pendientes de revisión (β1, columna con espiral, barras #14/#18, cuantía en pórtico especial) están en `docs/plan_de_estudio.md` y **siguen sin corregir**: corregirlos es un cambio al cálculo sagrado.
 
 ## Cómo trabajar en este proyecto (instrucciones para Claude)
 
@@ -124,13 +156,16 @@ El detalle (qué estudiar, cómo verificar y cuándo se considera terminada cada
 - **Al empezar cada pedido, usar la skill `revisar-pedido`.** El usuario quiere que en todo lo que diga se busquen contradicciones (con las normas, con el código y sus convenciones, con la hoja de ruta) y formas mejores de hacerlo. La respuesta va breve, al inicio.
 - Todo cálculo, fórmula o resultado: skill **`verificar-calculos`**. Toda cita de norma: skill **`consultar-normas`**. Nunca citar de memoria sin comprobar.
 - **No escribir ni modificar código sin un pedido explícito.** Frases como "vamos con…" significan conversar. Ante la duda, preguntar.
+- **`calculo/` es sagrado:** no tocarlo sin un pedido explícito que lo nombre (ver Convenciones). Si un cambio de otra parte lo necesita, parar y preguntar.
 - **Al agregar botones o funciones**, sugerir:
   - dónde van (organización);
   - si llevan ícono, palabra o ambos;
   - qué parámetros conviene que el usuario configure. Los valores base quedan en `configuracion/` ("personalización base") y se exponen en el diálogo con una línea en `preferencias.PARAMETROS`.
 - **Commits:** no ejecutarlos. Dar el comando listo para pegar en PowerShell, en una línea:
 
-  `git add .` y luego `git commit -m "Asunto" -m "- punto 1`n- punto 2"`
+  `git add .` y luego ``git commit -m "Asunto" -m "- punto 1`n- punto 2"``
 
-  No usar comillas dobles ni backticks dentro del texto del mensaje.
+  - No usar comillas dobles ni backticks dentro del texto del mensaje.
+  - Si el commit cambia `calculo/`, el asunto empieza con "CALCULO:".
+  - **Nunca** agregar `Co-Authored-By` ni ninguna otra atribución a Claude.
 - Explicar el porqué con ejemplos. El usuario estudia POO y análisis estructural mientras construye el programa.

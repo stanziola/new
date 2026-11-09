@@ -1,38 +1,40 @@
 """Ventana principal.
 
-Organización:
-- Arriba, menús con palabras (son categorías): Archivo, Definir y Configuración.
-- Izquierda, las herramientas que cambian lo que hace el clic (una activa a la vez): Seleccionar,
-  Nodo y Elemento. Solo íconos con tooltip.
-- Abajo:
-  - barra de comandos: qué se espera, un campo para escribir coordenadas exactas y los avisos;
-  - barra de estado: a la izquierda, la posición del puntero; a la derecha, cómo se ve el modelo
-    (Rejilla, Snap, Etiquetas) y Encuadre.
+Organización (como ETABS y Civil 3D):
+- Arriba: menús con palabras (Archivo, Ver, Definir, Configuración) y la barra Definir con íconos.
+- Izquierda: las herramientas que cambian lo que hace el clic (Seleccionar, Nodo, Elemento) y el
+  Explorador del modelo (pestañas Modelo y Tablas).
+- Derecha: Propiedades de lo seleccionado.
+- Abajo: la barra de comandos (activa solo con Nodo o Elemento) y la barra de estado, con la
+  posición del puntero a la izquierda y Rejilla, Snap, Etiquetas y Encuadre a la derecha.
+Los paneles se pueden agrandar, mover, cerrar y volver a abrir desde el menú Ver.
 La lógica de cada herramienta está en herramientas.py; la del plano y el snap, en plano_trabajo.py.
 """
 from pathlib import Path
 
-import numpy as np
-import pyvista as pv
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QDialog, QFileDialog, QLabel, QLineEdit, QMainWindow,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QLineEdit, QMainWindow,
                                QMessageBox, QSizePolicy, QToolBar)
 from pyvistaqt import QtInteractor
 
-from calculo import archivo
-from calculo.modelo import Modelo
 from configuracion import colores
 from configuracion import interfaz as ui
 from interfaz.camara import AnimadorCamara
-from interfaz.cubo_vistas import CuboVistas
+from interfaz.cubo_vistas import CuboVistas, viewport_esquina
+from interfaz.diagramas import VentanaDiagrama
 from interfaz.dialogo_configuracion import DialogoConfiguracion
-from interfaz.dibujo import Previsualizacion, dibujar_modelo, dibujar_rejilla
+from interfaz.dibujo import ModeloDibujado, Previsualizacion, dibujar_modelo, dibujar_rejilla
+from interfaz.explorador import Explorador
 from interfaz.herramientas import AgregarElemento, AgregarNodo, Seleccionar
 from interfaz.iconos import icono
 from interfaz.plano_trabajo import (PLANOS, Candidato, candidato, geometria_rejilla, interpretar,
                                     plano_por_defecto, texto_coordenadas)
+from interfaz.propiedades import Propiedades
+from interfaz.seleccion import elemento_en
+from interfaz.tablas import VentanaMatriz
 from interfaz.tema import aplicar_tema
+from modelo import Modelo, archivo
 
 TECLAS_A_COMANDOS = set("0123456789.-@")   # escritas sobre la vista, van a la barra de comandos
 
@@ -46,27 +48,36 @@ class Ventana(QMainWindow):
         self.ruta = Path(ruta) if ruta else None   # archivo del modelo (None = todavía sin guardar)
         self.modificado = False
         self.seleccion = None                      # ("nodo", id), ("barra", id) o None
-        self.actores = {}                          # lo dibujado: {"barras": actor, "rejilla": ...}
+        self.resaltado = None                      # lo que está bajo el mouse con Seleccionar
+        self._en_propiedades = None                # lo que muestra el panel Propiedades
+        self.dibujado = ModeloDibujado()
         self.plano, self.posicion_plano = plano_por_defecto(self.modelo)
         self.rejilla = None
         self.candidato = Candidato()               # dónde caería un clic ahora
         self._pos_presion = None                   # dónde se presionó el botón izquierdo
         self._mouse = None                         # última posición del mouse sobre la vista
         self._cerrando = False
+        self.diagramas = []                        # ventanas de diagramas abiertas
 
-        self.vista = QtInteractor(self)            # vista 3D: rotar, zoom y desplazar con el mouse
+        # Tres luces blancas: los grises se ven grises (las de pyvista por defecto los tiñen)
+        self.vista = QtInteractor(self, lighting="three lights")
         self.setCentralWidget(self.vista)
-        self.vista.add_axes()                      # ejes X, Y, Z en la esquina
+        self.vista.add_axes(x_color=colores.EJE_X)  # ejes X (rojo), Y, Z abajo a la izquierda
         self.animador = AnimadorCamara(self.vista)  # giro suave de la cámara (cubo y Encuadre)
         self.previsualizacion = Previsualizacion(self.vista)
+        self.ventana_matriz = VentanaMatriz(self)
 
+        self._crear_paneles()
         self._crear_menus()
+        self._crear_barra_definir()
         self._crear_herramientas()
         self._crear_barra_comandos()
         self._crear_barra_inferior()
 
         self.redibujar(reiniciar_camara=True)
         self.cubo = CuboVistas(self.vista, self.animador)   # cubo de vistas, arriba a la derecha
+        self.explorador.actualizar(self.modelo)
+        self._mostrar_propiedades(None)
         self._actualizar_titulo()
         self.actualizar_indicacion()
         self._actualizar_puntero()
@@ -86,7 +97,7 @@ class Ventana(QMainWindow):
         esc.activated.connect(self.cancelar)
 
     def _accion(self, nombre_icono, texto, ayuda, activable=False, activa=False, atajo=None):
-        """Botón de barra (QAction) con ícono, tooltip y, si se pide, atajo de teclado."""
+        """Botón (QAction) con ícono, tooltip y, si se pide, atajo de teclado."""
         accion = QAction(icono(nombre_icono), texto, self)
         accion.setToolTip(ayuda)
         accion.setCheckable(activable)
@@ -95,7 +106,48 @@ class Ventana(QMainWindow):
             accion.setShortcut(QKeySequence(atajo))
         return accion
 
-    # ---------- Menús (arriba) ----------
+    # ---------- Paneles (izquierda y derecha) ----------
+    def _crear_paneles(self):
+        self.explorador = Explorador(self)
+        self.propiedades = Propiedades(self)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.explorador)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.propiedades)
+        self.resizeDocks([self.explorador, self.propiedades], [260, 300], Qt.Horizontal)
+        self.explorador.elegido.connect(self._elegido_en_explorador)
+        self.propiedades.ver_diagrama.connect(self.ver_diagrama)
+
+    def _mostrar_propiedades(self, item):
+        self._en_propiedades = item
+        self.propiedades.mostrar(self.modelo, item)
+
+    def _elegido_en_explorador(self, item):
+        tipo, ident = item
+        if tipo in ("nodo", "barra"):
+            self.seleccionar(item)
+        elif tipo == "matriz":
+            self.seleccionar(("barra", ident))
+            self.ventana_matriz.mostrar(self.modelo, ident)
+        elif tipo == "seccion":
+            self.seleccionar(None)
+            self._mostrar_propiedades(item)
+
+    def ver_diagrama(self, sid, modo):
+        """Abre la ventana del diagrama de interacción (2D o 3D) de la sección sid."""
+        sec = self.modelo.secciones.get(sid)
+        if sec is None or sec.concreto is None:
+            return None
+        try:
+            ventana = VentanaDiagrama(sec, modo, self)
+        except ValueError as e:
+            QMessageBox.warning(self, "Diagrama de interacción", f"No se pudo calcular:\n\n{e}")
+            return None
+        ventana.setAttribute(Qt.WA_DeleteOnClose)
+        self.diagramas.append(ventana)
+        ventana.destroyed.connect(lambda *_, v=ventana: self.diagramas.remove(v) if v in self.diagramas else None)
+        ventana.show()
+        return ventana
+
+    # ---------- Menús y barra Definir (arriba) ----------
     def _crear_menus(self):
         menu = self.menuBar().addMenu("Archivo")
         for texto, atajo, funcion in (("Nuevo", "Ctrl+N", self.nuevo),
@@ -106,15 +158,32 @@ class Ventana(QMainWindow):
             accion.setShortcut(QKeySequence(atajo))
             accion.triggered.connect(lambda *_, f=funcion: f())
 
+        ver = self.menuBar().addMenu("Ver")                 # cerrar y volver a abrir los paneles
+        ver.addAction(self.explorador.toggleViewAction())
+        ver.addAction(self.propiedades.toggleViewAction())
+
         definir = self.menuBar().addMenu("Definir")         # etapas 1 y 3 de la hoja de ruta
         definir.setToolTipsVisible(True)
-        for texto in ("Materiales…", "Secciones…", "Combinaciones de carga…"):
-            accion = definir.addAction(texto)
+        self.accion_material = self._accion("material", "Materiales…", "Agregar material (próximamente)")
+        self.accion_seccion = self._accion("seccion", "Secciones…", "Agregar sección (próximamente)")
+        self.accion_combinaciones = QAction("Combinaciones de carga…", self)
+        self.accion_combinaciones.setToolTip("Próximamente")
+        for accion in (self.accion_material, self.accion_seccion, self.accion_combinaciones):
             accion.setEnabled(False)
-            accion.setToolTip("Próximamente")
+            definir.addAction(accion)
 
         self.accion_configuracion = self.menuBar().addAction("Configuración")
         self.accion_configuracion.triggered.connect(self.abrir_configuracion)
+
+    def _crear_barra_definir(self):
+        self.barra_definir = QToolBar("Definir", self)
+        self.barra_definir.setObjectName("definir")
+        self.barra_definir.setMovable(False)
+        self.barra_definir.setFloatable(False)
+        self.barra_definir.setIconSize(QSize(ui.TAMANO_ICONO, ui.TAMANO_ICONO))
+        self.barra_definir.addAction(self.accion_material)
+        self.barra_definir.addAction(self.accion_seccion)
+        self.addToolBar(Qt.TopToolBarArea, self.barra_definir)
 
     # ---------- Herramientas (izquierda) ----------
     def _crear_herramientas(self):
@@ -152,15 +221,17 @@ class Ventana(QMainWindow):
         self.herramienta.cancelar()
         self.herramienta = herramienta
         self.comando.clear()
+        self.resaltado = None                      # el resaltado gris oscuro es solo de Seleccionar
+        self.pintar()
         self.actualizar_indicacion()
         self._actualizar_puntero()
 
     # ---------- Barra de comandos (abajo) ----------
     def _crear_barra_comandos(self):
-        barra = QToolBar("Comandos", self)
-        barra.setObjectName("barra_comandos")
-        barra.setMovable(False)
-        barra.setFloatable(False)
+        self.barra_comandos = QToolBar("Comandos", self)
+        self.barra_comandos.setObjectName("barra_comandos")
+        self.barra_comandos.setMovable(False)
+        self.barra_comandos.setFloatable(False)
         self.indicacion = QLabel()                 # qué se espera del usuario
         self.comando = QLineEdit()                 # coordenadas exactas
         self.comando.setPlaceholderText("x, y, z")
@@ -168,14 +239,16 @@ class Ventana(QMainWindow):
         self.comando.returnPressed.connect(self._ejecutar_comando)
         self.aviso = QLabel()                      # avisos cortos ("Nodo 6 agregado")
         for widget in (self.indicacion, self.comando, self.aviso):
-            barra.addWidget(widget)
-        self.addToolBar(Qt.BottomToolBarArea, barra)
+            self.barra_comandos.addWidget(widget)
+        self.addToolBar(Qt.BottomToolBarArea, self.barra_comandos)
         self._reloj_aviso = QTimer(self)
         self._reloj_aviso.setSingleShot(True)
         self._reloj_aviso.timeout.connect(self.aviso.clear)
 
     def actualizar_indicacion(self):
+        """Texto de la barra de comandos. Solo está activa con Nodo o Elemento."""
         self.indicacion.setText(self.herramienta.indicacion())
+        self.barra_comandos.setEnabled(self.herramienta.usa_previsualizacion)
 
     def mensaje(self, texto):
         """Aviso corto en la barra de comandos; se borra solo."""
@@ -198,7 +271,7 @@ class Ventana(QMainWindow):
         self._actualizar_puntero()
 
     def cancelar(self):
-        """Esc: cancela lo que esté a medias; si no hay nada, vuelve a Seleccionar."""
+        """Esc: cancela lo que esté a medias; si no hay nada, vuelve a Seleccionar o deselecciona."""
         self.comando.clear()
         seleccionar = self._herramientas[0][1]
         if self.herramienta.cancelar():
@@ -212,7 +285,7 @@ class Ventana(QMainWindow):
 
     def eventFilter(self, objeto, evento):
         if (objeto is self.vista and evento.type() == QEvent.KeyPress and evento.text()
-                and evento.text() in TECLAS_A_COMANDOS
+                and evento.text() in TECLAS_A_COMANDOS and self.barra_comandos.isEnabled()
                 and not evento.modifiers() & (Qt.ControlModifier | Qt.AltModifier)):
             if not self.comando.hasFocus():
                 self.comando.clear()               # escribir sobre la vista empieza un comando nuevo
@@ -229,18 +302,18 @@ class Ventana(QMainWindow):
         barra.setFloatable(False)
         barra.setIconSize(QSize(ui.TAMANO_ICONO_INFERIOR, ui.TAMANO_ICONO_INFERIOR))
 
-        self.accion_rejilla = self._accion("rejilla", "Rejilla", "", activable=True,
-                                           activa=ui.REJILLA_VISIBLE, atajo=ui.ATAJO_REJILLA)
+        self.accion_rejilla = self._accion("rejilla", "Rejilla", f"Rejilla ({ui.ATAJO_REJILLA})",
+                                           activable=True, activa=ui.REJILLA_VISIBLE, atajo=ui.ATAJO_REJILLA)
         self.accion_rejilla.toggled.connect(lambda activa: self._mostrar("rejilla", activa))
-        self.accion_snap = self._accion("snap", "Snap", "", activable=True,
-                                        activa=ui.SNAP_ACTIVO, atajo=ui.ATAJO_SNAP)
+        self.accion_snap = self._accion("snap", "Snap",
+                                        f"Snap ({ui.ATAJO_SNAP}): pega el punto a nodos y a la rejilla",
+                                        activable=True, activa=ui.SNAP_ACTIVO, atajo=ui.ATAJO_SNAP)
         self.accion_snap.toggled.connect(lambda *_: self._actualizar_puntero())
         self.accion_etiquetas = self._accion("etiqueta", "Etiquetas", "Etiquetas: números de nodo",
                                              activable=True, activa=ui.ETIQUETAS_VISIBLES)
         self.accion_etiquetas.toggled.connect(lambda activa: self._mostrar("etiquetas", activa))
         self.accion_encuadre = self._accion("encuadre", "Encuadre", "Encuadre: ajusta la vista al modelo")
         self.accion_encuadre.triggered.connect(self.encuadre)
-        self._poner_ayudas()
 
         for accion in (self.accion_rejilla, self.accion_snap, self.accion_etiquetas):
             barra.addAction(accion)
@@ -254,13 +327,9 @@ class Ventana(QMainWindow):
         estado.addPermanentWidget(barra)
         self.barra_inferior = barra
 
-    def _poner_ayudas(self):
-        self.accion_rejilla.setToolTip(f"Rejilla ({ui.ATAJO_REJILLA})")
-        self.accion_snap.setToolTip(f"Snap ({ui.ATAJO_SNAP}): pega el punto a nodos y a la rejilla")
-
     def _mostrar(self, nombre, visible, dibujar=True):
         """Muestra u oculta un actor de la vista ("rejilla", "etiquetas"...)."""
-        actor = self.actores.get(nombre)
+        actor = self.dibujado.actores.get(nombre)
         if actor is not None:
             actor.SetVisibility(visible)
             if dibujar:
@@ -271,19 +340,26 @@ class Ventana(QMainWindow):
         self.animador.animar(lambda: self.vista.reset_camera(render=False))
 
     # ---------- Dibujo ----------
+    def _vigente(self, item):
+        """El item si todavía existe en el modelo; si no, None."""
+        if item is None:
+            return None
+        tipo, ident = item
+        return item if ident in (self.modelo.nodos if tipo == "nodo" else self.modelo.elementos) else None
+
     def redibujar(self, reiniciar_camara=False):
         """Vuelve a dibujar el modelo y la rejilla. No mueve la cámara, salvo que se pida."""
-        for actor in self.actores.values():
+        for actor in self.dibujado.actores.values():
             self.vista.remove_actor(actor, render=False)
-        self.vista.remove_actor("seleccion", render=False)
-        self.seleccion = None
         self.vista.set_background(colores.FONDO_VISTA)
-        self.actores = dibujar_modelo(self.vista, self.modelo)
+        self.dibujado = dibujar_modelo(self.vista, self.modelo)
         self.rejilla = geometria_rejilla(self.modelo, self.plano, self.posicion_plano)
-        self.actores["rejilla"] = dibujar_rejilla(self.vista, self.rejilla,
-                                                  cuenta_para_camara=not self.modelo.nodos)
+        self.dibujado.actores["rejilla"] = dibujar_rejilla(self.vista, self.rejilla,
+                                                           cuenta_para_camara=not self.modelo.nodos)
         self._mostrar("rejilla", self.accion_rejilla.isChecked(), dibujar=False)
         self._mostrar("etiquetas", self.accion_etiquetas.isChecked(), dibujar=False)
+        self.seleccion, self.resaltado = self._vigente(self.seleccion), self._vigente(self.resaltado)
+        self.dibujado.pintar(self.resaltado, self.seleccion)
         self.previsualizacion.actualizar_estilo()
         if reiniciar_camara:
             self.vista.view_isometric()
@@ -291,14 +367,30 @@ class Ventana(QMainWindow):
         self.vista.renderer.ResetCameraClippingRange()
         self.vista.render()
 
+    def pintar(self):
+        """Colores vigentes: gris, gris oscuro bajo el mouse y negro lo seleccionado."""
+        self.dibujado.pintar(self.resaltado, self.seleccion)
+        self.vista.render()
+
     def modelo_cambiado(self, texto):
         """Lo llaman las herramientas después de agregar algo."""
         self.modificado = True
         self._actualizar_titulo()
         self.redibujar()
+        self._refrescar_paneles()
         self.mensaje(texto)
         self.actualizar_indicacion()
         self._actualizar_puntero()
+
+    def _refrescar_paneles(self):
+        """Explorador, Propiedades y ventanas abiertas, con el modelo y las unidades vigentes."""
+        self.explorador.actualizar(self.modelo)
+        self.explorador.marcar(self.seleccion)
+        self._mostrar_propiedades(self._en_propiedades)
+        if self.ventana_matriz.isVisible():
+            self.ventana_matriz.refrescar(self.modelo)
+        for ventana in self.diagramas:
+            ventana.refrescar()
 
     # ---------- Mouse ----------
     def _actualizar_puntero(self):
@@ -318,6 +410,16 @@ class Ventana(QMainWindow):
         if habia or self.previsualizacion.visible:
             self.vista.render()
 
+    def _actualizar_resaltado(self):
+        """Con Seleccionar, el nodo o la barra bajo el mouse se ve en gris oscuro."""
+        nuevo = None
+        if (self._mouse is not None and isinstance(self.herramienta, Seleccionar)
+                and not self.cubo.contiene(*self._mouse)):
+            nuevo = elemento_en(self.vista.renderer, self.modelo, *self._mouse, ui.TOL_SELECCION_PX)
+        if nuevo != self.resaltado:
+            self.resaltado = nuevo
+            self.pintar()
+
     def _al_presionar(self, *_):
         self.animador.detener()                    # si la cámara estaba girando, manda el usuario
         self._pos_presion = self.vista.iren.get_event_position()
@@ -327,11 +429,13 @@ class Ventana(QMainWindow):
             return
         self._mouse = self.vista.iren.get_event_position()
         self.cubo.resaltar(*self._mouse)
+        self._actualizar_resaltado()
         self._actualizar_puntero()
 
     def _al_salir(self, *_):
         self._mouse = None
         self.cubo.quitar_resaltado()
+        self._actualizar_resaltado()
         self._actualizar_puntero()
 
     def _al_soltar(self, *_):
@@ -355,23 +459,12 @@ class Ventana(QMainWindow):
 
     # ---------- Selección ----------
     def seleccionar(self, seleccion):
-        """Resalta el nodo o la barra elegida. None quita la selección."""
-        self.seleccion = seleccion
-        self.vista.remove_actor("seleccion", render=False)
-        if seleccion is not None:
-            tipo, ident = seleccion
-            if tipo == "nodo":
-                punto = np.array([self.modelo.nodos[ident].coords], dtype=float)
-                self.vista.add_points(punto, name="seleccion", color=colores.SELECCION,
-                                      point_size=ui.TAMANO_SELECCION,
-                                      render_points_as_spheres=True, reset_camera=False)
-            else:
-                el = self.modelo.elementos[ident]
-                barra = pv.Line(self.modelo.nodos[el.ni].coords, self.modelo.nodos[el.nj].coords)
-                self.vista.add_mesh(barra, name="seleccion", color=colores.SELECCION,
-                                    line_width=ui.GROSOR_SELECCION, render_lines_as_tubes=True,
-                                    reset_camera=False)
-        self.vista.render()
+        """Selecciona un ("nodo", id) o ("barra", id): negro en 3D, marcado en el explorador y sus
+        datos en Propiedades. None quita la selección."""
+        self.seleccion = self._vigente(seleccion)
+        self.pintar()
+        self.explorador.marcar(self.seleccion)
+        self._mostrar_propiedades(self.seleccion)
 
     # ---------- Archivo ----------
     def _actualizar_titulo(self):
@@ -447,48 +540,69 @@ class Ventana(QMainWindow):
             self.plano, self.posicion_plano = plano_por_defecto(modelo)
         for _, herramienta in self._herramientas:
             herramienta.reiniciar()
+        self.seleccion = self.resaltado = self._en_propiedades = None
+        self.ventana_matriz.close()
+        for ventana in list(self.diagramas):
+            ventana.close()
         self.redibujar(reiniciar_camara=True)
+        self._refrescar_paneles()
         self._actualizar_titulo()
         self.actualizar_indicacion()
         self._actualizar_puntero()
 
     # ---------- Configuración ----------
     def abrir_configuracion(self):
-        dialogo = DialogoConfiguracion(self, self.plano, self.posicion_plano)
-        if dialogo.exec() != QDialog.Accepted:
+        """El diálogo aplica cada cambio en el momento; aquí solo se abre."""
+        DialogoConfiguracion(self).exec()
+
+    def cambiar_plano(self, plano, posicion):
+        """Plano de trabajo (de este modelo: se guarda con su archivo)."""
+        if (plano, posicion) == (self.plano, self.posicion_plano):
             return
-        plano = dialogo.plano_elegido()
-        if plano != (self.plano, self.posicion_plano):
-            self.plano, self.posicion_plano = plano
-            self.modificado = True                 # el plano se guarda con el modelo
-        self.aplicar_configuracion()
+        self.plano, self.posicion_plano = plano, posicion
+        self.modificado = True
+        self._actualizar_titulo()
+        self.redibujar()
+        self._actualizar_puntero()
 
     def aplicar_configuracion(self):
-        """Toma los valores vigentes de configuracion/ (después de cambiarlos en el diálogo)."""
+        """Toma los valores vigentes de configuracion/ (lo llama el diálogo en cada cambio)."""
         aplicar_tema(QApplication.instance())
-        self.herramientas.setIconSize(QSize(ui.TAMANO_ICONO, ui.TAMANO_ICONO))
+        for barra in (self.herramientas, self.barra_definir):
+            barra.setIconSize(QSize(ui.TAMANO_ICONO, ui.TAMANO_ICONO))
         self.barra_inferior.setIconSize(QSize(ui.TAMANO_ICONO_INFERIOR, ui.TAMANO_ICONO_INFERIOR))
-        self.accion_rejilla.setShortcut(QKeySequence(ui.ATAJO_REJILLA))
-        self.accion_snap.setShortcut(QKeySequence(ui.ATAJO_SNAP))
-        self._poner_ayudas()
         self.cubo.actualizar_colores()
-        self.cubo.ajustar_tamano()
+        self._ajustar_esquinas()
         self.redibujar()
-        self._actualizar_titulo()
+        self._refrescar_paneles()
         self.actualizar_indicacion()
         self._actualizar_puntero()
-        for barra in (self.herramientas, self.barra_inferior):
+        for barra in (self.herramientas, self.barra_definir, self.barra_inferior):
             barra.update()                         # los íconos se vuelven a pintar con su color
 
     # ---------- Ventana ----------
+    def _ajustar_esquinas(self):
+        """Cubo arriba a la derecha y ejes abajo a la izquierda: cuadrados y con el mismo margen."""
+        ancho, alto = self.vista.ren_win.GetSize()
+        if ancho <= 0 or alto <= 0:
+            return
+        self.cubo.ajustar_tamano()
+        ejes = self.vista.renderer.axes_widget
+        if ejes is not None:
+            ejes.SetViewport(*viewport_esquina(ancho, alto, ui.EJES_TAMANO, "abajo_izquierda"))
+
+    def showEvent(self, evento):
+        super().showEvent(evento)
+        QTimer.singleShot(0, self._ajustar_y_dibujar)
+
     def resizeEvent(self, evento):
         super().resizeEvent(evento)
         if hasattr(self, "cubo"):
-            QTimer.singleShot(0, self._ajustar_cubo)   # después de que la vista tome su tamaño
+            QTimer.singleShot(0, self._ajustar_y_dibujar)   # después de que la vista tome su tamaño
 
-    def _ajustar_cubo(self):
+    def _ajustar_y_dibujar(self):
         if not self._cerrando:
-            self.cubo.ajustar_tamano()
+            self._ajustar_esquinas()
             self.vista.render()
 
     def closeEvent(self, evento):
@@ -497,6 +611,9 @@ class Ventana(QMainWindow):
             return
         self._cerrando = True
         self.animador.detener()                    # que el giro no siga con la ventana cerrándose
+        for ventana in list(self.diagramas):
+            ventana.close()
+        self.ventana_matriz.close()
         self.cubo.apagar()                         # apaga el cubo antes de cerrar la vista 3D
         self.vista.close()                         # libera la ventana 3D al cerrar
         super().closeEvent(evento)

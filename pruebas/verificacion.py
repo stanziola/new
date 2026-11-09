@@ -3,7 +3,7 @@
 """
 import numpy as np
 from configuracion.formato import configurar
-from calculo.modelo import Modelo
+from modelo import Modelo
 from calculo.analisis import resolver
 from ejemplos.portico import crear_portico
 from salida.consola import mostrar, mostrar_resultados, ver
@@ -83,7 +83,10 @@ def verificar_inestable():
 
 
 if __name__ == "__main__":
+    from pruebas.integridad import revisar
     configurar()
     verificar_portico()
     verificar_voladizo()
     verificar_inestable()
+    print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
+    revisar()

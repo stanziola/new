@@ -10,7 +10,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from calculo.modelo import Elemento, Material, Modelo, Nodo, Seccion
+from modelo.estructura import Concreto, Elemento, Material, Modelo, Nodo, Seccion
 
 VERSION_FORMATO = 1
 UNIDADES_INTERNAS = {"fuerza": "kN", "longitud": "m"}
@@ -41,6 +41,13 @@ def guardar(modelo, ruta, vista=None):
     temporal.replace(ruta)
 
 
+def _seccion(d):
+    """Seccion desde su diccionario. "concreto" puede faltar (archivos anteriores) o ser null."""
+    d = dict(d)
+    concreto = d.pop("concreto", None)
+    return Seccion(**d, concreto=Concreto(**concreto) if concreto else None)
+
+
 def desde_diccionario(datos):
     """Arma el modelo desde el diccionario leído. Devuelve (modelo, vista)."""
     if not isinstance(datos, dict):
@@ -55,7 +62,7 @@ def desde_diccionario(datos):
     try:
         m.nodos = {int(i): Nodo(**d) for i, d in datos["nodos"].items()}
         m.materiales = {int(i): Material(**d) for i, d in datos["materiales"].items()}
-        m.secciones = {int(i): Seccion(**d) for i, d in datos["secciones"].items()}
+        m.secciones = {int(i): _seccion(d) for i, d in datos["secciones"].items()}
         m.elementos = {int(i): Elemento(**d) for i, d in datos["elementos"].items()}
         m._sig_id = {tipo: int(v) for tipo, v in datos["siguiente_id"].items()}
     except (KeyError, TypeError, ValueError, AttributeError) as e:

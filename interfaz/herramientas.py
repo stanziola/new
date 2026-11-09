@@ -11,7 +11,7 @@ import numpy as np
 
 from configuracion import interfaz as ui
 from configuracion import unidades
-from configuracion.calculo import TOL_LONGITUD
+from calculo.tolerancias import TOL_LONGITUD
 from interfaz.seleccion import elemento_en
 
 
@@ -23,8 +23,8 @@ class Herramienta:
         self.ventana = ventana
 
     def indicacion(self):
-        """Texto de la barra de comandos: qué se espera del usuario."""
-        return "Comando:"
+        """Texto de la barra de comandos: qué se espera del usuario (vacío si no usa la barra)."""
+        return ""
 
     def clic(self, x, y, cand):
         """Clic en (x, y) de la pantalla; cand es el punto candidato (con snap si está activo)."""

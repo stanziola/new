@@ -4,7 +4,7 @@ Cómo funciona:
 - Los valores base están en los módulos de esta carpeta (colores.py, interfaz.py...).
 - Lo que el usuario cambia se guarda en un JSON propio, fuera del proyecto
   (%APPDATA%/Analisis3D/preferencias.json), y al abrir el programa se aplica encima con setattr.
-- El código siempre lee el valor en el momento (colores.BARRA, ui.TAMANO_ICONO...), así que ve
+- El código siempre lee el valor en el momento (colores.ELEMENTO, ui.TAMANO_ICONO...), así que ve
   el valor vigente sin hacer nada más.
 - Para que algo sea configurable basta agregar una línea a PARAMETROS: el diálogo se arma solo.
 - Los valores con unidades (magnitud) se guardan en unidades internas y el diálogo los muestra en
@@ -37,7 +37,7 @@ class Parametro:
 
     @property
     def clave(self):
-        """Nombre en el JSON, por ejemplo "colores.BARRA"."""
+        """Nombre en el JSON, por ejemplo "colores.ELEMENTO"."""
         return f"{self.modulo.__name__.rsplit('.', 1)[-1]}.{self.nombre}"
 
     def valor(self):
@@ -49,55 +49,34 @@ class Parametro:
 
 P = Parametro
 PARAMETROS = [
-    # ---------- Unidades ----------
-    P(unidades, "LONGITUD", "Longitud", "opcion", "Unidades", opciones=tuple(unidades.UNIDADES_LONGITUD)),
-    P(unidades, "FUERZA", "Fuerza", "opcion", "Unidades", opciones=tuple(unidades.UNIDADES_FUERZA)),
-    # ---------- Formato ----------
-    P(formato, "DECIMALES_LONGITUD", "Decimales de longitud", "entero", "Formato", 0, 8),
-    P(formato, "DECIMALES_FUERZA", "Decimales de fuerza", "entero", "Formato", 0, 8),
-    P(formato, "DECIMALES_MOMENTO", "Decimales de momento", "entero", "Formato", 0, 8),
-    P(formato, "DECIMALES_ESFUERZO", "Decimales de esfuerzo", "entero", "Formato", 0, 8),
-    P(formato, "DECIMALES_TABLAS", "Decimales en las tablas de consola", "entero", "Formato", 0, 10),
-    # ---------- Rejilla y snap ----------
-    P(interfaz, "REJILLA_VISIBLE", "Rejilla visible al abrir", "bool", "Rejilla"),
-    P(interfaz, "REJILLA_PASO", "Paso fijo (0 = automático)", "real", "Rejilla", 0, 1e6,
-      magnitud="longitud", decimales=4),
-    P(interfaz, "REJILLA_DIVISIONES", "Divisiones con paso automático", "entero", "Rejilla", 2, 100),
-    P(interfaz, "REJILLA_MARGEN", "Margen alrededor del modelo (fracción)", "real", "Rejilla", 0, 5),
-    P(interfaz, "REJILLA_TAMANO_VACIO", "Tamaño con el modelo vacío", "real", "Rejilla", 0.001, 1e6,
+    # ---------- Unidades (como en Ftool: unidad y decimales por magnitud) ----------
+    *[p for m in unidades.UNIDADES for p in (
+        P(unidades, m.upper(), unidades.NOMBRES[m], "opcion", "Unidades", opciones=tuple(unidades.UNIDADES[m])),
+        P(formato, f"DECIMALES_{m.upper()}", f"Decimales de {unidades.NOMBRES[m].lower()}", "entero",
+          "Unidades", 0, 8))],
+    # ---------- Rejilla ----------
+    P(interfaz, "REJILLA_DISTANCIA", "Distancia entre líneas", "real", "Rejilla", 0.001, 1e6,
       magnitud="longitud", decimales=3),
-    P(interfaz, "GROSOR_REJILLA", "Grosor de las líneas", "entero", "Rejilla", 1, 10),
-    P(interfaz, "SNAP_ACTIVO", "Snap activo al abrir", "bool", "Rejilla"),
-    P(interfaz, "TOL_SNAP_PX", "Distancia de snap a nodos (píxeles)", "entero", "Rejilla", 1, 50),
-    # ---------- Vista (dibujo del modelo) ----------
-    P(interfaz, "GROSOR_BARRA", "Grosor de las barras", "entero", "Vista", 1, 20),
-    P(interfaz, "TAMANO_NODO", "Tamaño de los nodos", "entero", "Vista", 1, 50),
-    P(interfaz, "TAMANO_APOYO", "Tamaño de los apoyos", "entero", "Vista", 1, 60),
-    P(interfaz, "ETIQUETAS_VISIBLES", "Etiquetas visibles al abrir", "bool", "Vista"),
-    P(interfaz, "TAMANO_LETRA", "Tamaño de letra de las etiquetas", "entero", "Vista", 6, 48),
-    P(interfaz, "GROSOR_SELECCION", "Grosor de la barra seleccionada", "entero", "Vista", 1, 30),
-    P(interfaz, "TAMANO_SELECCION", "Tamaño del nodo seleccionado", "entero", "Vista", 1, 60),
-    P(interfaz, "TAMANO_PREVISUALIZACION", "Tamaño del punto gris", "entero", "Vista", 1, 60),
-    P(interfaz, "GROSOR_PREVISUALIZACION", "Grosor de la línea gris", "entero", "Vista", 1, 20),
+    P(interfaz, "REJILLA_LINEAS_X", "Líneas en X", "entero", "Rejilla", 2, 201),
+    P(interfaz, "REJILLA_LINEAS_Y", "Líneas en Y", "entero", "Rejilla", 2, 201),
+    P(interfaz, "REJILLA_LINEAS_Z", "Líneas en Z", "entero", "Rejilla", 2, 201),
+    # ---------- Vista ----------
+    P(interfaz, "GROSOR_BARRA", "Grosor de los elementos (píxeles)", "entero", "Vista", 1, 20),
+    P(interfaz, "TAMANO_NODO", "Tamaño de los nodos (píxeles)", "entero", "Vista", 1, 50),
     # ---------- Interfaz ----------
-    P(interfaz, "TAMANO_ICONO", "Íconos de la barra izquierda (píxeles)", "entero", "Interfaz", 12, 64),
+    P(interfaz, "TAMANO_ICONO", "Íconos de las barras izquierda y Definir (píxeles)", "entero", "Interfaz", 12, 64),
     P(interfaz, "TAMANO_ICONO_INFERIOR", "Íconos de la barra inferior (píxeles)", "entero", "Interfaz", 12, 64),
-    P(interfaz, "CUBO_TAMANO", "Tamaño del cubo (fracción del alto de la vista)", "real", "Interfaz", 0.1, 0.6),
+    P(interfaz, "CUBO_TAMANO", "Tamaño del cubo (fracción del alto de la vista)", "real", "Interfaz", 0.08, 0.5),
+    P(interfaz, "EJES_TAMANO", "Tamaño de los ejes (fracción del alto de la vista)", "real", "Interfaz", 0.06, 0.4),
     P(interfaz, "ANIM_CAMARA_DURACION_MS", "Duración del giro de la cámara (ms)", "entero", "Interfaz", 0, 3000),
-    P(interfaz, "ATAJO_REJILLA", "Atajo de Rejilla", "atajo", "Interfaz"),
-    P(interfaz, "ATAJO_SNAP", "Atajo de Snap", "atajo", "Interfaz"),
-    P(interfaz, "TOL_SELECCION_PX", "Distancia para seleccionar (píxeles)", "entero", "Interfaz", 1, 50),
-    P(interfaz, "TOL_CLIC_PX", "Movimiento máximo de un clic (píxeles)", "entero", "Interfaz", 1, 20),
     # ---------- Colores del dibujo ----------
-    P(colores, "FONDO_VISTA", "Fondo de la vista", "color", "Colores"),
-    P(colores, "BARRA", "Barras", "color", "Colores"),
-    P(colores, "BARRA_SIN_ASIGNAR", "Barras sin material o sección", "color", "Colores"),
-    P(colores, "NODO", "Nodos", "color", "Colores"),
-    P(colores, "APOYO", "Apoyos", "color", "Colores"),
-    P(colores, "SELECCION", "Selección", "color", "Colores"),
+    P(colores, "ELEMENTO", "Nodos, elementos y apoyos", "color", "Colores"),
+    P(colores, "RESALTADO", "Al pasar el mouse", "color", "Colores"),
+    P(colores, "SELECCIONADO", "Seleccionado", "color", "Colores"),
+    P(colores, "SIN_ASIGNAR", "Elementos sin material o sección", "color", "Colores"),
     P(colores, "ETIQUETA", "Etiquetas", "color", "Colores"),
     P(colores, "REJILLA", "Rejilla", "color", "Colores"),
-    P(colores, "PREVISUALIZACION", "Previsualización", "color", "Colores"),
+    P(colores, "FONDO_VISTA", "Fondo de la vista", "color", "Colores"),
     P(colores, "CUBO_CARA", "Cubo: caras", "color", "Colores"),
     P(colores, "CUBO_RESALTADO", "Cubo: resaltado", "color", "Colores"),
     P(colores, "CUBO_BORDE", "Cubo: bordes", "color", "Colores"),

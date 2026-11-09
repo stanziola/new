@@ -1,19 +1,15 @@
-"""Formato de los números: decimales en pantalla, tablas de consola y nombres de resultados."""
+"""Formato de los números: decimales de cada magnitud (como en Ftool), tablas de consola y nombres."""
 from configuracion import unidades
 
-# ---------- Decimales en pantalla (personalización base) ----------
+# ---------- Decimales en pantalla, uno por magnitud (personalización base) ----------
 DECIMALES_LONGITUD = 3
+DECIMALES_AREA = 2
+DECIMALES_INERCIA = 1
 DECIMALES_FUERZA = 2
 DECIMALES_MOMENTO = 2
+DECIMALES_CARGA_LINEAL = 2
 DECIMALES_ESFUERZO = 2
-DECIMALES_TABLAS = 3          # tablas de numpy y pandas en la consola
-
-# Qué constante de decimales usa cada magnitud
-_DECIMALES_DE = {
-    "longitud": "DECIMALES_LONGITUD", "area": "DECIMALES_LONGITUD", "inercia": "DECIMALES_LONGITUD",
-    "fuerza": "DECIMALES_FUERZA", "carga_lineal": "DECIMALES_FUERZA",
-    "momento": "DECIMALES_MOMENTO", "esfuerzo": "DECIMALES_ESFUERZO",
-}
+DECIMALES_TABLAS = 3          # tablas de numpy y pandas en la consola (no se configura)
 
 # ---------- Nombres para mostrar resultados ----------
 GDL = ["Dx", "Dy", "Dz", "Phix", "Phiy", "Phiz"]       # desplazamientos
@@ -22,21 +18,20 @@ FUERZAS_LOCALES = ["N", "Vy", "Vz", "T", "My", "Mz"]   # ejes locales de barra
 
 
 def decimales(magnitud):
-    """Decimales vigentes para esa magnitud (lee el valor actual, por si el usuario lo cambió)."""
-    return globals()[_DECIMALES_DE[magnitud]]
+    """Decimales vigentes de esa magnitud (lee el valor actual, por si el usuario lo cambió)."""
+    return globals()[f"DECIMALES_{magnitud.upper()}"]
 
 
-def numero(valor_pantalla, magnitud):
-    """Número ya convertido, con los decimales de su magnitud. Evita mostrar "-0.000"."""
-    d = decimales(magnitud)
-    if abs(valor_pantalla) < 0.5 * 10.0 ** -d:
-        valor_pantalla = 0.0
-    return f"{valor_pantalla:.{d}f}"
+def numero(valor, d):
+    """Número con d decimales. Evita mostrar "-0.000"."""
+    if abs(valor) < 0.5 * 10.0 ** -d:
+        valor = 0.0
+    return f"{valor:.{d}f}"
 
 
 def cantidad(valor_interno, magnitud, con_unidad=True):
     """Valor interno convertido a pantalla y con formato: cantidad(2.5, "longitud") -> "2.500 m"."""
-    texto = numero(unidades.a_pantalla(valor_interno, magnitud), magnitud)
+    texto = numero(unidades.a_pantalla(valor_interno, magnitud), decimales(magnitud))
     return f"{texto} {unidades.simbolo(magnitud)}" if con_unidad else texto
 
 

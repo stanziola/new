@@ -1,6 +1,10 @@
+"""Datos del modelo: nodos, materiales, secciones (con su refuerzo) y barras. No es cálculo.
+
+Todo en unidades internas: kN y m (E, G y f'c en kN/m²; A en m²; I y J en m⁴).
+"""
 import math
 from dataclasses import dataclass, field
-from configuracion.calculo import TOL_LONGITUD, TOL_RELATIVA
+from calculo.tolerancias import TOL_LONGITUD, TOL_RELATIVA
 
 @dataclass
 class Nodo:
@@ -25,12 +29,32 @@ class Material:
     g: float
 
 @dataclass
+class Concreto:
+    """Geometría y refuerzo de una sección de concreto, para su diagrama de interacción.
+
+    Todo en unidades internas (m y kN/m²). Rectangular: b, h, nx (barras en las caras de arriba y
+    abajo) y ny (filas). Circular: D y nbarras. En las dos: d (del borde al centro de las barras),
+    f'c y el número de barra.
+    """
+    forma: str               # "rectangular" o "circular"
+    fc: float                # f'c, en kN/m²
+    d: float                 # del borde al centro de las barras, en m
+    barra: int               # número de barra (#)
+    b: float = 0.0           # rectangular: ancho, en m
+    h: float = 0.0           # rectangular: alto, en m
+    nx: int = 0              # rectangular: barras en las caras de arriba y abajo
+    ny: int = 0              # rectangular: filas de barras
+    D: float = 0.0           # circular: diámetro, en m
+    nbarras: int = 0         # circular: cantidad de barras
+
+@dataclass
 class Seccion:
     nombre: str
     a: float
     iy: float
     iz: float
     j: float
+    concreto: Concreto = None   # geometría y refuerzo (None si no es de concreto o no se definió)
 
 @dataclass
 class Elemento:
@@ -63,9 +87,9 @@ class Modelo:
         self.materiales[mid] = Material(nombre, e, g)
         return mid
 
-    def agregar_seccion(self, nombre, a, iy, iz, j):
+    def agregar_seccion(self, nombre, a, iy, iz, j, concreto=None):
         sid = self._nuevo_id("sec")
-        self.secciones[sid] = Seccion(nombre, a, iy, iz, j)
+        self.secciones[sid] = Seccion(nombre, a, iy, iz, j, concreto)
         return sid
 
     def agregar_elemento(self, ni, nj, material=None, seccion=None, alfa=0.0):
