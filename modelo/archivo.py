@@ -8,16 +8,20 @@
 - Versión 2: guarda también los casos de carga y las cargas. Los archivos de la versión 1 se abren
   igual: la "carga" de cada nodo pasa a una carga nodal del caso Muerta, y los materiales de
   concreto reciben el peso unitario del concreto reforzado (para el peso propio).
+- Versión 3: guarda también las combinaciones ({ID: {"nombre", "factores": {ID de caso: factor}}}).
+  Los archivos de las versiones 1 y 2 se abren sin combinaciones.
 """
 import json
 from dataclasses import asdict
 from pathlib import Path
 
 from calculo.concreto import GAMMA_CONCRETO
-from modelo.estructura import CargaBarra, CargaNodal, Caso, Concreto, Elemento, Material, Modelo, Nodo, Seccion
+from modelo.estructura import (CargaBarra, CargaNodal, Caso, Combinacion, Concreto, Elemento, Material, Modelo,
+                               Nodo, Seccion)
 
-VERSION_FORMATO = 2
-VERSIONES_LEIDAS = (1, 2)
+VERSION_FORMATO = 3
+VERSIONES_LEIDAS = (1, 2, 3)
+CONTADORES = {"nodo", "elem", "mat", "sec", "caso", "carga", "combo"}
 UNIDADES_INTERNAS = {"fuerza": "kN", "longitud": "m"}
 
 
@@ -34,6 +38,8 @@ def a_diccionario(modelo, vista=None):
         "casos": {str(i): asdict(c) for i, c in modelo.casos.items()},
         "cargas": {str(i): {"clase": "nodal" if isinstance(c, CargaNodal) else "barra", **asdict(c)}
                    for i, c in modelo.cargas.items()},
+        "combinaciones": {str(i): {"nombre": co.nombre, "factores": {str(c): f for c, f in co.factores.items()}}
+                          for i, co in modelo.combinaciones.items()},
         "siguiente_id": dict(modelo._sig_id),
         "vista": dict(vista or {}),
     }
@@ -103,6 +109,11 @@ def desde_diccionario(datos):
             m._sig_id.setdefault("carga", 1)
             for nid, fuerzas in cargas_viejas.items():
                 m.agregar_carga_nodal(nid, fuerzas)
+        if version >= 3:
+            m.combinaciones = {int(i): Combinacion(d["nombre"], {int(c): float(f) for c, f in d["factores"].items()})
+                               for i, d in datos["combinaciones"].items()}
+        else:
+            m._sig_id.setdefault("combo", 1)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise ValueError(f"El archivo no tiene el formato esperado: {e!r}") from e
     _revisar(m)
@@ -132,11 +143,16 @@ def _revisar(m):
             problemas.append(f"la carga {cid} está en el nodo {c.nodo}, que no existe")
         if isinstance(c, CargaBarra) and c.barra not in m.elementos:
             problemas.append(f"la carga {cid} está en la barra {c.barra}, que no existe")
-    if set(m._sig_id) != {"nodo", "elem", "mat", "sec", "caso", "carga"}:
+    for coid, co in m.combinaciones.items():
+        for caso in co.factores:
+            if caso not in m.casos:
+                problemas.append(f"la combinación {coid} usa el caso {caso}, que no existe")
+    if set(m._sig_id) != CONTADORES:
         problemas.append(f"faltan contadores de IDs: {sorted(m._sig_id)}")
     else:
         for tipo, ids in (("nodo", m.nodos), ("elem", m.elementos), ("mat", m.materiales),
-                          ("sec", m.secciones), ("caso", m.casos), ("carga", m.cargas)):
+                          ("sec", m.secciones), ("caso", m.casos), ("carga", m.cargas),
+                          ("combo", m.combinaciones)):
             if ids and m._sig_id[tipo] <= max(ids):
                 problemas.append(f"el contador de '{tipo}' ({m._sig_id[tipo]}) no es mayor que "
                                  f"el ID {max(ids)}: se repetirían IDs")

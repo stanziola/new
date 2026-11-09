@@ -18,8 +18,18 @@ TAMANO_NODO = 9                       # en píxeles; el nodo seleccionado usa el
 
 TAMANO_APOYO = 0.06                   # cono y placa de los apoyos: fracción del tamaño del modelo
 TAMANO_CARGA = 0.08                   # largo de las flechas de carga: fracción del tamaño del modelo
-ESCALA_DEFORMADA = 0.05               # el desplazamiento mayor se dibuja como esta fracción del modelo
-ESCALA_DIAGRAMA = 0.12                # el valor mayor de un diagrama, como esta fracción del modelo
+
+# ---------- Escala de los resultados ----------
+# Deformada: el factor multiplica los desplazamientos REALES (1 = tamaño real, que casi no se ve).
+# Con la escala automática, el factor se elige para que el desplazamiento mayor ocupe
+# FRACCION_DEFORMADA del tamaño del modelo (el aviso dice qué factor salió).
+# Diagramas: una fuerza no se mide en metros, así que no hay escala "real". Su 1 es la escala
+# automática: el valor mayor del modelo ocupa FRACCION_DIAGRAMA del tamaño del modelo.
+DEFORMADA_AUTOMATICA = True           # personalización base
+FACTOR_DEFORMADA = 100.0              # personalización base: × desplazamiento real (si no es automática)
+FACTOR_DIAGRAMA = 1.0                 # personalización base: × la escala automática de los diagramas
+FRACCION_DEFORMADA = 0.05             # fija
+FRACCION_DIAGRAMA = 0.12              # fija
 
 # Derivados y fijos
 ANCHO_SEPARADOR = 4                   # línea entre la vista y los paneles, en píxeles
@@ -58,9 +68,14 @@ CUBO_FRANJA = 0.2                     # ancho de aristas y esquinas clicables, f
 ANIM_CAMARA_DURACION_MS = 350         # personalización base: duración del giro (0 = sin animación)
 ANIM_CAMARA_INTERVALO_MS = 15         # tiempo entre cuadros (~60 por segundo)
 
-# ---------- Deshacer y dibujo de secciones ----------
+# ---------- Deshacer y lo que se ve al abrir ----------
 HISTORIAL_MAXIMO = 50                 # personalización base: pasos que se pueden deshacer
 SECCION_REAL_VISIBLE = True           # barras dibujadas con su sección (cajas b × h) al abrir
+CARGAS_VISIBLES = True                # cargas del caso activo dibujadas al abrir (botón Cargas)
+
+# ---------- Panel Diagrama ----------
+PASOS_DESLIZADOR = 400                # posiciones del deslizador a lo largo de la barra
+ALTO_PANEL_DIAGRAMA = 240             # alto inicial del panel, en píxeles
 
 # ---------- Mensajes y configuración ----------
 DURACION_MENSAJE_MS = 3000            # cuánto se ve un aviso en la barra de comandos

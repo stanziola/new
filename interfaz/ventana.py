@@ -2,14 +2,23 @@
 
 Organización (como ETABS y Civil 3D):
 - Arriba: menús con palabras (Archivo, Editar, Ver, Definir, Configuración) y una barra con íconos:
-  Deshacer y Rehacer, y luego Material y Sección (Definir).
-- Izquierda: las herramientas que cambian lo que hace el clic (Seleccionar, Nodo, Elemento, Apoyo) y el
-  Explorador del modelo (pestañas Modelo y Tablas).
-- Derecha: Propiedades de lo seleccionado.
-- Abajo: la barra de comandos (activa solo con Nodo o Elemento) y la barra de estado, con la
-  posición del puntero a la izquierda y Rejilla, Snap, Etiquetas y Encuadre a la derecha.
+  Deshacer y Rehacer; Caso, Σ (ver combinaciones) y Combinación; Analizar; y los resultados.
+- Izquierda: las herramientas que cambian lo que hace el clic (Seleccionar, Nodo, Elemento, Asignar
+  sección, Apoyo y cargas) y el Explorador del modelo (pestañas Modelo y Tablas).
+- Derecha: Propiedades de lo seleccionado (pestañas Propiedades e Interacción).
+- Abajo del dibujo: el panel Diagrama (Ver → Diagrama), con los diagramas de la barra elegida.
+- Abajo de todo: la barra de comandos (activa solo con Nodo o Elemento) y la barra de estado, con
+  la posición del puntero a la izquierda y Rejilla, Snap, Etiquetas, Sección real, Cargas y
+  Encuadre a la derecha.
 Los paneles se pueden agrandar, mover de lado, cerrar y volver a abrir desde el menú Ver (no se
 desacoplan como ventanas sueltas).
+
+Dos modos (botón Σ de la barra de arriba):
+- Casos: se edita el modelo y se ven las cargas y los resultados del caso elegido;
+- Combinaciones: solo se ven los resultados de la combinación elegida. Lo que edita (las
+  herramientas salvo Seleccionar, Supr y los campos de Propiedades) y el selector de casos quedan en
+  gris, y las cargas no se dibujan (solo existen en los casos). En el modo Casos, el selector de
+  combinaciones queda en gris.
 La lógica de cada herramienta está en herramientas.py; la de la rejilla 3D y el snap, en vista3d/rejilla.py.
 """
 from pathlib import Path
@@ -24,18 +33,21 @@ from pyvistaqt import QtInteractor
 
 from configuracion import colores
 from configuracion import interfaz as ui
+from interfaz import textos
 from interfaz.vista3d.camara import AnimadorCamara
 from interfaz.vista3d.cubo import CuboVistas, viewport_esquina
+from interfaz.ventanas.casos import DialogoCasos, DialogoCombinaciones
 from interfaz.ventanas.definir import Destino, DialogoDefinir, menu_definir
 from interfaz.ventanas.interaccion import VentanaDiagrama
 from interfaz.ventanas.dialogo_configuracion import DialogoConfiguracion
 from interfaz.vista3d.cargas import dibujar_cargas
 from interfaz.vista3d.dibujo import ModeloDibujado, Previsualizacion, dibujar_modelo, dibujar_rejilla
 from interfaz.vista3d.resultados import dibujar_deformada, dibujar_diagrama
+from interfaz.paneles.diagrama import COMPONENTES, PanelDiagrama
 from interfaz.paneles.explorador import Explorador
 from interfaz.historial import Historial
 from interfaz.herramientas import (AgregarApoyo, AgregarCargaBarra, AgregarCargaNodo, AgregarElemento,
-                                   AgregarNodo, Seleccionar)
+                                   AgregarNodo, AsignarSeccion, Seleccionar)
 from interfaz.iconos import icono
 from interfaz.paneles.comunes import MenuPersistente, poner_titulo
 from interfaz.vista3d.rejilla import Candidato, candidato, geometria_rejilla, interpretar, texto_coordenadas
@@ -45,9 +57,21 @@ from interfaz.ventanas.matriz import VentanaMatriz
 from interfaz.tema import aplicar_tema
 from modelo import Modelo, archivo
 from modelo import concreto as cc
-from modelo.analisis import analizar
+from modelo.analisis import analizar, combinar
+from modelo.apoyos import TIPOS
 
 TECLAS_A_COMANDOS = set("0123456789.-@")   # escritas sobre la vista, van a la barra de comandos
+
+
+def _plural(n, palabra):
+    return f"{n} {palabra}{'s' if n != 1 else ''}"
+
+
+def _factor_texto(factor):
+    """×236, ×12.5 o ×0.75: el factor de la deformada, sin decimales de más."""
+    decimales = 0 if factor >= 100 else 1 if factor >= 10 else 2
+    texto = f"{factor:.{decimales}f}"
+    return texto.rstrip("0").rstrip(".") if "." in texto else texto
 
 
 class Ventana(QMainWindow):
@@ -60,7 +84,7 @@ class Ventana(QMainWindow):
         self.modelo = modelo if modelo is not None else Modelo()
         self.ruta = Path(ruta) if ruta else None   # archivo del modelo (None = todavía sin guardar)
         self.modificado = False
-        self.seleccion = None                      # ("nodo", id), ("barra", id) o None
+        self.seleccion = None                      # ("nodo", id), ("apoyo", id), ("barra", id), ("carga", id) o None
         self.resaltado = None                      # lo que está bajo el mouse con Seleccionar
         self._en_propiedades = None                # lo que muestra el panel Propiedades
         self.dibujado = ModeloDibujado()
@@ -69,10 +93,13 @@ class Ventana(QMainWindow):
         self._pos_presion = None                   # dónde se presionó el botón izquierdo
         self._mouse = None                         # última posición del mouse sobre la vista
         self._cerrando = False
-        self.diagramas = []                        # ventanas de diagramas abiertas
+        self.diagramas = []                        # ventanas de diagramas de interacción abiertas
         self.historial = Historial()               # Deshacer (Ctrl+Z) y Rehacer (Ctrl+Y)
         self.resultados = None                     # {caso: ResultadoCaso} después de Analizar
         self.resultado_visible = None              # None, "deformada", "N", "Vy", "Vz", "T", "My" o "Mz"
+        self.factor_deformada = None               # cuánto se amplificó la deformada dibujada
+        self.modo_combinaciones = False            # True: solo se ven resultados de combinaciones
+        self._combinados = {}                      # {ID de combinación: ResultadoCaso} (caché)
 
         # Tres luces blancas: los grises se ven grises (las de pyvista por defecto los tiñen)
         self.vista = QtInteractor(self, lighting="three lights")
@@ -91,7 +118,8 @@ class Ventana(QMainWindow):
 
         self.redibujar(reiniciar_camara=True)
         self.cubo = CuboVistas(self.vista, self.animador)   # cubo de vistas, arriba a la derecha
-        self.explorador.actualizar(self.modelo)
+        self.explorador.actualizar(self.modelo, self.caso_activo())
+        self._actualizar_modo()
         self._mostrar_propiedades(None)
         self._actualizar_titulo()
         self._actualizar_deshacer()
@@ -122,16 +150,23 @@ class Ventana(QMainWindow):
             accion.setShortcut(QKeySequence(atajo))
         return accion
 
-    # ---------- Paneles (izquierda y derecha) ----------
+    # ---------- Paneles (izquierda, derecha y abajo) ----------
     def _crear_paneles(self):
         self.explorador = Explorador(self)
         self.propiedades = Propiedades(self)
+        self.diagrama = PanelDiagrama(self)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.explorador)
         self.addDockWidget(Qt.RightDockWidgetArea, self.propiedades)
-        for panel in (self.explorador, self.propiedades):   # sin el botón de desacoplar
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.diagrama)
+        # Las esquinas de abajo son de los paneles de los lados: el Diagrama queda solo bajo el dibujo
+        self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
+        self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
+        for panel in (self.explorador, self.propiedades, self.diagrama):   # sin el botón de desacoplar
             panel.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
-            poner_titulo(panel)                                # la x sola, sin recuadro
+            poner_titulo(panel)                                            # la x sola, sin recuadro
         self.resizeDocks([self.explorador, self.propiedades], [260, 300], Qt.Horizontal)
+        self.diagrama.hide()                                               # se abre desde Ver → Diagrama
+        self.diagrama.visibilityChanged.connect(lambda visible: visible and self._refrescar_diagrama())
         self.explorador.elegido.connect(self._elegido_en_explorador)
         self.explorador.vaciado.connect(lambda: self.seleccionar(None))
         self.propiedades.ver_diagrama.connect(self.ver_diagrama)
@@ -145,14 +180,30 @@ class Ventana(QMainWindow):
         self._dialogos_definir = {}               # "material" y "seccion": una ventana para cada uno
 
     def _mostrar_propiedades(self, item):
-        """Propiedades muestra lo seleccionado, salvo que la herramienta use el panel (Apoyo)."""
+        """Propiedades muestra lo seleccionado, salvo que la herramienta use el panel (Apoyo...).
+        También pone al día el panel Diagrama, que sigue a la barra seleccionada."""
         self._en_propiedades = item
         if not self.herramienta.mostrar_panel():
-            self.propiedades.mostrar(self.modelo, item, caso=self.caso_activo(), rc=self._rc(),
-                                     componente=self.resultado_visible)
+            caso = None if self.modo_combinaciones else self.caso_activo()
+            self.propiedades.mostrar(self.modelo, item, caso=caso, rc=self._rc(),
+                                     editable=not self.modo_combinaciones)
+        self._refrescar_diagrama()
+
+    def _refrescar_diagrama(self):
+        """El panel Diagrama: la barra seleccionada (o la de la carga elegida), con el caso o la
+        combinación activos. Si el panel está cerrado no se calcula nada."""
+        if not hasattr(self, "diagrama") or not self.diagrama.isVisible():
+            return
+        elegido = self._en_3d(self.seleccion)
+        eid = elegido[1] if elegido and elegido[0] == "barra" else None
+        componente = self.resultado_visible if self.resultado_visible in COMPONENTES else None
+        self.diagrama.mostrar(self.modelo, self._rc(), eid, componente)
 
     def _tipo_apoyo(self, tipo):
         self.herramienta_apoyo.tipo = tipo
+
+    def _seccion_a_asignar(self, sid):
+        self.herramienta_asignar.seccion = sid
 
     def _ver_en_propiedades(self, item):
         """Después de guardar o eliminar en Propiedades: lo que debe quedar a la vista."""
@@ -175,9 +226,17 @@ class Ventana(QMainWindow):
         dialogo.activateWindow()
         return dialogo
 
+    def abrir_casos(self):
+        """Definir → Casos de carga (con Aceptar, un paso de Deshacer)."""
+        DialogoCasos(self).exec()
+
+    def abrir_combinaciones(self):
+        """Definir → Combinaciones de carga (con Aceptar, un paso de Deshacer)."""
+        DialogoCombinaciones(self).exec()
+
     def _elegido_en_explorador(self, item):
         tipo, ident = item
-        if tipo in ("nodo", "barra", "carga"):
+        if tipo in ("nodo", "apoyo", "barra", "carga"):
             self.seleccionar(item)
         elif tipo == "matriz":
             self.seleccionar(("barra", ident))
@@ -202,7 +261,7 @@ class Ventana(QMainWindow):
         ventana.show()
         return ventana
 
-    # ---------- Menús y barra Definir (arriba) ----------
+    # ---------- Menús y barra de arriba ----------
     def _crear_menus(self):
         menu = self.menuBar().addMenu("Archivo")
         for texto, atajo, funcion in (("Nuevo", "Ctrl+N", self.nuevo),
@@ -229,24 +288,32 @@ class Ventana(QMainWindow):
         self.menuBar().addMenu(ver)
         ver.addAction(self.explorador.toggleViewAction())
         ver.addAction(self.propiedades.toggleViewAction())
+        ver.addAction(self.diagrama.toggleViewAction())
 
         definir = self.menuBar().addMenu("Definir")         # etapas 1 y 3 de la hoja de ruta
         definir.setToolTipsVisible(True)
-        self.accion_material = self._accion("material", "Materiales…", "Materiales de concreto")
-        self.accion_seccion = self._accion("seccion", "Secciones…", "Secciones de concreto")
+        self.accion_material = self._accion("material", "Materiales…", "Materiales de concreto: crear, editar y eliminar")
+        self.accion_seccion = self._accion("seccion", "Secciones…", "Secciones de concreto: crear, editar y eliminar")
         self.accion_material.triggered.connect(lambda *_: self.abrir_definir("material"))
         self.accion_seccion.triggered.connect(lambda *_: self.abrir_definir("seccion"))
+        self.accion_casos = QAction("Casos de carga…", self)
+        self.accion_casos.setToolTip("Casos de carga (Muerta, Viva, Viento…): crear, editar y eliminar")
+        self.accion_casos.triggered.connect(lambda *_: self.abrir_casos())
         self.accion_combinaciones = QAction("Combinaciones de carga…", self)
-        self.accion_combinaciones.setToolTip("Próximamente")
-        self.accion_combinaciones.setEnabled(False)
-        for accion in (self.accion_material, self.accion_seccion, self.accion_combinaciones):
+        self.accion_combinaciones.setToolTip("Combinaciones (1.2D + 1.6L…), con los factores a mano. "
+                                             "Solo para ver resultados")
+        self.accion_combinaciones.triggered.connect(lambda *_: self.abrir_combinaciones())
+        for accion in (self.accion_material, self.accion_seccion):
+            definir.addAction(accion)
+        definir.addSeparator()
+        for accion in (self.accion_casos, self.accion_combinaciones):
             definir.addAction(accion)
 
         self.accion_configuracion = self.menuBar().addAction("Configuración")
         self.accion_configuracion.triggered.connect(self.abrir_configuracion)
 
     def _crear_barra_definir(self):
-        self.barra_definir = QToolBar("Definir", self)
+        self.barra_definir = QToolBar("Barra de arriba", self)
         self.barra_definir.setObjectName("definir")
         self.barra_definir.setMovable(False)
         self.barra_definir.setFloatable(False)
@@ -254,15 +321,26 @@ class Ventana(QMainWindow):
         self.barra_definir.addAction(self.accion_deshacer)
         self.barra_definir.addAction(self.accion_rehacer)
         self.barra_definir.addSeparator()
-        self.barra_definir.addAction(self.accion_material)
-        self.barra_definir.addAction(self.accion_seccion)
-        self.barra_definir.addSeparator()
-        # Caso de carga activo y Analizar
-        self.barra_definir.addWidget(QLabel(" Caso "))
+        # Caso, Σ (ver combinaciones) y Combinación; el que no se usa queda en gris
+        self.etiqueta_caso = QLabel(" Caso ")
+        self.barra_definir.addWidget(self.etiqueta_caso)
         self.selector_caso = QComboBox()
         self.selector_caso.setToolTip("Caso de carga: las cargas nuevas van a este caso y sus resultados se muestran")
         self.selector_caso.currentIndexChanged.connect(self._cambio_caso)
         self.barra_definir.addWidget(self.selector_caso)
+        self.accion_ver_combinaciones = self._accion(
+            "combinaciones", "Combinaciones",
+            "Σ Combinaciones: ver los resultados de una combinación (solo para ver; las cargas se "
+            "editan en los casos). Se definen en Definir → Combinaciones de carga", activable=True)
+        self.accion_ver_combinaciones.toggled.connect(self._cambio_modo)
+        self.barra_definir.addAction(self.accion_ver_combinaciones)
+        self.etiqueta_combinacion = QLabel(" Combinación ")
+        self.barra_definir.addWidget(self.etiqueta_combinacion)
+        self.selector_combinacion = QComboBox()
+        self.selector_combinacion.setToolTip("Combinación cuyos resultados se muestran (con Σ activo)")
+        self.selector_combinacion.setMinimumContentsLength(12)
+        self.selector_combinacion.currentIndexChanged.connect(self._cambio_combinacion)
+        self.barra_definir.addWidget(self.selector_combinacion)
         self.accion_analizar = self._accion("analizar", "Analizar", "Analizar: resuelve todos los casos de carga")
         self.accion_analizar.triggered.connect(self.analizar)
         self.barra_definir.addAction(self.accion_analizar)
@@ -296,8 +374,9 @@ class Ventana(QMainWindow):
             self.botones_resultado[clave] = boton
         self.addToolBar(Qt.TopToolBarArea, self.barra_definir)
         self._llenar_casos()
+        self._llenar_combinaciones()
 
-    # ---------- Casos, análisis y resultados ----------
+    # ---------- Casos, combinaciones, análisis y resultados ----------
     def _llenar_casos(self):
         actual = self.selector_caso.currentData()
         self.selector_caso.blockSignals(True)
@@ -308,18 +387,79 @@ class Ventana(QMainWindow):
         self.selector_caso.setCurrentIndex(i if i >= 0 else 0)
         self.selector_caso.blockSignals(False)
 
+    def _llenar_combinaciones(self):
+        actual = self.selector_combinacion.currentData()
+        self.selector_combinacion.blockSignals(True)
+        self.selector_combinacion.clear()
+        for coid, co in self.modelo.combinaciones.items():
+            self.selector_combinacion.addItem(co.nombre, coid)
+        i = self.selector_combinacion.findData(actual)
+        self.selector_combinacion.setCurrentIndex(i if i >= 0 else 0)
+        self.selector_combinacion.blockSignals(False)
+
     def caso_activo(self):
         caso = self.selector_caso.currentData()
         return caso if caso in self.modelo.casos else self.modelo.caso_inicial()
+
+    def combinacion_activa(self):
+        coid = self.selector_combinacion.currentData()
+        return coid if coid in self.modelo.combinaciones else None
 
     def _cambio_caso(self, *_):
         self.redibujar()
         self._refrescar_paneles()
         self._mostrar_propiedades(self._en_propiedades)
+        self._aviso_deformada()
+
+    def _cambio_combinacion(self, *_):
+        if self.modo_combinaciones:
+            self._cambio_caso()
+
+    def _cambio_modo(self, activo):
+        """Σ: pasa al modo Combinaciones (solo ver) o vuelve al modo Casos (editar)."""
+        self.modo_combinaciones = bool(activo) and bool(self.modelo.combinaciones)
+        self._actualizar_modo()
+        self.redibujar()
+        self._refrescar_paneles()
+        self._aviso_deformada("Combinaciones: solo se ven resultados. " if self.modo_combinaciones
+                              else "Casos: se edita el modelo y se ven sus cargas. ")
+
+    def _actualizar_modo(self):
+        """Lo que no se usa en el modo actual queda en gris: en Combinaciones, el selector de casos,
+        las herramientas que editan y el botón Cargas; en Casos, el selector de combinaciones."""
+        hay = bool(self.modelo.combinaciones)
+        if not hay:
+            self.modo_combinaciones = False
+        combos = self.modo_combinaciones
+        self.accion_ver_combinaciones.blockSignals(True)
+        self.accion_ver_combinaciones.setEnabled(hay)
+        self.accion_ver_combinaciones.setChecked(combos)
+        self.accion_ver_combinaciones.blockSignals(False)
+        for widget in (self.etiqueta_caso, self.selector_caso):
+            widget.setEnabled(not combos)
+        for widget in (self.etiqueta_combinacion, self.selector_combinacion):
+            widget.setEnabled(combos)
+        self.accion_cargas.setEnabled(not combos)
+        seleccionar = self._por_nombre["seleccionar"][1]
+        for nombre, (accion, _h) in self._por_nombre.items():
+            if nombre != "seleccionar":
+                accion.setEnabled(not combos)
+        if combos and self.herramienta is not seleccionar:
+            self.usar_herramienta(seleccionar)
 
     def _rc(self):
-        """Resultados del caso activo, o None si no hay análisis vigente."""
-        return self.resultados.get(self.caso_activo()) if self.resultados else None
+        """Resultados que se muestran: los de la combinación (modo Combinaciones) o los del caso
+        activo. None si no hay análisis vigente."""
+        if not self.resultados:
+            return None
+        if self.modo_combinaciones:
+            coid = self.combinacion_activa()
+            if coid is None:
+                return None
+            if coid not in self._combinados:
+                self._combinados[coid] = combinar(self.modelo, self.resultados, coid)
+            return self._combinados[coid]
+        return self.resultados.get(self.caso_activo())
 
     def analizar(self):
         """▶: resuelve todos los casos. Sin errores, muestra la deformada."""
@@ -330,18 +470,20 @@ class Ventana(QMainWindow):
             QMessageBox.warning(self, "Analizar", f"No se pudo analizar:\n\n{e}")
             self._actualizar_resultados()
             return
+        self._combinados = {}
         if self.resultado_visible is None:
             self.resultado_visible = "deformada"
         self._actualizar_resultados()
         self.redibujar()
         self._mostrar_propiedades(self._en_propiedades)
-        self.mensaje("Análisis listo")
+        self._aviso_deformada("Análisis listo. ")
 
     def _invalidar_resultados(self):
         """El modelo cambió: los resultados ya no valen (hay que volver a analizar)."""
         if self.resultados is not None:
             self.mensaje("El modelo cambió: vuelve a analizar (▶)")
         self.resultados = None
+        self._combinados = {}
         self.resultado_visible = None
         self._actualizar_resultados()
 
@@ -351,6 +493,26 @@ class Ventana(QMainWindow):
         self._actualizar_resultados()
         self.redibujar()
         self._mostrar_propiedades(self._en_propiedades)
+        self._aviso_deformada()
+
+    def _apagar_resultados(self, *_):
+        """Clic en Seleccionar: deja de mostrar la deformada o el diagrama. El análisis sigue
+        vigente: se vuelven a ver con sus botones."""
+        if self.resultado_visible is None:
+            return
+        self.resultado_visible = None
+        self._actualizar_resultados()
+        self.redibujar()
+        self._mostrar_propiedades(self._en_propiedades)
+
+    def _aviso_deformada(self, antes=""):
+        """Aviso: `antes` y, con la deformada a la vista, cuánto se amplificaron los desplazamientos
+        (×1 sería el tamaño real)."""
+        if self.resultado_visible == "deformada" and self.factor_deformada is not None:
+            tipo = "automática" if ui.DEFORMADA_AUTOMATICA else "fija"
+            self.mensaje(f"{antes}Deformada ×{_factor_texto(self.factor_deformada)} ({tipo}; 1 = tamaño real)")
+        elif antes:
+            self.mensaje(antes.strip())
 
     def _actualizar_resultados(self):
         """Los botones de resultados: habilitados con análisis y marcado el que se ve."""
@@ -371,11 +533,15 @@ class Ventana(QMainWindow):
 
         grupo = QActionGroup(self)                 # una sola herramienta activa a la vez
         self._herramientas = []                    # (acción, herramienta)
+        self._por_nombre = {}                      # nombre -> (acción, herramienta)
         for nombre, texto, ayuda, clase in (
-                ("seleccionar", "Seleccionar", "Seleccionar: clic sobre un nodo o una barra", Seleccionar),
+                ("seleccionar", "Seleccionar", "Seleccionar: clic sobre un nodo, un apoyo o una barra. "
+                 "Si se ve un resultado, este clic lo apaga", Seleccionar),
                 ("nodo", "Nodo", "Agregar nodo: clic sobre un punto de la rejilla o escribe x, y, z", AgregarNodo),
-                ("elemento", "Elemento", "Agregar elemento: clic en el punto inicial y en el final",
-                 AgregarElemento),
+                ("elemento", "Elemento", "Agregar elemento: clic en el punto inicial y en el final "
+                 "(queda sin sección)", AgregarElemento),
+                ("asignar_seccion", "Asignar sección", "Asignar sección: elige la sección en Propiedades y "
+                 "haz clic sobre cada barra (lleva también su material)", AsignarSeccion),
                 ("apoyo", "Apoyo", "Apoyo: elige el tipo en Propiedades y haz clic sobre un nodo",
                  AgregarApoyo),
                 ("carga_nodo", "Carga en nodo", "Carga en nodo: escribe los valores en Propiedades y haz clic "
@@ -388,10 +554,16 @@ class Ventana(QMainWindow):
             grupo.addAction(accion)
             self.herramientas.addAction(accion)
             self._herramientas.append((accion, herramienta))
-        ((self.accion_seleccionar, self.herramienta), (self.accion_nodo, _), (self.accion_elemento, _),
-         (self.accion_apoyo, self.herramienta_apoyo), (self.accion_carga_nodo, _),
-         (self.accion_carga_barra, _)) = self._herramientas
+            self._por_nombre[nombre] = (accion, herramienta)
+        self.accion_seleccionar, self.herramienta = self._por_nombre["seleccionar"]
+        self.herramienta_apoyo = self._por_nombre["apoyo"][1]
+        self.herramienta_asignar = self._por_nombre["asignar_seccion"][1]
+        # Un clic en Seleccionar (aunque ya esté activa) apaga la deformada o el diagrama. Esc vuelve
+        # a Seleccionar sin apagarlos: usar_herramienta no emite `triggered`.
+        self.accion_seleccionar.triggered.connect(self._apagar_resultados)
         self.propiedades.panel_apoyo.cambiado.connect(self._tipo_apoyo)
+        self.propiedades.panel_asignar.cambiado.connect(self._seccion_a_asignar)
+        self.propiedades.panel_asignar.definir.connect(lambda: self.abrir_definir("seccion"))
         self.accion_seleccionar.setChecked(True)   # herramienta por defecto
 
     def usar_herramienta(self, herramienta):
@@ -405,8 +577,10 @@ class Ventana(QMainWindow):
         self.herramienta = herramienta
         self.comando.clear()
         self.resaltado = None                      # el resaltado gris oscuro es solo de Seleccionar
+        if herramienta.muestra_cargas and not self.accion_cargas.isChecked():
+            self.accion_cargas.setChecked(True)    # para ver la carga que se va a poner
         self.pintar()
-        self._mostrar_propiedades(self.seleccion)  # el panel de Apoyo, o de nuevo lo seleccionado
+        self._mostrar_propiedades(self.seleccion)  # el panel de la herramienta, o de nuevo lo seleccionado
         self.actualizar_indicacion()
         self._actualizar_puntero()
 
@@ -475,7 +649,7 @@ class Ventana(QMainWindow):
     def cancelar(self):
         """Esc: cancela lo que esté a medias; si no hay nada, vuelve a Seleccionar o deselecciona."""
         self.comando.clear()
-        seleccionar = self._herramientas[0][1]
+        seleccionar = self._por_nombre["seleccionar"][1]
         if self.herramienta.cancelar():
             self.mensaje("Cancelado")
         elif self.herramienta is not seleccionar:
@@ -506,7 +680,7 @@ class Ventana(QMainWindow):
 
         self.accion_rejilla = self._accion("rejilla", "Rejilla", f"Rejilla ({ui.ATAJO_REJILLA})",
                                            activable=True, activa=ui.REJILLA_VISIBLE, atajo=ui.ATAJO_REJILLA)
-        self.accion_rejilla.toggled.connect(lambda activa: self._mostrar("rejilla", activa))
+        self.accion_rejilla.toggled.connect(lambda *_: self._aplicar_visibilidad())
         self.accion_snap = self._accion("snap", "Snap",
                                         f"Snap ({ui.ATAJO_SNAP}): pega el punto a nodos y a la rejilla",
                                         activable=True, activa=ui.SNAP_ACTIVO, atajo=ui.ATAJO_SNAP)
@@ -524,13 +698,17 @@ class Ventana(QMainWindow):
             accion = menu.addAction(texto)
             accion.setCheckable(True)
             accion.setChecked(activa)
-            accion.toggled.connect(lambda visible, n=nombre: self._mostrar(n, visible))
+            accion.toggled.connect(lambda *_: self._aplicar_visibilidad())
             self.etiquetas[nombre] = accion
         self.boton_etiquetas.setMenu(menu)
         self.accion_seccion_real = self._accion("seccion_real", "Sección real",
                                                 "Sección real: barras con sus medidas b × h (o como líneas)",
                                                 activable=True, activa=ui.SECCION_REAL_VISIBLE)
         self.accion_seccion_real.toggled.connect(lambda *_: self.redibujar())
+        self.accion_cargas = self._accion("cargas", "Cargas",
+                                          "Cargas: muestra u oculta las cargas del caso activo (con sus valores)",
+                                          activable=True, activa=ui.CARGAS_VISIBLES)
+        self.accion_cargas.toggled.connect(lambda *_: self._aplicar_visibilidad())
         self.accion_encuadre = self._accion("encuadre", "Encuadre", "Encuadre: ajusta la vista al modelo")
         self.accion_encuadre.triggered.connect(self.encuadre)
 
@@ -538,6 +716,7 @@ class Ventana(QMainWindow):
         barra.addAction(self.accion_snap)
         barra.addWidget(self.boton_etiquetas)
         barra.addAction(self.accion_seccion_real)
+        barra.addAction(self.accion_cargas)
         barra.addSeparator()                       # a la izquierda, estados; a la derecha, una acción
         barra.addAction(self.accion_encuadre)
 
@@ -548,13 +727,24 @@ class Ventana(QMainWindow):
         estado.addPermanentWidget(barra)
         self.barra_inferior = barra
 
-    def _mostrar(self, nombre, visible, dibujar=True):
-        """Muestra u oculta un actor de la vista ("rejilla", "etiquetas"...)."""
+    def _mostrar(self, nombre, visible):
+        """Muestra u oculta un actor de la vista ("rejilla", "etiquetas"...), sin redibujar."""
         actor = self.dibujado.actores.get(nombre)
         if actor is not None:
             actor.SetVisibility(visible)
-            if dibujar:
-                self.vista.render()
+
+    def _aplicar_visibilidad(self, dibujar=True):
+        """Rejilla, etiquetas y cargas, según sus botones. Los valores de las cargas se ven solo si
+        se ven las cargas."""
+        cargas = self.accion_cargas.isChecked()
+        visibles = {"rejilla": self.accion_rejilla.isChecked(), "cargas": cargas}
+        for nombre, accion in self.etiquetas.items():
+            visibles[nombre] = accion.isChecked()
+        visibles["valores_cargas"] = visibles["valores_cargas"] and cargas
+        for nombre, visible in visibles.items():
+            self._mostrar(nombre, visible)
+        if dibujar:
+            self.vista.render()
 
     def encuadre(self):
         """Ajusta la vista al modelo sin cambiar la dirección, con el mismo giro suave del cubo."""
@@ -566,6 +756,9 @@ class Ventana(QMainWindow):
         if item is None:
             return None
         tipo, ident = item
+        if tipo == "apoyo":
+            nodo = self.modelo.nodos.get(ident)
+            return item if nodo is not None and any(nodo.apoyo) else None
         coleccion = {"nodo": self.modelo.nodos, "barra": self.modelo.elementos, "carga": self.modelo.cargas}
         return item if ident in coleccion.get(tipo, {}) else None
 
@@ -586,15 +779,19 @@ class Ventana(QMainWindow):
         self.dibujado.actores["rejilla"] = dibujar_rejilla(self.vista, self.rejilla,
                                                            cuenta_para_camara=not self.modelo.nodos)
         tamano = self._tamano()
-        self.dibujado.actores.update(dibujar_cargas(self.vista, self.modelo, self.caso_activo(), tamano))
+        if not self.modo_combinaciones:            # las cargas solo existen en los casos
+            self.dibujado.actores.update(dibujar_cargas(self.vista, self.modelo, self.caso_activo(), tamano))
         rc = self._rc()
+        self.factor_deformada = None
         if rc is not None and self.resultado_visible == "deformada":
-            self.dibujado.actores.update(dibujar_deformada(self.vista, self.modelo, rc, tamano))
+            actores, self.factor_deformada = dibujar_deformada(self.vista, self.modelo, rc, tamano)
+            self.dibujado.actores.update(actores)
         elif rc is not None and self.resultado_visible:
             self.dibujado.actores.update(dibujar_diagrama(self.vista, self.modelo, rc, self.resultado_visible, tamano))
-        self._mostrar("rejilla", self.accion_rejilla.isChecked(), dibujar=False)
-        for nombre, accion in self.etiquetas.items():
-            self._mostrar(nombre, accion.isChecked(), dibujar=False)
+        boton = self.botones_resultado["deformada"]
+        boton.setToolTip("Deformada" + (f" (×{_factor_texto(self.factor_deformada)} el tamaño real)"
+                                        if self.factor_deformada is not None else ""))
+        self._aplicar_visibilidad(dibujar=False)
         self.seleccion, self.resaltado = self._vigente(self.seleccion), self._vigente(self.resaltado)
         self.dibujado.pintar(self.resaltado, self._en_3d(self.seleccion), self._enlazados())
         self.previsualizacion.actualizar_estilo()
@@ -607,20 +804,28 @@ class Ventana(QMainWindow):
     def _relacionados(self, seleccion):
         """Lo relacionado con la selección: (mismos, enlazados).
 
-        - nodo: mismos = sus cargas del caso activo; enlazados = sus barras;
+        - nodo: mismos = su apoyo y sus cargas del caso activo; enlazados = sus barras;
+        - apoyo: enlazado = su nodo;
         - barra: mismos = sus cargas; enlazados = sus nodos (con sus apoyos);
-        - carga: enlazado = su nodo o su barra."""
+        - carga: enlazado = su nodo o su barra.
+        En el modo Combinaciones no hay cargas a la vista."""
         if seleccion is None:
             return [], []
         tipo, ident = seleccion
         caso = self.caso_activo()
+
+        def cargas(clase, i):
+            return [] if self.modo_combinaciones else [("carga", c) for c in self.modelo.cargas_en(clase, i, caso)]
+
         if tipo == "nodo":
-            return ([("carga", c) for c in self.modelo.cargas_en("nodo", ident, caso)],
+            apoyo = [("apoyo", ident)] if any(self.modelo.nodos[ident].apoyo) else []
+            return (apoyo + cargas("nodo", ident),
                     [("barra", e) for e in self.modelo.elementos_conectados(ident)])
+        if tipo == "apoyo":
+            return [], [("nodo", ident)]
         if tipo == "barra":
             el = self.modelo.elementos[ident]
-            return ([("carga", c) for c in self.modelo.cargas_en("barra", ident, caso)],
-                    [("nodo", el.ni), ("nodo", el.nj)])
+            return cargas("barra", ident), [("nodo", el.ni), ("nodo", el.nj)]
         c = self.modelo.cargas[ident]
         return [], [("nodo", c.nodo) if hasattr(c, "nodo") else ("barra", c.barra)]
 
@@ -658,6 +863,9 @@ class Ventana(QMainWindow):
         self._invalidar_resultados()
         self.herramienta.cancelar()
         self._actualizar_titulo()
+        self._llenar_casos()
+        self._llenar_combinaciones()
+        self._actualizar_modo()
         self.redibujar()
         self.seleccionar(self.seleccion)
         self._refrescar_paneles()
@@ -674,22 +882,39 @@ class Ventana(QMainWindow):
             self._volver(*self.historial.rehacer(self.modelo, not self.modificado), "Rehecho")
 
     def eliminar(self):
-        """Supr: borra el nodo (con sus barras y cargas), la barra (con sus cargas) o la carga elegida."""
+        """Supr: borra lo seleccionado y lo que depende de ello:
+        - un apoyo: solo el apoyo (el nodo queda libre, con sus barras);
+        - un nodo: el nodo con su apoyo, sus cargas y sus barras (una barra no existe sin sus nodos);
+        - una barra: la barra con sus cargas (los nodos quedan);
+        - una carga: la carga."""
+        if self.modo_combinaciones:
+            self.mensaje("En Combinaciones solo se ven resultados: vuelve a Casos (Σ) para editar")
+            return
         if self.seleccion is None:
-            self.mensaje("Selecciona un nodo, una barra o una carga para eliminar")
+            self.mensaje("Selecciona un nodo, un apoyo, una barra o una carga para eliminar")
             return
         tipo, ident = self.seleccion
         self.antes_de_cambiar()
         if tipo == "carga":
             self.modelo.eliminar_carga(ident)
             texto = f"Carga {ident} eliminada"
+        elif tipo == "apoyo":
+            self.modelo.restringir(ident, *TIPOS["libre"])
+            texto = f"Apoyo del nodo {ident} eliminado"
         elif tipo == "nodo":
+            apoyo = any(self.modelo.nodos[ident].apoyo)
+            conectadas = self.modelo.elementos_conectados(ident)
+            n_cargas = len(self.modelo.cargas_en("nodo", ident)) + sum(
+                len(self.modelo.cargas_en("barra", e)) for e in conectadas)
             barras = self.modelo.eliminar_nodo(ident)
-            texto = f"Nodo {ident} eliminado" + (f" (y {len(barras)} barra{'s' if len(barras) != 1 else ''})"
-                                                 if barras else "")
+            partes = (["su apoyo"] if apoyo else []) + ([_plural(len(barras), "barra")] if barras else []) + \
+                     ([_plural(n_cargas, "carga")] if n_cargas else [])
+            texto = f"Nodo {ident} eliminado"
+            if partes:
+                texto += " (con " + (", ".join(partes[:-1]) + " y " + partes[-1] if len(partes) > 1 else partes[0]) + ")"
         else:
             self.modelo.eliminar_elemento(ident)
-            texto = f"Elemento {ident} eliminado"
+            texto = f"Elemento {ident} eliminado (sus nodos quedan)"
         self.seleccion = None
         self.modelo_cambiado(texto)
 
@@ -699,7 +924,7 @@ class Ventana(QMainWindow):
             return
         self.antes_de_cambiar()
         self.modelo.asignar_seccion(eid, sid)
-        nombre = self.modelo.secciones[sid].nombre if sid is not None else "sin sección"
+        nombre = textos.nombre(self.modelo.secciones[sid], self.modelo) if sid is not None else "sin sección"
         self.modelo_cambiado(f"Elemento {eid}: {nombre}")
 
     def _editar_seccion(self, eid, valores):
@@ -727,15 +952,24 @@ class Ventana(QMainWindow):
         self.antes_de_cambiar()
         sid, nueva = cc.buscar_o_crear_seccion(self.modelo, material, b, h, d, barra, nx, ny)
         self.modelo.asignar_seccion(eid, sid)
-        texto = f"Elemento {eid}: {self.modelo.secciones[sid].nombre}"
+        texto = f"Elemento {eid}: {textos.nombre(self.modelo.secciones[sid], self.modelo)}"
         self.modelo_cambiado(texto + (" (sección nueva)" if nueva else ""))
 
-    def modelo_cambiado(self, texto):
-        """Lo llaman las herramientas y los paneles después de cambiar el modelo."""
+    def modelo_cambiado(self, texto, invalida=True):
+        """Lo llaman las herramientas y los paneles después de cambiar el modelo.
+
+        invalida=False: el cambio no toca los resultados de los casos (editar combinaciones, que se
+        calculan sumando esos resultados); solo se rehacen las combinaciones."""
         self.modificado = True
-        self._invalidar_resultados()
+        if invalida:
+            self._invalidar_resultados()
+        else:
+            self._combinados = {}
         self._actualizar_deshacer()
         self._actualizar_titulo()
+        self._llenar_casos()
+        self._llenar_combinaciones()
+        self._actualizar_modo()
         self.redibujar()
         self._refrescar_paneles()
         self.mensaje(texto)
@@ -743,9 +977,11 @@ class Ventana(QMainWindow):
         self._actualizar_puntero()
 
     def _refrescar_paneles(self):
-        """Explorador, Propiedades y ventanas abiertas, con el modelo y las unidades vigentes."""
+        """Explorador, Propiedades, Diagrama y ventanas abiertas, con el modelo y las unidades vigentes."""
         self._llenar_casos()
-        self.explorador.actualizar(self.modelo, self.caso_activo())
+        self._llenar_combinaciones()
+        self._actualizar_modo()
+        self.explorador.actualizar(self.modelo, None if self.modo_combinaciones else self.caso_activo())
         self.explorador.marcar(self.seleccion, *self._relacionados(self.seleccion))
         self._mostrar_propiedades(self._en_propiedades)
         self.modelo_actualizado.emit()
@@ -773,11 +1009,12 @@ class Ventana(QMainWindow):
             self.vista.render()
 
     def _actualizar_resaltado(self):
-        """Con Seleccionar, el nodo o la barra bajo el mouse se ve en gris oscuro."""
+        """Con Seleccionar, el nodo, el apoyo o la barra bajo el mouse se ve en gris oscuro."""
         nuevo = None
         if (self._mouse is not None and isinstance(self.herramienta, Seleccionar)
                 and not self.cubo.contiene(*self._mouse)):
-            nuevo = elemento_en(self.vista.renderer, self.modelo, *self._mouse, ui.TOL_SELECCION_PX)
+            nuevo = elemento_en(self.vista.renderer, self.modelo, *self._mouse, ui.TOL_SELECCION_PX,
+                                self.dibujado.cajas_apoyo)
         if nuevo != self.resaltado:
             self.resaltado = nuevo
             self.pintar()
@@ -821,9 +1058,9 @@ class Ventana(QMainWindow):
 
     # ---------- Selección ----------
     def seleccionar(self, seleccion):
-        """Selecciona un ("nodo", id), ("barra", id) o ("carga", id): negro en 3D (con lo enlazado en
-        gris oscuro), marcado en el explorador con todo lo relacionado y sus datos en Propiedades.
-        None quita la selección."""
+        """Selecciona un ("nodo", id), ("apoyo", id), ("barra", id) o ("carga", id): negro en 3D (con
+        lo enlazado en gris oscuro), marcado en el explorador con todo lo relacionado y sus datos en
+        Propiedades. None quita la selección."""
         self.seleccion = self._vigente(seleccion)
         self.pintar()
         self.explorador.marcar(self.seleccion, *self._relacionados(self.seleccion))
@@ -897,8 +1134,10 @@ class Ventana(QMainWindow):
     def _cargar(self, modelo, ruta, vista):
         """Pone otro modelo en la ventana (Nuevo o Abrir)."""
         self.modelo, self.ruta, self.modificado = modelo, ruta, False
+        self.modo_combinaciones = False
         self._invalidar_resultados()
         self._llenar_casos()
+        self._llenar_combinaciones()
         self.historial.vaciar()
         self._actualizar_deshacer()
         for _, herramienta in self._herramientas:
@@ -907,6 +1146,7 @@ class Ventana(QMainWindow):
         self.ventana_matriz.close()
         for ventana in list(self.diagramas):
             ventana.close()
+        self._actualizar_modo()
         self.redibujar(reiniciar_camara=True)
         self._refrescar_paneles()
         self._actualizar_titulo()
@@ -928,6 +1168,7 @@ class Ventana(QMainWindow):
         self.barra_inferior.setIconSize(QSize(ui.TAMANO_ICONO_INFERIOR, ui.TAMANO_ICONO_INFERIOR))
         self.cubo.actualizar_colores()
         self._ajustar_esquinas()
+        self.propiedades.actualizar_unidades()     # campos a medias (cargas, formularios) en las nuevas
         self.redibujar()
         self._refrescar_paneles()
         self.actualizar_indicacion()

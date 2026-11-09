@@ -10,10 +10,13 @@
   primera fila como "actual" y la dibuja marcada aunque nadie la haya elegido; este árbol no toma
   el foco, así que eso no pasa. Además, un clic en el vacío o sobre la fila ya elegida la
   deselecciona (señal `vaciado`), y las carpetas no se eligen: un clic las abre o las cierra.
+- CampoNumero: un número con su unidad al lado (como en Ftool), sin flechas y de ancho fijo.
 """
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QTreeWidget, QWidget
+from PySide6.QtWidgets import (QAbstractSpinBox, QDoubleSpinBox, QHBoxLayout, QLabel, QMenu, QSpinBox,
+                               QToolButton, QTreeWidget, QWidget)
 
+from configuracion import formato, unidades
 from interfaz.iconos import icono
 
 TAMANO_X = 12                          # la x de cerrar, en píxeles
@@ -132,3 +135,106 @@ class ArbolLimpio(QTreeWidget):
             evento.accept()
             return
         super().mouseReleaseEvent(evento)
+
+
+# ---------------------------------------------------------------- Campos numéricos
+class _SinRueda:
+    """Mezcla para las cajas: sin flechas, y la rueda del mouse no cambia el número (mueve el
+    panel). Así no se cambia un valor sin querer al desplazarse por Propiedades."""
+
+    def _preparar_caja(self):
+        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def wheelEvent(self, evento):
+        evento.ignore()
+
+
+class _CajaReal(_SinRueda, QDoubleSpinBox):
+    def __init__(self):
+        super().__init__()
+        self._preparar_caja()
+
+
+class _CajaEntera(_SinRueda, QSpinBox):
+    def __init__(self):
+        super().__init__()
+        self._preparar_caja()
+
+
+class CampoNumero(QWidget):
+    """Un número con la unidad al lado, sin flechas y de ancho fijo (no se estira con el panel).
+
+    - Con `magnitud` ("longitud", "seccion", "fuerza", "peso_unitario"...), se muestra en la unidad
+      de pantalla y valor()/poner() trabajan en unidades INTERNAS.
+    - Recuerda el valor exacto que se le puso: si el usuario no lo cambia, valor() devuelve ese
+      mismo número, sin el redondeo de los decimales de pantalla. Si las unidades cambian,
+      valor() sigue siendo correcto y actualizar_unidades() lo vuelve a mostrar en las nuevas.
+    - Sin magnitud, `unidad` es un texto fijo ("°") o nada (Nx, Ny); entero=True solo acepta
+      enteros.
+    Señales: `cambiado` con cada cambio (al escribir) y `terminado` al presionar Enter o salir.
+    """
+    cambiado = Signal()
+    terminado = Signal()
+
+    CIFRAS = 11                              # ancho de la caja, en cifras
+
+    def __init__(self, magnitud=None, minimo=-1e9, maximo=1e9, decimales=None, entero=False, unidad="",
+                 parent=None):
+        super().__init__(parent)
+        self.magnitud, self.entero = magnitud, entero
+        self._minimo, self._maximo, self._decimales = minimo, maximo, decimales
+        self.caja = _CajaEntera() if entero else _CajaReal()
+        self.caja.setFixedWidth(self.caja.fontMetrics().horizontalAdvance("0" * self.CIFRAS) + 14)
+        self.unidad = QLabel(unidad)
+        fila = QHBoxLayout(self)
+        fila.setContentsMargins(0, 0, 0, 0)
+        fila.setSpacing(6)
+        fila.addWidget(self.caja)
+        fila.addWidget(self.unidad)
+        fila.addStretch(1)
+        self._factor = 1.0
+        self._exacto = None                  # el valor interno puesto con poner(), si no se tocó
+        self.caja.valueChanged.connect(self._al_cambiar)
+        self.caja.editingFinished.connect(self.terminado.emit)
+        self._preparar()
+
+    def _preparar(self):
+        """Unidad, decimales y rango con las unidades vigentes."""
+        self._factor = unidades.factor(self.magnitud) if self.magnitud else 1.0
+        if self.magnitud:
+            self.unidad.setText(unidades.simbolo(self.magnitud))
+        self.caja.blockSignals(True)
+        if self.entero:
+            self.caja.setRange(int(self._minimo), int(min(self._maximo, 2**31 - 1)))
+        else:
+            if self._decimales is not None:
+                decimales = self._decimales
+            else:
+                decimales = max(2, formato.decimales(self.magnitud)) if self.magnitud else 2
+            self.caja.setDecimals(decimales)
+            self.caja.setRange(self._minimo / self._factor, self._maximo / self._factor)
+        self.caja.blockSignals(False)
+
+    def _al_cambiar(self, *_):
+        self._exacto = None                  # lo cambió el usuario: vale lo que se ve
+        self.cambiado.emit()
+
+    def valor(self):
+        """Valor en unidades internas (int si es entero)."""
+        if self._exacto is not None:
+            return self._exacto
+        return self.caja.value() if self.entero else self.caja.value() * self._factor
+
+    def poner(self, valor):
+        """Pone un valor en unidades internas, sin emitir `cambiado`."""
+        self._exacto = int(valor) if self.entero else float(valor)
+        self.caja.blockSignals(True)
+        self.caja.setValue(self._exacto if self.entero else self._exacto / self._factor)
+        self.caja.blockSignals(False)
+
+    def actualizar_unidades(self):
+        """Vuelve a mostrar el mismo valor en las unidades de pantalla vigentes."""
+        valor = self.valor()
+        self._preparar()
+        self.poner(valor)

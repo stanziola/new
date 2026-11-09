@@ -18,10 +18,10 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - reacciones y fuerzas en los extremos de cada barra (ejes locales);
   - cargas en los nodos y en las barras (uniforme, puntual y momento), con sus fuerzas de empotramiento, y peso propio;
   - diagramas N, V, M y T y la deformada a lo largo de cada barra.
-- **Casos de carga:** por ahora solo Muerta (D, con el peso propio).
+- **Casos de carga:** Muerta (D, con el peso propio) y los que defina el usuario (Definir → Casos de carga). **Combinaciones** con factores a mano, solo para ver resultados (superposición).
 - **Materiales y secciones de concreto** (`calculo/concreto.py`, `modelo/concreto.py`): E, G, A, I, J y γ, con su refuerzo.
-- **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, apoyo y cargas), Analizar y resultados (deformada y diagramas, en 3D y en Propiedades).
-- **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D) y con los scripts de `scripts/`.
+- **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas), Analizar y resultados (deformada y diagramas en 3D, y los de una barra en el panel Diagrama, en ejes locales y con un corte que se desliza).
+- **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`.
 - **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
 - Borrador de combinaciones (`scripts/combinaciones_asce7.py`).
 
@@ -124,7 +124,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
     - cargas parciales y trapezoidales;
     - la viga continua contra la Tabla 6.5.2;
     - un pórtico comparado con Ftool o PyNite;
-    - los casos L y Lr (la viva llega con las losas).
+    - la viva de las losas (cargas de área, etapa 6). Los casos L, Lr… ya se pueden definir y cargar a mano (noviembre de 2026).
 
 ## Etapa 3: Combinaciones de carga
 
@@ -145,6 +145,17 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - con SDS = 0.5: 1.3D + ρQE + L y 0.8D + ρQE;
   - la envolvente coincide con el máximo calculado a mano.
 - **Listo cuando:** `scripts/combinaciones_asce7.py` queda reemplazado por un módulo con pruebas, que incluye Lr, 0.5L y las dos direcciones.
+- **Avance (noviembre de 2026), parte mínima:**
+  - **hecho:**
+    - casos definidos por el usuario (Definir → Casos de carga: tipo D, L, Lr, R, W, E, H, F o T, y factor del peso propio);
+    - combinaciones con factores escritos a mano (Definir → Combinaciones de carga), con nombre automático ("1.2D + 1.6L");
+    - resultados por **superposición** (`modelo/analisis.combinar`), sin volver a resolver;
+    - modo Combinaciones en la interfaz (Σ): solo se ven resultados, la edición queda en gris;
+    - archivo `.json` versión 3, con las combinaciones.
+  - **verificado** (con `verificar-calculos`, y en `pruebas/verificacion.py`):
+    - 1.2D + 1.6L por superposición = un análisis con las cargas multiplicadas (U, R y diagramas de todas las barras);
+    - viga simple con D = 10 y L = 5 kN/m: 1.2D + 1.6L da wL²/8 = 90 kN·m y wL/2 = 60 kN; 1.4D, 63 kN·m y 42 kN.
+  - **falta:** el generador de ASCE 7-05 2.3.2 y 12.4 (con 0.5L, ± W y E en X e Y, SDS y ρ), las envolventes y su uso en el diseño.
 
 ## Etapa 4: Columnas (estribos, cortante, esbeltez)
 

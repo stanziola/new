@@ -1,9 +1,11 @@
 """Dibujo de los resultados del análisis: la deformada y los diagramas N, V, M y T sobre las barras.
 
-- Deformada: cada barra deformada (curva) y los nodos desplazados, en colores.DEFORMADA. Escala
-  automática: el desplazamiento mayor se dibuja como ui.ESCALA_DEFORMADA × tamaño del modelo.
-- Diagramas: el valor a lo largo de cada barra, dibujado en un plano local (ui.ESCALA_DIAGRAMA ×
-  tamaño del modelo para el valor mayor de todo el modelo):
+- Deformada: cada barra deformada (curva) y los nodos desplazados, en colores.DEFORMADA. El factor
+  multiplica los desplazamientos reales (1 = tamaño real): ui.FACTOR_DEFORMADA o, con la escala
+  automática, el que hace que el desplazamiento mayor mida ui.FRACCION_DEFORMADA × tamaño del modelo.
+- Diagramas: el valor a lo largo de cada barra, dibujado en un plano local. Con escala 1
+  (ui.FACTOR_DIAGRAMA), el valor mayor de todo el modelo mide ui.FRACCION_DIAGRAMA × tamaño del
+  modelo; con 2, el doble:
       My: hacia −z local y Mz: hacia −y local (del lado traccionado; con z hacia arriba, el momento
           positivo de una viga queda abajo);
       Vy: hacia +y; Vz: hacia +z; N y T: hacia +z.
@@ -27,19 +29,29 @@ def _malla(puntos, triangulos):
     return pv.PolyData(np.asarray(puntos, dtype=float), caras)
 
 
+def factor_deformada(mayor, tamano):
+    """Cuántas veces se amplifican los desplazamientos reales al dibujarlos.
+
+    mayor: el desplazamiento mayor del modelo (m); tamano: el tamaño del modelo (m)."""
+    if ui.DEFORMADA_AUTOMATICA:
+        return ui.FRACCION_DEFORMADA * tamano / mayor if mayor > 0 else 1.0
+    return ui.FACTOR_DEFORMADA
+
+
 def dibujar_deformada(vista, modelo, rc, tamano):
-    """Barras deformadas y nodos desplazados. Devuelve {"deformada": actor}."""
+    """Barras deformadas y nodos desplazados. Devuelve ({"deformada": actor}, factor usado);
+    sin desplazamientos, ({}, None)."""
     curvas = [deformada_de(modelo, rc, eid) for eid in modelo.elementos]
     mayor = max((np.abs(u).max() for _p, u in curvas), default=0.0)
     if mayor <= 0:
-        return {}
-    escala = ui.ESCALA_DEFORMADA * tamano / mayor
+        return {}, None
+    escala = factor_deformada(mayor, tamano)
     lineas = [pv.lines_from_points(p + u * escala) for p, u in curvas]
     malla = lineas[0].merge(lineas[1:]) if len(lineas) > 1 else lineas[0]
     actor = vista.add_mesh(malla, color=colores.DEFORMADA, line_width=ui.GROSOR_BARRA, pickable=False,
                            reset_camera=False, name="deformada", render=False)
     actor.SetUseBounds(False)
-    return {"deformada": actor}
+    return {"deformada": actor}, escala
 
 
 def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
@@ -48,7 +60,7 @@ def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
     mayor = max((np.abs(d[componente]).max() for d in datos.values()), default=0.0)
     if mayor <= 1e-12:
         return {}
-    escala = ui.ESCALA_DIAGRAMA * tamano / mayor
+    escala = ui.FACTOR_DIAGRAMA * ui.FRACCION_DIAGRAMA * tamano / mayor
     eje, signo = DIRECCION[componente]
     pos = {"puntos": [], "tri": []}
     neg = {"puntos": [], "tri": []}

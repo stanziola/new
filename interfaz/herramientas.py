@@ -12,6 +12,7 @@ import numpy as np
 from configuracion import interfaz as ui
 from configuracion import unidades
 from calculo.tolerancias import TOL_LONGITUD
+from interfaz import textos
 from modelo.apoyos import NOMBRES, TIPOS
 from interfaz.vista3d.seleccion import barra_cercana, elemento_en, nodo_cercano
 
@@ -19,6 +20,7 @@ from interfaz.vista3d.seleccion import barra_cercana, elemento_en, nodo_cercano
 class Herramienta:
     """Base: no hace nada. Las herramientas concretas redefinen lo que necesitan."""
     usa_previsualizacion = False
+    muestra_cargas = False             # True: al activarla se prenden las cargas (botón Cargas)
 
     def __init__(self, ventana):
         self.ventana = ventana
@@ -58,9 +60,12 @@ class Herramienta:
 
 
 class Seleccionar(Herramienta):
+    """Clic sobre un nodo, un apoyo (su cono o su placa) o una barra: lo selecciona."""
+
     def clic(self, x, y, cand):
         v = self.ventana
-        v.seleccionar(elemento_en(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX))
+        v.seleccionar(elemento_en(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX,
+                                  v.dibujado.cajas_apoyo))
 
 
 class AgregarNodo(Herramienta):
@@ -105,7 +110,8 @@ class AgregarNodo(Herramienta):
 
 
 class AgregarElemento(Herramienta):
-    """Una barra por cada dos puntos (inicial y final). No encadena."""
+    """Una barra por cada dos puntos (inicial y final). No encadena. La barra nace sin material ni
+    sección (se ve en un gris más claro): se le asignan con Asignar sección o en Propiedades."""
     usa_previsualizacion = True
 
     def __init__(self, ventana):
@@ -168,15 +174,45 @@ class AgregarElemento(Herramienta):
             ni = modelo.agregar_nodo(*(float(c) for c in inicio))
         if nj is None:
             nj = modelo.agregar_nodo(*(float(c) for c in punto))
-        material = min(modelo.materiales) if modelo.materiales else None
-        seccion = min(modelo.secciones) if modelo.secciones else None
-        if seccion is not None and modelo.secciones[seccion].material is not None:
-            material = modelo.secciones[seccion].material     # la sección lleva su material
-        eid = modelo.agregar_elemento(ni, nj, material, seccion)
-        texto = f"Elemento {eid} agregado (nodos {ni} y {nj})"
-        if material is None or seccion is None:
-            texto += ": sin material o sección, se asignarán en Definir"
-        self.ventana.modelo_cambiado(texto)
+        eid = modelo.agregar_elemento(ni, nj)
+        self.ventana.modelo_cambiado(f"Elemento {eid} agregado (nodos {ni} y {nj}), sin sección: "
+                                     "asígnala con Asignar sección")
+
+
+class AsignarSeccion(Herramienta):
+    """Asigna la sección elegida en Propiedades (y, con ella, su material) a la barra sobre la que
+    se hace clic. Crear, editar y eliminar secciones es de Definir → Secciones."""
+
+    def __init__(self, ventana):
+        super().__init__(ventana)
+        self.seccion = None                # ID de la sección que se asigna
+
+    def mostrar_panel(self):
+        v = self.ventana
+        if self.seccion not in v.modelo.secciones:
+            self.seccion = min(v.modelo.secciones) if v.modelo.secciones else None
+        v.propiedades.mostrar_panel_asignar(v.modelo, self.seccion)
+        return True
+
+    def reiniciar(self):
+        self.seccion = None
+
+    def clic(self, x, y, cand):
+        v = self.ventana
+        if self.seccion not in v.modelo.secciones:
+            v.mensaje("Primero define una sección (Definir → Secciones…)")
+            return
+        eid = barra_cercana(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        if eid is None:
+            v.mensaje("Haz clic sobre una barra")
+            return
+        sec = v.modelo.secciones[self.seccion]
+        if v.modelo.elementos[eid].seccion == self.seccion:
+            v.mensaje(f"La barra {eid} ya tiene {textos.nombre(sec, v.modelo)}")
+            return
+        v.antes_de_cambiar()
+        v.modelo.asignar_seccion(eid, self.seccion)
+        v.modelo_cambiado(f"Elemento {eid}: {textos.nombre(sec, v.modelo)}")
 
 
 class AgregarApoyo(Herramienta):
@@ -208,6 +244,7 @@ class AgregarApoyo(Herramienta):
 class AgregarCargaNodo(Herramienta):
     """Carga en el nodo sobre el que se hace clic, con los valores del panel de Propiedades, en el
     caso de carga activo. Reemplaza las cargas que tenía en ese caso o se suma a ellas."""
+    muestra_cargas = True
 
     def mostrar_panel(self):
         v = self.ventana
@@ -237,6 +274,7 @@ class AgregarCargaNodo(Herramienta):
 class AgregarCargaBarra(Herramienta):
     """Carga en la barra sobre la que se hace clic (uniforme, puntual o momento), con los valores del
     panel de Propiedades, en el caso activo. Se suma a las que tenía o las reemplaza."""
+    muestra_cargas = True
 
     def mostrar_panel(self):
         v = self.ventana

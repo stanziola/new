@@ -3,19 +3,22 @@
 - Abajo solo hay dos botones: Restablecer (vuelve todo a la personalización base) y Cerrar.
 - Las pestañas se arman desde preferencias.PARAMETROS. La de Unidades es una tabla como la de
   Ftool: magnitud, unidad y decimales.
-- Los valores con unidades se muestran en la unidad vigente. Si cambias una unidad, esos campos se
-  vuelven a mostrar convertidos; el valor guardado (en unidades internas) no cambia.
+- Los valores con unidades se muestran en la unidad vigente, con la unidad al lado (CampoNumero).
+  Si cambias una unidad, esos campos se vuelven a mostrar convertidos; el valor guardado (en
+  unidades internas) no cambia.
+- Los valores sí/no ("bool") son casillas.
 - Los cambios se aplican con una pequeña espera (RETARDO_CONFIGURACION_MS): si escribes "125",
   no se redibuja con "1", "12" y "125", sino una sola vez.
 """
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QColorDialog, QComboBox, QDialog, QDoubleSpinBox, QFormLayout,
-                               QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
-                               QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QFormLayout, QGridLayout,
+                               QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QTabWidget,
+                               QVBoxLayout, QWidget)
 
 from configuracion import preferencias, unidades
 from configuracion import interfaz as ui
+from interfaz.paneles.comunes import CampoNumero
 
 GRUPOS = ["Unidades", "Rejilla", "Vista", "Interfaz", "Colores"]
 
@@ -107,13 +110,14 @@ class DialogoConfiguracion(QDialog):
     def _registrar(self, p):
         """Crea el control del parámetro y lo conecta: cada cambio se aplica."""
         if p.tipo == "entero":
-            control = QSpinBox()
-            control.setRange(int(p.minimo), int(min(p.maximo, 2**31 - 1)))
-            control.valueChanged.connect(lambda *_, p=p: self._cambio(p))
+            control = CampoNumero(minimo=p.minimo, maximo=p.maximo, entero=True)
+            control.cambiado.connect(lambda *_, p=p: self._cambio(p))
         elif p.tipo == "real":
-            control = QDoubleSpinBox()
-            control.setDecimals(p.decimales)
-            control.valueChanged.connect(lambda *_, p=p: self._cambio(p))
+            control = CampoNumero(p.magnitud, p.minimo, p.maximo, decimales=p.decimales)
+            control.cambiado.connect(lambda *_, p=p: self._cambio(p))
+        elif p.tipo == "bool":
+            control = QCheckBox()
+            control.toggled.connect(lambda *_, p=p: self._cambio(p))
         elif p.tipo == "opcion":
             control = QComboBox()
             control.addItems(list(p.opciones))
@@ -126,20 +130,15 @@ class DialogoConfiguracion(QDialog):
         self._controles[p] = control
         return control
 
-    def _factor(self, p):
-        return unidades.factor(p.magnitud) if p.magnitud else 1.0
-
     def _mostrar(self, p, control):
         """Pone en el control el valor vigente del parámetro, sin disparar un cambio."""
         control.blockSignals(True)
         valor = p.valor()
-        if p.tipo == "entero":
-            control.setValue(int(valor))
-        elif p.tipo == "real":
-            f = self._factor(p)
-            control.setRange(p.minimo / f, p.maximo / f)
-            control.setSuffix(f" {unidades.simbolo(p.magnitud)}" if p.magnitud else "")
-            control.setValue(valor / f)
+        if p.tipo in ("entero", "real"):
+            control.actualizar_unidades()          # la unidad vigente (si tiene magnitud)
+            control.poner(valor)                   # en unidades internas
+        elif p.tipo == "bool":
+            control.setChecked(bool(valor))
         elif p.tipo == "opcion":
             control.setCurrentText(valor)
         elif p.tipo == "color":
@@ -153,8 +152,9 @@ class DialogoConfiguracion(QDialog):
     # ---------- Cambios ----------
     def _leer(self, p, control):
         if p.tipo in ("entero", "real"):
-            valor = control.value()
-            return valor * self._factor(p) if p.tipo == "real" else valor
+            return control.valor()                 # ya en unidades internas
+        if p.tipo == "bool":
+            return control.isChecked()
         if p.tipo == "opcion":
             return control.currentText()
         return control.color()

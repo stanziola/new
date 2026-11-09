@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QMenu, QPushButton, QSplitte
 from modelo import concreto as cc
 from interfaz.paneles.comunes import ArbolLimpio, carpeta
 from interfaz.paneles.propiedades import PanelPropiedades
+from interfaz.textos import nombre
 
 DATO = Qt.UserRole              # ("material", id) o ("seccion", id): lo que se muestra al hacer clic
 CLAVE = Qt.UserRole + 1         # nombre de la carpeta, para recordar si estaba abierta
@@ -51,7 +52,8 @@ def _hoja(padre, texto, dato):
 
 
 def llenar_definiciones(padre, modelo, abierto, tipo, con_raiz=False):
-    """Las carpetas de un tipo ("material" o "seccion") y, adentro, cada uno por su nombre.
+    """Las carpetas de un tipo ("material" o "seccion") y, adentro, cada uno por su nombre (el de
+    pantalla, en las unidades vigentes).
 
     padre: el árbol o un ítem. abierto(clave) dice si una carpeta va abierta. Con con_raiz, todo va
     dentro de una carpeta "Materiales (n)" o "Secciones (n)" (así lo muestra el explorador).
@@ -68,7 +70,7 @@ def llenar_definiciones(padre, modelo, abierto, tipo, con_raiz=False):
         grupo = _carpeta(padre, cc.nombre_familia(familia), clave, ("familia", (tipo, familia)), abierto)
         for ident, obj in coleccion.items():
             if familia_de(obj) == familia:
-                items[(tipo, ident)] = _hoja(grupo, obj.nombre, (tipo, ident))
+                items[(tipo, ident)] = _hoja(grupo, nombre(obj, modelo), (tipo, ident))
     return items
 
 
@@ -143,10 +145,10 @@ def _hacer(modelo, pedido):
         if nuevo:
             mid = cc.crear_material(modelo, v["nombre"], fc=v.get("fc"), e=v.get("e"), g=v.get("g"),
                                     gamma=v.get("gamma"))
-            return ("material", mid), f"Material {mid} agregado: {modelo.materiales[mid].nombre}"
+            return ("material", mid), f"Material {mid} agregado: {nombre(modelo.materiales[mid])}"
         barras, secciones = cc.cambiar_material(modelo, ident, v["nombre"], fc=v.get("fc"), e=v.get("e"),
                                                 g=v.get("g"), gamma=v.get("gamma"))
-        texto = f"Material cambiado: {modelo.materiales[ident].nombre}"
+        texto = f"Material cambiado: {nombre(modelo.materiales[ident])}"
         if barras or secciones:
             texto += f" (lo usan {len(barras)} barras y {len(secciones)} secciones)"
         return ("material", ident), texto
@@ -155,17 +157,17 @@ def _hacer(modelo, pedido):
         if nuevo:
             existente = cc.buscar_seccion(modelo, *args)
             if existente is not None:
-                raise ValueError(f"Ya existe una sección igual: {modelo.secciones[existente].nombre}")
+                raise ValueError(f"Ya existe una sección igual: {nombre(modelo.secciones[existente], modelo)}")
             sid = cc.crear_seccion(modelo, *args)
-            return ("seccion", sid), f"Sección {sid} agregada: {modelo.secciones[sid].nombre}"
+            return ("seccion", sid), f"Sección {sid} agregada: {nombre(modelo.secciones[sid], modelo)}"
         barras = cc.cambiar_seccion(modelo, ident, *args)
     else:
         args = (v["nombre"], v["a"], v["iy"], v["iz"], v["j"], v["material"])
         if nuevo:
             sid = cc.crear_seccion_general(modelo, *args)
-            return ("seccion", sid), f"Sección {sid} agregada: {modelo.secciones[sid].nombre}"
+            return ("seccion", sid), f"Sección {sid} agregada: {nombre(modelo.secciones[sid], modelo)}"
         barras = cc.cambiar_seccion_general(modelo, ident, *args)
-    texto = f"Sección cambiada: {modelo.secciones[ident].nombre}"
+    texto = f"Sección cambiada: {nombre(modelo.secciones[ident], modelo)}"
     if barras:
         texto += f" (la usan {len(barras)} barras)"
     return ("seccion", ident), texto
@@ -184,10 +186,10 @@ def eliminar(ventana, tipo, ident):
     modelo = ventana.modelo
     prueba = copy.deepcopy(modelo)
     (prueba.eliminar_material if tipo == "material" else prueba.eliminar_seccion)(ident)   # ValueError si en uso
-    nombre = (modelo.materiales if tipo == "material" else modelo.secciones)[ident].nombre
+    texto = nombre((modelo.materiales if tipo == "material" else modelo.secciones)[ident], modelo)
     ventana.antes_de_cambiar()
     (modelo.eliminar_material if tipo == "material" else modelo.eliminar_seccion)(ident)
-    return f"{'Material eliminado' if tipo == 'material' else 'Sección eliminada'}: {nombre}"
+    return f"{'Material eliminado' if tipo == 'material' else 'Sección eliminada'}: {texto}"
 
 
 class Destino:
@@ -296,7 +298,9 @@ class DialogoDefinir(QDialog):
             self.actual = None
         else:
             items[self.actual].setSelected(True)
-        if not self.panel.editando():
+        if self.panel.editando():
+            self.panel.actualizar_unidades()     # el formulario a medias, en las unidades vigentes
+        else:
             self._mostrar_actual()
 
     def _mostrar_actual(self):

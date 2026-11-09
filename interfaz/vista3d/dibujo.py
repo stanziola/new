@@ -35,13 +35,18 @@ class ModeloDibujado:
         self.indice_barra = {}     # ID de barra -> celda en la malla "barras"
         self.indice_nodo = {}      # ID de nodo -> punto en la malla "nodos"
         self.indice_apoyo = {}     # ID de nodo -> celdas (inicio, fin) en la malla "apoyos"
+        self.cajas_apoyo = {}      # ID de nodo -> caja 3D de su cono o placa (para seleccionarlo)
         self.indice_solido = {}    # ID de barra -> celdas (inicio, fin) en la malla "solidos"
 
     def _lugares(self, item):
-        """Dónde está pintado un ("nodo", id) o ("barra", id): lista de (malla, índice)."""
+        """Dónde está pintado un ("nodo", id), ("apoyo", id) o ("barra", id): lista de (malla, índice).
+
+        Un nodo incluye su apoyo (el apoyo es parte del nodo); un apoyo es solo su cono o su placa."""
         if item is None:
             return []
         tipo, ident = item
+        if tipo == "apoyo":
+            return [("apoyos", slice(*self.indice_apoyo[ident]))] if ident in self.indice_apoyo else []
         if tipo == "barra":
             lugares = []
             if ident in self.indice_barra:
@@ -200,6 +205,7 @@ def dibujar_modelo(vista, modelo, seccion_real=True):
         for nid in apoyos:
             forma = _forma_apoyo(puntos[idx[nid]], modelo.nodos[nid].apoyo, ui.TAMANO_APOYO * tamano)
             d.indice_apoyo[nid] = (inicio, inicio + forma.n_cells)
+            d.cajas_apoyo[nid] = tuple(float(v) for v in forma.bounds)
             inicio += forma.n_cells
             formas.append(forma)
         malla = _unir(formas)

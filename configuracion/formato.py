@@ -3,12 +3,14 @@ from configuracion import unidades
 
 # ---------- Decimales en pantalla, uno por magnitud (personalización base) ----------
 DECIMALES_LONGITUD = 3
+DECIMALES_SECCION = 1
 DECIMALES_AREA = 2
 DECIMALES_INERCIA = 1
 DECIMALES_FUERZA = 2
 DECIMALES_MOMENTO = 2
 DECIMALES_CARGA_LINEAL = 2
 DECIMALES_ESFUERZO = 2
+DECIMALES_PESO_UNITARIO = 2   # magnitud derivada (F/L³): no tiene fila en Configuración
 DECIMALES_TABLAS = 3          # tablas de numpy y pandas en la consola (no se configura)
 
 # ---------- Nombres para mostrar resultados ----------
@@ -34,6 +36,15 @@ def cantidad(valor_interno, magnitud, con_unidad=True):
     """Valor interno convertido a pantalla y con formato: cantidad(2.5, "longitud") -> "2.500 m"."""
     texto = numero(unidades.a_pantalla(valor_interno, magnitud), decimales(magnitud))
     return f"{texto} {unidades.simbolo(magnitud)}" if con_unidad else texto
+
+
+def compacto(valor_interno, magnitud):
+    """Como cantidad(), sin unidad y sin ceros de más (para nombres): 0.30 m en cm -> "30";
+    0.255 m -> "25.5"."""
+    texto = numero(unidades.a_pantalla(valor_interno, magnitud), decimales(magnitud))
+    if "." in texto:
+        texto = texto.rstrip("0").rstrip(".")
+    return "0" if texto in ("-0", "") else texto
 
 
 def configurar():

@@ -1,7 +1,8 @@
-"""Selección de nodos y barras con un clic en la vista 3D.
+"""Selección de nodos, apoyos y barras con un clic en la vista 3D.
 
 Se trabaja en coordenadas de pantalla (píxeles): cada nodo se proyecta a la pantalla y se busca
-el más cercano al clic; si no hay ninguno lo bastante cerca, se busca la barra más cercana
+el más cercano al clic; si no hay ninguno lo bastante cerca, se mira si el clic cae sobre el dibujo
+de un apoyo (el cono o la placa, debajo del nodo); y si tampoco, se busca la barra más cercana
 (distancia del clic al segmento proyectado). Así la tolerancia es la misma sin importar el zoom.
 nodo_cercano también lo usa el snap para pegarse a nodos existentes.
 """
@@ -70,13 +71,40 @@ def barra_cercana(renderer, modelo, x, y, tol_px):
     return None
 
 
-def elemento_en(renderer, modelo, x, y, tol_px):
-    """Nodo o barra bajo el clic (x, y): ("nodo", id), ("barra", id) o None.
+def apoyo_en(renderer, cajas, x, y):
+    """ID del nodo cuyo apoyo está bajo el punto (x, y) de la pantalla, o None.
 
-    Los nodos tienen prioridad: si hay un nodo a menos de tol_px, gana el nodo.
+    cajas: {ID de nodo: (xmin, xmax, ymin, ymax, zmin, zmax)}, la caja 3D del cono o la placa de cada
+    apoyo (la guarda dibujo.ModeloDibujado). Se proyectan sus 8 esquinas y se mira si el clic cae en
+    el rectángulo que ocupan en la pantalla; si cae en varios, gana el de centro más cercano."""
+    clic = np.array([x, y], dtype=float)
+    mejor = None
+    for nid, (x0, x1, y0, y1, z0, z1) in cajas.items():
+        esquinas = [(a, b, c) for a in (x0, x1) for b in (y0, y1) for c in (z0, z1)]
+        xy, _profundidad, delante = proyectar(renderer, esquinas)
+        if not delante.all():
+            continue
+        bajo, alto = xy.min(axis=0), xy.max(axis=0)
+        if np.all(clic >= bajo) and np.all(clic <= alto):
+            distancia = float(np.linalg.norm((bajo + alto) / 2 - clic))
+            if mejor is None or distancia < mejor[0]:
+                mejor = (distancia, nid)
+    return mejor[1] if mejor else None
+
+
+def elemento_en(renderer, modelo, x, y, tol_px, cajas_apoyo=None):
+    """Nodo, apoyo o barra bajo el clic (x, y): ("nodo", id), ("apoyo", id del nodo), ("barra", id)
+    o None.
+
+    Prioridad: el nodo (si hay uno a menos de tol_px), después el apoyo (si el clic cae sobre su
+    dibujo; cajas_apoyo como en apoyo_en) y por último la barra.
     """
     nid = nodo_cercano(renderer, modelo, x, y, tol_px)
     if nid is not None:
         return ("nodo", nid)
+    if cajas_apoyo:
+        aid = apoyo_en(renderer, cajas_apoyo, x, y)
+        if aid is not None:
+            return ("apoyo", aid)
     eid = barra_cercana(renderer, modelo, x, y, tol_px)
     return ("barra", eid) if eid is not None else None

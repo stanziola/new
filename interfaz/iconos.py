@@ -81,9 +81,11 @@ def _nodo(p, color):
 
 
 def _elemento(p, color):
-    p.drawLine(QPointF(6, 18), QPointF(18, 6))               # la barra
-    _punto(p, color, (6, 18), 2.4)                           # sus dos nodos
-    _punto(p, color, (18, 6), 2.4)
+    """Agregar elemento: una barra con sus dos nodos y el "+", como Nodo, Apoyo y Cargas."""
+    p.drawLine(QPointF(4.5, 19.5), QPointF(14, 10))          # la barra
+    _punto(p, color, (4.5, 19.5), 2.4)                       # sus dos nodos
+    _punto(p, color, (14, 10), 2.4)
+    _mas(p, (19.5, 5.5))
 
 
 def _mas(p, centro, brazo=3.0):
@@ -106,6 +108,18 @@ def _seccion(p, color):
     p.drawPolygon(_poligono([(3, 5), (15, 5), (15, 8), (10.5, 8), (10.5, 16), (15, 16), (15, 19),
                              (3, 19), (3, 16), (7.5, 16), (7.5, 8), (3, 8)]))
     _mas(p, (19.5, 5.5))
+
+
+def _asignar_seccion(p, color):
+    """Asignar sección: un perfil en I pequeño y una flecha que baja hasta una barra (sin "+": no
+    crea nada, asigna)."""
+    p.drawPolygon(_poligono([(3, 3), (11, 3), (11, 5), (8, 5), (8, 10), (11, 10), (11, 12),
+                             (3, 12), (3, 10), (6, 10), (6, 5), (3, 5)]))
+    p.drawLine(QPointF(16.5, 4), QPointF(16.5, 15))          # la flecha
+    _punta(p, 16.5, 15, 0, 1, 2.6)
+    p.drawLine(QPointF(3, 19.5), QPointF(21, 19.5))          # la barra
+    _punto(p, color, (3, 19.5), 1.8)
+    _punto(p, color, (21, 19.5), 1.8)
 
 
 def _rayado(p, x0, x1, y):
@@ -169,6 +183,19 @@ def _carga_barra(p, color):
         p.drawLine(QPointF(x, 9.5), QPointF(x, 16.5))
         _punta(p, x, 16.5, 0, 1, 2.6)
     _mas(p, (20.5, 4.5), 2.5)
+
+
+def _cargas(p, color):
+    """Cargas visibles: flechas que bajan sobre una barra (sin "+": solo muestra u oculta)."""
+    p.drawLine(QPointF(3, 19), QPointF(21, 19))
+    for x in (6, 12, 18):
+        p.drawLine(QPointF(x, 5), QPointF(x, 16))
+        _punta(p, x, 16, 0, 1, 2.6)
+
+
+def _combinaciones(p, color):
+    """Combinaciones: la Σ de la suma de los casos por sus factores."""
+    p.drawPolyline(_poligono([(18, 7), (18, 4.5), (6, 4.5), (12.5, 12), (6, 19.5), (18, 19.5), (18, 17)]))
 
 
 def _analizar(p, color):
@@ -301,6 +328,9 @@ _DIBUJOS = {
     "seccion_real": _seccion_real,
     "material": _material,
     "seccion": _seccion,
+    "asignar_seccion": _asignar_seccion,
+    "cargas": _cargas,
+    "combinaciones": _combinaciones,
     "rejilla": _rejilla,
     "snap": _snap,
     "etiqueta": _etiqueta,
@@ -309,7 +339,6 @@ _DIBUJOS = {
 
 
 def icono(nombre):
-    """QIcon vectorial: "seleccionar", "nodo", "elemento", "apoyo", "apoyo_fijo", "empotrado",
-    "libre", "deshacer", "rehacer", "seccion_real", "material", "seccion", "rejilla", "snap",
-    "etiqueta" o "encuadre"."""
+    """QIcon vectorial por su nombre (las claves de _DIBUJOS: "seleccionar", "nodo", "elemento",
+    "asignar_seccion", "cargas", "combinaciones"...)."""
     return QIcon(IconoVectorial(_DIBUJOS[nombre]))

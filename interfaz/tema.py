@@ -125,6 +125,11 @@ def _hoja_de_estilo():
                      border-radius: 3px; padding: 2px 4px; selection-background-color: {c.INTERFAZ_ACTIVO};
                      selection-color: {c.INTERFAZ_TEXTO}; }}
         QLineEdit:focus {{ border-color: {c.INTERFAZ_TEXTO}; }}
+        QAbstractSpinBox {{ background: {c.INTERFAZ_FONDO}; border: 1px solid {c.INTERFAZ_ACTIVO_BORDE};
+                            border-radius: 3px; padding: 2px 4px; selection-background-color: {c.INTERFAZ_ACTIVO};
+                            selection-color: {c.INTERFAZ_TEXTO}; }}
+        QAbstractSpinBox:focus {{ border-color: {c.INTERFAZ_TEXTO}; }}
+        QAbstractSpinBox:disabled {{ color: {c.INTERFAZ_DESHABILITADO}; border-color: {c.INTERFAZ_BORDE}; }}
         QToolTip {{ background: {c.INTERFAZ_FONDO}; color: {c.INTERFAZ_TEXTO};
                     border: 1px solid {c.INTERFAZ_ACTIVO_BORDE}; padding: 3px; }}
     """

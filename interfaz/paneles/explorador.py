@@ -1,9 +1,11 @@
 """Explorador del modelo (izquierda), como el de ETABS o Civil 3D.
 
-- Pestaña Modelo: nodos, elementos y apoyos. Elegir uno lo selecciona en 3D y lo muestra en
-  Propiedades. Debajo, Materiales y Secciones con sus carpetas (interfaz/definir.py): clic los
-  muestra en Propiedades, doble clic los edita ahí y el clic derecho da Nuevo, Editar, Copiar y
-  Eliminar.
+- Pestaña Modelo: nodos, elementos, apoyos y cargas. Elegir uno lo selecciona en 3D y lo muestra
+  en Propiedades. Un apoyo es un objeto aparte ("apoyo", ID del nodo): se puede elegir y borrar
+  solo. Las cargas son las del caso activo (en el modo Combinaciones no se listan: las cargas solo
+  existen en los casos). Debajo, Materiales y Secciones con sus carpetas (interfaz/definir.py):
+  clic los muestra en Propiedades, doble clic los edita ahí y el clic derecho da Nuevo, Editar,
+  Copiar y Eliminar.
 - Pestaña Tablas: la matriz de rigidez global de cada elemento y los diagramas de interacción de
   las secciones de concreto (agrupados por sección: todas las columnas con la misma sección tienen
   el mismo diagrama).
@@ -17,6 +19,7 @@ from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import QDockWidget, QTabWidget, QTreeWidgetItem
 
 from configuracion import colores, formato
+from interfaz import textos
 from interfaz.textos import donde, texto_carga
 from modelo.apoyos import describir
 from interfaz.ventanas.definir import CLAVE, info_de, llenar_definiciones
@@ -79,7 +82,7 @@ class Explorador(QDockWidget):
 
     def actualizar(self, modelo, caso=None):
         """Vuelve a armar los dos árboles (al cambiar el modelo o las unidades). caso: el caso activo,
-        cuyas cargas se listan."""
+        cuyas cargas se listan (None: ninguna, como en el modo Combinaciones)."""
         self._recordar_abiertos()
         self.arbol_modelo.clear()
         self.arbol_tablas.clear()
@@ -95,10 +98,11 @@ class Explorador(QDockWidget):
         con_apoyo = [(nid, n) for nid, n in modelo.nodos.items() if any(n.apoyo)]
         apoyos = self._grupo(self.arbol_modelo, f"Apoyos ({len(con_apoyo)})", "apoyos")
         for nid, n in con_apoyo:
-            self._registrar(("nodo", nid), self._hoja(apoyos, f"Nodo {nid}: {describir(n.apoyo)}", ("nodo", nid)))
-        caso = modelo.caso_inicial() if caso is None else caso
+            self._registrar(("apoyo", nid), self._hoja(apoyos, f"Nodo {nid}: {describir(n.apoyo)}", ("apoyo", nid)),
+                            True)
         de_caso = [(cid, c) for cid, c in modelo.cargas.items() if c.caso == caso]
-        cargas = self._grupo(self.arbol_modelo, f"Cargas ({len(de_caso)})", "cargas")
+        titulo = f"Cargas ({len(de_caso)})" if caso is not None else "Cargas (se ven en los casos)"
+        cargas = self._grupo(self.arbol_modelo, titulo, "cargas")
         for cid, c in de_caso:
             self._registrar(("carga", cid), self._hoja(cargas, f"{donde(c)}: {texto_carga(c)}", ("carga", cid)), True)
         abierto = lambda clave: clave in self._abiertos          # noqa: E731
@@ -112,7 +116,7 @@ class Explorador(QDockWidget):
         diagramas = self._grupo(self.arbol_tablas, "Diagramas de interacción", "diagramas")
         for sid, sec in modelo.secciones.items():
             if sec.concreto is not None:
-                self._hoja(diagramas, f"{sec.nombre} ({sec.concreto.forma})", ("seccion", sid))
+                self._hoja(diagramas, f"{textos.nombre(sec, modelo)} ({sec.concreto.forma})", ("seccion", sid))
 
     @staticmethod
     def _abrir_grupos(fila):
@@ -124,8 +128,7 @@ class Explorador(QDockWidget):
     def marcar(self, item, mismos=(), enlazados=()):
         """Marca en el árbol Modelo lo seleccionado (sin volver a emitir `elegido`).
 
-        - item y `mismos` (por ejemplo las cargas de un nodo): con el color de selección; un nodo
-          se marca en Nodos y en Apoyos;
+        - item y `mismos` (por ejemplo las cargas y el apoyo de un nodo): con el color de selección;
         - `enlazados` (por ejemplo las barras de un nodo): con un fondo más claro.
         Se abren sus grupos y lo principal queda a la vista."""
         arbol = self.arbol_modelo

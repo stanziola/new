@@ -65,8 +65,10 @@ PARAMETROS = [
     P(interfaz, "TAMANO_NODO", "Tamaño de los nodos (píxeles)", "entero", "Vista", 1, 50),
     P(interfaz, "TAMANO_APOYO", "Tamaño de los apoyos (fracción del modelo)", "real", "Vista", 0.01, 0.3),
     P(interfaz, "TAMANO_CARGA", "Tamaño de las cargas (fracción del modelo)", "real", "Vista", 0.01, 0.5),
-    P(interfaz, "ESCALA_DEFORMADA", "Escala de la deformada (fracción del modelo)", "real", "Vista", 0.005, 0.5),
-    P(interfaz, "ESCALA_DIAGRAMA", "Escala de los diagramas (fracción del modelo)", "real", "Vista", 0.01, 0.5),
+    P(interfaz, "DEFORMADA_AUTOMATICA", "Escala automática de la deformada", "bool", "Vista"),
+    P(interfaz, "FACTOR_DEFORMADA", "Escala de la deformada, si no es automática (× real; 1 = real)", "real",
+      "Vista", 0.01, 1e7),
+    P(interfaz, "FACTOR_DIAGRAMA", "Escala de los diagramas (1 = automática)", "real", "Vista", 0.05, 20),
     # ---------- Interfaz ----------
     P(interfaz, "TAMANO_ICONO", "Íconos de las barras izquierda y Definir (píxeles)", "entero", "Interfaz", 12, 64),
     P(interfaz, "TAMANO_ICONO_INFERIOR", "Íconos de la barra inferior (píxeles)", "entero", "Interfaz", 12, 64),
