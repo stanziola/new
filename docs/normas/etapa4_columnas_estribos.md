@@ -98,7 +98,7 @@
 
 ## Diferencias o contradicciones encontradas
 
-1. **Columna circular** (`iteracion2dcir.py`): usa φ = 0.65 y 0.80·Po, que son los valores de estribos. Si lleva **espiral**, corresponden 0.75, 0.75 + 0.15(…) y 0.85·Po. Hay que elegir el tipo de refuerzo transversal.
+1. **Columna circular** (`calculo/interaccion/circular.py`): usa φ = 0.65 y 0.80·Po, que son los valores de estribos. Si lleva **espiral**, corresponden 0.75, 0.75 + 0.15(…) y 0.85·Po. Hay que elegir el tipo de refuerzo transversal.
 2. **Cuantía 1 %–8 %** (`mostrar_propiedades`): en **pórticos especiales el máximo es 6 %** (18.7.4.1). Conviene que el límite dependa del tipo de pórtico.
 3. **"Verificar estribos" depende del tipo de pórtico.** En CDS D (lo usual en la ciudad de Panamá) mandan los requisitos de 18.7, no solo los de 25.7.2. Además, el cortante de diseño sale de **Mpr**, que se calcula con el diagrama de interacción (con 1.25fy y φ = 1). Los diagramas que ya existen sirven para obtener Mn y Mpr.
 4. **Cortante biaxial:** en un programa 3D hay que revisar el 22.5.1.11, y no cada dirección por separado.

@@ -14,6 +14,9 @@ INTERFAZ_ACTIVO = "#d9d9d9"           # botón activo (sombreado)
 INTERFAZ_ACTIVO_BORDE = "#b3b3b3"
 INTERFAZ_PRESIONADO = "#c8c8c8"
 INTERFAZ_DESHABILITADO = "#a6a6a6"    # texto deshabilitado
+INTERFAZ_PESTANA_INACTIVA = "#e6e6e6" # pestaña que no está elegida (un poco más oscura)
+INTERFAZ_SELECCION = "#b5b5b5"        # fila elegida en los árboles (explorador, Definir)
+INTERFAZ_ENLAZADO = "#e3e3e3"         # filas relacionadas con lo elegido (más claras)
 ICONO = "#000000"
 ICONO_DESHABILITADO = "#b0b0b0"
 
@@ -26,6 +29,11 @@ SIN_ASIGNAR = "#c8c8c8"               # barras sin material o sección (un gris 
 ETIQUETA = "#000000"
 REJILLA = "#d4d4d4"
 EJE_X = "#ff0000"                     # flecha del eje X (fijo)
+CARGA = "#c0392b"                     # flechas de las cargas
+DEFORMADA = "#1f4e9c"                 # barras deformadas
+DIAGRAMA_POSITIVO = "#5b9bd5"         # relleno de los diagramas: valores positivos (azul suave)
+DIAGRAMA_NEGATIVO = "#e07b7b"         # y negativos (rojo suave)
+DIAGRAMA_BORDE = "#303030"
 
 # ---------- Cubo de vistas ----------
 CUBO_CARA = "#ffffff"

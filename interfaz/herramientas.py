@@ -12,8 +12,8 @@ import numpy as np
 from configuracion import interfaz as ui
 from configuracion import unidades
 from calculo.tolerancias import TOL_LONGITUD
-from interfaz.apoyos import NOMBRES, TIPOS
-from interfaz.seleccion import elemento_en, nodo_cercano
+from modelo.apoyos import NOMBRES, TIPOS
+from interfaz.vista3d.seleccion import barra_cercana, elemento_en, nodo_cercano
 
 
 class Herramienta:
@@ -84,7 +84,7 @@ class AgregarNodo(Herramienta):
 
     def clic(self, x, y, cand):
         if cand.punto is None:
-            self.ventana.mensaje("El puntero no cae sobre el plano de la rejilla")
+            self.ventana.mensaje("Acércate a un punto de la rejilla o a un nodo, o escribe x, y, z")
             return
         self.colocar(cand.punto)
 
@@ -138,7 +138,7 @@ class AgregarElemento(Herramienta):
 
     def clic(self, x, y, cand):
         if cand.punto is None:
-            self.ventana.mensaje("El puntero no cae sobre el plano de la rejilla")
+            self.ventana.mensaje("Acércate a un punto de la rejilla o a un nodo, o escribe x, y, z")
             return
         self.poner(cand.punto)
 
@@ -203,3 +203,66 @@ class AgregarApoyo(Herramienta):
         v.modelo.restringir(nid, *TIPOS[self.tipo])
         texto = "sin apoyo" if self.tipo == "libre" else NOMBRES[self.tipo].lower()
         v.modelo_cambiado(f"Nodo {nid}: {texto}")
+
+
+class AgregarCargaNodo(Herramienta):
+    """Carga en el nodo sobre el que se hace clic, con los valores del panel de Propiedades, en el
+    caso de carga activo. Reemplaza las cargas que tenía en ese caso o se suma a ellas."""
+
+    def mostrar_panel(self):
+        v = self.ventana
+        v.propiedades.mostrar_panel_carga("nodo", v.modelo.casos[v.caso_activo()].nombre)
+        return True
+
+    def clic(self, x, y, cand):
+        v = self.ventana
+        nid = nodo_cercano(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        if nid is None:
+            v.mensaje("Haz clic sobre un nodo")
+            return
+        panel = v.propiedades.panel.panel_carga_nodo
+        valores = panel.valores()
+        if not any(valores):
+            v.mensaje("Escribe algún valor de fuerza o momento")
+            return
+        caso = v.caso_activo()
+        v.antes_de_cambiar()
+        if panel.reemplazar.isChecked():
+            for cid in v.modelo.cargas_en("nodo", nid, caso):
+                v.modelo.eliminar_carga(cid)
+        v.modelo.agregar_carga_nodal(nid, valores, caso)
+        v.modelo_cambiado(f"Carga en el nodo {nid}")
+
+
+class AgregarCargaBarra(Herramienta):
+    """Carga en la barra sobre la que se hace clic (uniforme, puntual o momento), con los valores del
+    panel de Propiedades, en el caso activo. Se suma a las que tenía o las reemplaza."""
+
+    def mostrar_panel(self):
+        v = self.ventana
+        v.propiedades.mostrar_panel_carga("barra", v.modelo.casos[v.caso_activo()].nombre)
+        return True
+
+    def clic(self, x, y, cand):
+        v = self.ventana
+        eid = barra_cercana(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        if eid is None:
+            v.mensaje("Haz clic sobre una barra")
+            return
+        panel = v.propiedades.panel.panel_carga_barra
+        tipo, valor, direccion, a = panel.valores()
+        if valor == 0:
+            v.mensaje("Escribe el valor de la carga")
+            return
+        el = v.modelo.elementos[eid]
+        largo = v.modelo.nodos[el.ni].distancia(v.modelo.nodos[el.nj])
+        if tipo != "uniforme" and a > largo + TOL_LONGITUD:
+            v.mensaje(f"a es mayor que el largo de la barra {eid} ({largo:.3f} m)")
+            return
+        caso = v.caso_activo()
+        v.antes_de_cambiar()
+        if panel.reemplazar.isChecked():
+            for cid in v.modelo.cargas_en("barra", eid, caso):
+                v.modelo.eliminar_carga(cid)
+        v.modelo.agregar_carga_barra(eid, tipo, valor, direccion, a, caso)
+        v.modelo_cambiado(f"Carga en la barra {eid}")

@@ -13,7 +13,7 @@ DECIMALES_TABLAS = 3          # tablas de numpy y pandas en la consola (no se co
 
 # ---------- Nombres para mostrar resultados ----------
 GDL = ["Dx", "Dy", "Dz", "Phix", "Phiy", "Phiz"]       # desplazamientos (consola y CSV)
-GDL_PANTALLA = ["Dx", "Dy", "Dz", "φx", "φy", "φz"]    # los mismos, con el símbolo φ (interfaz)
+GDL_PANTALLA = ["Δx", "Δy", "Δz", "φx", "φy", "φz"]    # los mismos, con Δ y φ (interfaz)
 FUERZAS = ["Fx", "Fy", "Fz", "Mx", "My", "Mz"]         # ejes globales (cargas, reacciones)
 FUERZAS_LOCALES = ["N", "Vy", "Vz", "T", "My", "Mz"]   # ejes locales de barra
 

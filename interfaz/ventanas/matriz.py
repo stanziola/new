@@ -1,6 +1,6 @@
 """Tabla de la matriz de rigidez global de un elemento (12 x 12), en unidades de pantalla.
 
-La matriz sale de calculo.elemento.k_global_barra (el mismo cálculo que usa el ensamble): aquí no
+La matriz sale de calculo.rigidez.barra.k_global_barra (el mismo cálculo que usa el ensamble): aquí no
 se repite ninguna fórmula, solo se convierte y se muestra.
 
 Unidades por bloque (análisis dimensional). Cada término K[i, j] es "fuerza o momento en i por
@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QPushButton, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
-from calculo.elemento import k_global_barra
+from calculo.rigidez.barra import k_global_barra
 from configuracion import formato, unidades
 from configuracion.formato import GDL_PANTALLA
 

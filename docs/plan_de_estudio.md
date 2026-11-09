@@ -11,20 +11,19 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
 
 ## Estado actual (lo que ya hace el programa)
 
-- **Análisis matricial de pórticos 3D** (`calculo/`):
+- **Análisis matricial de pórticos 3D** (`calculo/rigidez/`):
   - barras de 12 GDL;
   - transformación por ángulos α, β y γ;
   - ensamble de K y solución de K·U = F;
-  - reacciones y fuerzas en los extremos de cada barra (ejes locales).
-
-  Solo acepta **cargas en los nodos**.
-- **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): muestra barras, nodos, apoyos y números de nodo; incluye el cubo de vistas y la selección.
-- **Diagramas de interacción de columnas** (scripts sueltos):
-  - rectangular 2D (`iteracion2drect.py`);
-  - circular 2D (`iteracion2dcir.py`);
-  - rectangular biaxial 3D con ventana tkinter (`iteracion3drect.py`).
-- **Comprobaciones automáticas** (`pruebas/verificacion.py`).
-- Borrador de combinaciones (`combinacionescarga.py`).
+  - reacciones y fuerzas en los extremos de cada barra (ejes locales);
+  - cargas en los nodos y en las barras (uniforme, puntual y momento), con sus fuerzas de empotramiento, y peso propio;
+  - diagramas N, V, M y T y la deformada a lo largo de cada barra.
+- **Casos de carga:** por ahora solo Muerta (D, con el peso propio).
+- **Materiales y secciones de concreto** (`calculo/concreto.py`, `modelo/concreto.py`): E, G, A, I, J y γ, con su refuerzo.
+- **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, apoyo y cargas), Analizar y resultados (deformada y diagramas, en 3D y en Propiedades).
+- **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D) y con los scripts de `scripts/`.
+- **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
+- Borrador de combinaciones (`scripts/combinaciones_asce7.py`).
 
 ## Hoja de ruta (orden acordado)
 
@@ -102,6 +101,30 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - viga continua contra la Tabla 6.5.2;
   - un pórtico comparado con **Ftool** (2D, gratuito) o **PyNite** (3D, Python).
 - **Listo cuando:** los diagramas coinciden con los casos de libro y el equilibrio cierra en cada barra y en los apoyos.
+- **Avance (noviembre de 2026):**
+  - **hecho:**
+    - cargas en nodos y en barras (uniforme en toda la barra, puntual y momento a una distancia a; en ejes globales o locales);
+    - peso propio con γ = 150 lb/ft³ = 23.56 kN/m³ (ASCE 7-05 Tabla C3-2, PDF p. 295) y el caso Muerta;
+    - FEF con las funciones de forma de Hermite;
+    - diagramas N, V, M y T y la deformada, en 3D y en Propiedades.
+  - **diseño:** una sola clase `CargaBarra` con un `tipo`, en vez de una clase por tipo. Las fórmulas tienen que vivir en `calculo/` (sagrado), que no conoce las clases del modelo; ahí se eligen por tipo.
+  - **verificado** (con `verificar-calculos`, en un script aparte):
+    - viga simple: wL²/8, wL/2 y 5wL⁴/384EI;
+    - biempotrada: wL²/12 y wL²/24;
+    - apoyada-empotrada: wL²/8;
+    - puntual al centro: PL/8;
+    - puntual y momento a una distancia a, contra la misma barra partida por un nodo en a (otro método; diferencia 5e-14, también en una barra inclinada con α = 30°);
+    - equilibrio global de un pórtico con cargas en barras;
+    - peso propio: ΣRz = ΣA·γ·L;
+    - dMz/dx = Vy y dMy/dx = Vz;
+    - la deformada en los extremos coincide con los desplazamientos de los nodos.
+
+    Las vigas de referencia quedaron en `pruebas/integridad.py`.
+  - **falta:**
+    - cargas parciales y trapezoidales;
+    - la viga continua contra la Tabla 6.5.2;
+    - un pórtico comparado con Ftool o PyNite;
+    - los casos L y Lr (la viva llega con las losas).
 
 ## Etapa 3: Combinaciones de carga
 
@@ -121,7 +144,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - con W de servicio = 10: la combinación 4 da 1.2D + 16;
   - con SDS = 0.5: 1.3D + ρQE + L y 0.8D + ρQE;
   - la envolvente coincide con el máximo calculado a mano.
-- **Listo cuando:** `combinacionescarga.py` queda reemplazado por un módulo con pruebas, que incluye Lr, 0.5L y las dos direcciones.
+- **Listo cuando:** `scripts/combinaciones_asce7.py` queda reemplazado por un módulo con pruebas, que incluye Lr, 0.5L y las dos direcciones.
 
 ## Etapa 4: Columnas (estribos, cortante, esbeltez)
 
@@ -139,8 +162,8 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - efectos P-δ.
   - Libros: Wight y MacGregor, caps. 11–12 y 19; *NEHRP Seismic Design Technical Brief No. 1* (pórticos especiales de concreto, NIST).
 - **Python:**
-  - refactorizar `iteracion*.py` en un paquete `diseno/` con funciones puras y pruebas;
-  - separar el cálculo de la ventana (hoy están mezclados en `iteracion3drect.py`).
+  - ya hecho: las fórmulas están en `calculo/interaccion/` (funciones puras, con referencias en la integridad) y las ventanas aparte (`scripts/` e `interfaz/ventanas/interaccion.py`);
+  - falta un paquete de diseño (`diseno/`) que las use, con pruebas.
 - **Verificaciones:**
   - ejemplo resuelto de un libro con ACI 318-19 (diagrama y estribos);
   - casos borde: Pu = 0.3·Ag·f'c y el paso de barra #10 a #11 (cambio de diámetro mínimo del estribo);
@@ -254,7 +277,8 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 - traslación rígida en X, Y y Z sin fuerzas;
 - equilibrio global de fuerzas y momentos;
 - voladizo con P·L³/(3EI), reacción y momento;
-- detección de estructura inestable.
+- detección de estructura inestable;
+- integridad del cálculo: huellas de `calculo/` y resultados de referencia (pórtico, vigas con cargas en la barra y diagramas de interacción).
 
 **Propuestas:**
 1. **Rotación rígida:** u = θ × r en todos los nodos, con φ = θ → K·u = 0. Completa la prueba de cuerpo rígido.
@@ -268,7 +292,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 ## Hallazgos de la revisión (pendientes de decidir; no se tocaron)
 
 1. **Unidades mezcladas:** el análisis trabaja en kN y m; los diagramas en pulgadas y ksi, con salida en tonf. Se sugiere SI por dentro y `pint` en la entrada y la salida.
-2. **`requirements.txt`** no incluye `pint` ni `matplotlib`, que usan los `iteracion*.py`.
+2. ~~**`requirements.txt`** no incluye `pint` ni `matplotlib`~~. Resuelto: ya los incluye.
 3. **`beta1`:** rechaza f'c = 2.5 ksi, que el ACI permite (Tabla 22.2.2.4.3).
 4. **Barras #14 y #18:** sus diámetros salen mal con n/8 (son 1.693 in y 2.257 in).
 5. **Columna circular:** usa φ y 0.80·Po de columna con estribos. Con espiral son 0.75 y 0.85·Po.
@@ -279,7 +303,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
    - SDS y ρ están fijos en el código;
    - no consideran X e Y ni la torsión accidental.
 8. **Análisis:**
-   - solo cargas nodales;
+   - ~~solo cargas nodales~~: ya hay cargas en barras y peso propio; faltan las parciales y trapezoidales;
    - sin liberaciones (articulaciones) en los extremos de barra;
    - sin brazos rígidos;
    - sin modificadores de inercia agrietada;

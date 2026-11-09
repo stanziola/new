@@ -64,7 +64,7 @@
 ## Diferencias o contradicciones encontradas
 
 1. **No hay contradicción ACI–ASCE–REP:** con viento a nivel de servicio (REP 4.2), las combinaciones de ACI 5.3 con el 5.3.5 dan lo mismo que ASCE 7-05 2.3.2: 1.6W en lugar de 1.0W y 0.8W en lugar de 0.5W. **Error típico:** usar 1.0W de ACI 318-19 con el viento del REP, que da un 37.5 % menos de viento.
-2. **`combinacionescarga.py`:**
+2. **`scripts/combinaciones_asce7.py`** (antes `combinacionescarga.py`):
    - **falta Lr**: la 2 lleva +0.5Lr; la 3 es 1.2D + 1.6Lr + (L o 0.8W), así que faltan los casos 1.2D + 1.6Lr + L y 1.2D + 1.6Lr ± 0.8W; la 4 lleva +0.5Lr;
    - S y R son 0 en Panamá (no nieva). R es la lluvia acumulada en el techo (cap. 8 de ASCE), que el REP 3.3 sí exige;
    - no aplica la opción 0.5L de la excepción 1;

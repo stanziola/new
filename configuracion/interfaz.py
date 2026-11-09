@@ -17,19 +17,24 @@ GROSOR_BARRA = 4                      # en píxeles; la barra seleccionada usa e
 TAMANO_NODO = 9                       # en píxeles; el nodo seleccionado usa el mismo
 
 TAMANO_APOYO = 0.06                   # cono y placa de los apoyos: fracción del tamaño del modelo
+TAMANO_CARGA = 0.08                   # largo de las flechas de carga: fracción del tamaño del modelo
+ESCALA_DEFORMADA = 0.05               # el desplazamiento mayor se dibuja como esta fracción del modelo
+ESCALA_DIAGRAMA = 0.12                # el valor mayor de un diagrama, como esta fracción del modelo
 
 # Derivados y fijos
 ANCHO_SEPARADOR = 4                   # línea entre la vista y los paneles, en píxeles
 OPACIDAD_PREVISUALIZACION = 0.35      # el gris normal, transparente, antes de colocar
-ETIQUETAS_VISIBLES = True
+ETIQUETAS_VISIBLES = True             # números de nodo al abrir
 TAMANO_LETRA = 14
 SEPARACION_ETIQUETA = 0.04            # fracción del tamaño del modelo, hacia arriba
 
 # ---------- Rejilla (personalización base) ----------
-REJILLA_DISTANCIA = 1.0               # distancia entre líneas, en m
+REJILLA_DISTANCIA_X = 1.0             # distancia entre líneas de cada eje, en m
+REJILLA_DISTANCIA_Y = 1.0
+REJILLA_DISTANCIA_Z = 3.0             # entre niveles (pisos)
 REJILLA_LINEAS_X = 11                 # líneas en cada eje: de 0 a (n - 1) · distancia
 REJILLA_LINEAS_Y = 11
-REJILLA_LINEAS_Z = 11
+REJILLA_LINEAS_Z = 4                  # niveles: 0, 3, 6 y 9 m
 REJILLA_VISIBLE = True                # encendida al abrir
 GROSOR_REJILLA = 1
 

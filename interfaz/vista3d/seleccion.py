@@ -6,7 +6,6 @@ el más cercano al clic; si no hay ninguno lo bastante cerca, se busca la barra 
 nodo_cercano también lo usa el snap para pegarse a nodos existentes.
 """
 import numpy as np
-from configuracion.formato import FUERZAS, GDL
 
 
 def a_pantalla(renderer, punto):
@@ -15,6 +14,27 @@ def a_pantalla(renderer, punto):
     renderer.WorldToDisplay()
     x, y, _ = renderer.GetDisplayPoint()
     return np.array([x, y])
+
+
+def proyectar(renderer, puntos):
+    """Muchos puntos 3D a la pantalla de una vez (para el snap a la rejilla 3D).
+
+    Usa la matriz de la cámara (mundo -> coordenadas normalizadas de -1 a 1) y la pasa a píxeles
+    como hace VTK. Da lo mismo que a_pantalla punto por punto, pero en una sola operación de numpy.
+    Devuelve (xy en píxeles, profundidad de -1 a 1, cuáles están delante de la cámara)."""
+    puntos = np.asarray(puntos, dtype=float)
+    camara = renderer.GetActiveCamera()
+    m = camara.GetCompositeProjectionTransformMatrix(renderer.GetTiledAspectRatio(), -1, 1)
+    matriz = np.array([[m.GetElement(i, j) for j in range(4)] for i in range(4)])
+    h = np.column_stack([puntos, np.ones(len(puntos))]) @ matriz.T
+    w = h[:, 3]
+    delante = w > 1e-12
+    w = np.where(delante, w, 1.0)
+    ndc = h[:, :3] / w[:, None]
+    ancho, alto = renderer.GetSize()
+    x0, y0 = renderer.GetOrigin()
+    xy = np.column_stack([(ndc[:, 0] + 1) * ancho / 2 + x0, (ndc[:, 1] + 1) * alto / 2 + y0])
+    return xy, ndc[:, 2], delante
 
 
 def distancia_a_segmento(p, a, b):
@@ -37,6 +57,19 @@ def nodo_cercano(renderer, modelo, x, y, tol_px):
     return None
 
 
+def barra_cercana(renderer, modelo, x, y, tol_px):
+    """ID de la barra más cercana al punto (x, y) de la pantalla, si está a menos de tol_px; o None."""
+    clic = np.array([x, y], dtype=float)
+    pantalla = {nid: a_pantalla(renderer, n.coords) for nid, n in modelo.nodos.items()}
+    cercanas = [(distancia_a_segmento(clic, pantalla[el.ni], pantalla[el.nj]), eid)
+                for eid, el in modelo.elementos.items()]
+    if cercanas:
+        d, eid = min(cercanas)
+        if d <= tol_px:
+            return eid
+    return None
+
+
 def elemento_en(renderer, modelo, x, y, tol_px):
     """Nodo o barra bajo el clic (x, y): ("nodo", id), ("barra", id) o None.
 
@@ -45,32 +78,5 @@ def elemento_en(renderer, modelo, x, y, tol_px):
     nid = nodo_cercano(renderer, modelo, x, y, tol_px)
     if nid is not None:
         return ("nodo", nid)
-    clic = np.array([x, y], dtype=float)
-    pantalla = {nid: a_pantalla(renderer, n.coords) for nid, n in modelo.nodos.items()}
-    cercanas = [(distancia_a_segmento(clic, pantalla[el.ni], pantalla[el.nj]), eid)
-                for eid, el in modelo.elementos.items()]
-    if cercanas:
-        d, eid = min(cercanas)
-        if d <= tol_px:
-            return ("barra", eid)
-    return None
-
-
-def texto_seleccion(modelo, seleccion):
-    """Descripción corta del nodo o barra seleccionado (para el futuro panel de propiedades)."""
-    tipo, ident = seleccion
-    if tipo == "nodo":
-        n = modelo.nodos[ident]
-        x, y, z = n.coords
-        texto = f"Nodo {ident}:  ({x:g}, {y:g}, {z:g})"
-        if any(n.apoyo):
-            texto += "  |  apoyo: " + ", ".join(g for g, r in zip(GDL, n.apoyo) if r)
-        if any(n.carga):
-            texto += "  |  carga: " + ", ".join(f"{f}={c:g}" for f, c in zip(FUERZAS, n.carga) if c)
-        return texto
-    el = modelo.elementos[ident]
-    largo = modelo.nodos[el.ni].distancia(modelo.nodos[el.nj])
-    material = "material sin asignar" if el.material is None else modelo.materiales[el.material].nombre
-    seccion = "sección sin asignar" if el.seccion is None else modelo.secciones[el.seccion].nombre
-    return (f"Barra {ident}:  nodos {el.ni} → {el.nj}  |  {material}  |  {seccion}  |  "
-            f"L = {largo:.3f}  |  α = {el.alfa:g}°")
+    eid = barra_cercana(renderer, modelo, x, y, tol_px)
+    return ("barra", eid) if eid is not None else None

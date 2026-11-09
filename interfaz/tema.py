@@ -85,13 +85,16 @@ def _hoja_de_estilo():
         QToolBar {{ background: {c.INTERFAZ_FONDO}; border: none; spacing: 2px; padding: 3px; }}
         QToolBar#herramientas {{ border-right: 1px solid {c.INTERFAZ_BORDE}; }}
         QToolBar#definir {{ border-bottom: 1px solid {c.INTERFAZ_BORDE}; }}
-        QDockWidget::title {{ background: {c.INTERFAZ_HOVER}; padding: 5px;
-                             border-bottom: 1px solid {c.INTERFAZ_BORDE}; }}
+        QWidget#titulo_panel {{ background: {c.INTERFAZ_HOVER}; border-bottom: 1px solid {c.INTERFAZ_BORDE}; }}
+        QToolButton#cerrar_panel {{ border: none; border-radius: 3px; padding: 2px; }}
+        QToolButton#cerrar_panel:hover {{ background: {c.INTERFAZ_ACTIVO}; }}
         QTreeWidget {{ border: none; }}
         QTreeView::item {{ padding: 1px 0px; }}
+        QTreeView::item:selected {{ background: {c.INTERFAZ_SELECCION}; color: {c.INTERFAZ_TEXTO}; }}
         QTabWidget::pane {{ border: none; border-top: 1px solid {c.INTERFAZ_BORDE}; top: -1px; }}
-        QTabBar::tab {{ background: transparent; border: 1px solid transparent; padding: 4px 12px;
-                        margin: 0px; color: {c.INTERFAZ_TEXTO}; }}
+        QTabBar::tab {{ background: {c.INTERFAZ_PESTANA_INACTIVA}; border: 1px solid transparent;
+                        padding: 4px 12px; margin: 0px; color: {c.INTERFAZ_TEXTO}; }}
+        QTabBar::tab:!selected:hover {{ background: {c.INTERFAZ_HOVER}; }}
         QTabBar::tab:selected {{ background: {c.INTERFAZ_FONDO}; border-color: {c.INTERFAZ_BORDE};
                                  border-bottom-color: {c.INTERFAZ_FONDO}; }}
         QMainWindow::separator {{ background: {c.INTERFAZ_ACTIVO_BORDE};

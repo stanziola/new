@@ -88,15 +88,58 @@ def portico_referencia():
     return m
 
 
+def vigas_referencia():
+    """Vigas con cargas en la barra (uniforme, puntual y momento, en ejes locales y globales).
+
+    Una viga de 6 m en X con los dos extremos empotrados y otra simplemente apoyada, más una
+    columna inclinada con carga global. Cubren las FEF y los diagramas a lo largo de la barra."""
+    from modelo import Modelo
+    casos = {}
+    for nombre, apoyo_j in (("biempotrada", (True,) * 6), ("simple", (True, True, True, True, False, False))):
+        m = Modelo()
+        m.agregar_material("C", e=25e6, g=10e6)
+        m.agregar_seccion("S", a=0.15, iy=3.125e-3, iz=1.125e-3, j=2.8e-3)
+        m.agregar_nodo(0, 0, 0)
+        m.agregar_nodo(6, 0, 0)
+        m.agregar_elemento(1, 2, 1, 1)
+        m.restringir(1, *((True, True, True, True, False, False) if nombre == "simple" else (True,) * 6))
+        m.restringir(2, *apoyo_j)
+        m.agregar_carga_barra(1, "uniforme", -10, "Z")
+        m.agregar_carga_barra(1, "puntual", 15, "y", a=2.0)
+        m.agregar_carga_barra(1, "momento", 8, "z", a=4.5)
+        m.agregar_carga_barra(1, "puntual", -12, "x", a=1.5)
+        casos[nombre] = m
+    m = Modelo()
+    m.agregar_material("C", e=25e6, g=10e6)
+    m.agregar_seccion("S", a=0.16, iy=2.133e-3, iz=2.133e-3, j=3.6e-3)
+    m.agregar_nodo(0, 0, 0)
+    m.agregar_nodo(2, 1, 3)
+    m.agregar_elemento(1, 2, 1, 1, alfa=25)
+    m.restringir(1)
+    m.agregar_carga_barra(1, "uniforme", -4, "Z")
+    m.agregar_carga_barra(1, "momento", 3, "X", a=1.0)
+    m.cargar(2, fx=5)
+    casos["inclinada"] = m
+    return casos
+
+
 def calcular_resultados():
     """Resultados de referencia calculados con el cálculo actual."""
-    from calculo.analisis import resolver
     from calculo.interaccion import biaxial, circular, rectangular
     from calculo.interaccion.comun import propiedades_seccion, ureg
+    from modelo.analisis import analizar_caso, fuerzas_en
 
-    res = resolver(portico_referencia())
+    res = analizar_caso(portico_referencia(), 1).res
     resultados = {"portico": {"K": res.K.tolist(), "U": res.U.tolist(), "R": res.R.tolist(),
                               "fuerzas": {str(k): v.tolist() for k, v in res.fuerzas.items()}}}
+
+    vigas = {}
+    for nombre, m in vigas_referencia().items():
+        rc = analizar_caso(m, 1)
+        d = fuerzas_en(m, rc, 1)
+        vigas[nombre] = {"U": rc.res.U.tolist(), "R": rc.res.R.tolist(), "fuerzas": rc.res.fuerzas[1].tolist(),
+                         "diagramas": {k: np.asarray(d[k]).tolist() for k in ("x", "N", "Vy", "Vz", "T", "My", "Mz")}}
+    resultados["vigas"] = vigas
 
     rect = []
     for b, h, d, nx, ny, fc, nob in ((0.65, 0.65, 0.075, 5, 5, 4, 8), (0.40, 0.60, 0.06, 3, 4, 6.5, 9)):

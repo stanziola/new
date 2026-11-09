@@ -7,8 +7,8 @@ def etiquetas_gdl(nodos):
     return [f"{g}{n}" for n in nodos for g in GDL]
 
 
-def ver(M, nodos=None, archivo=None):
-    """Muestra una matriz con etiquetas. Si se da 'archivo', la guarda en CSV (para Excel)."""
+def ver(M, nodos=None):
+    """Muestra una matriz con etiquetas en la consola."""
     if nodos is None:
         nodos = range(M.shape[0] // 6)
     if len(nodos) * 6 != M.shape[0]:
@@ -19,11 +19,7 @@ def ver(M, nodos=None, archivo=None):
     et = etiquetas_gdl(nodos)
     df = pd.DataFrame(M, index=et, columns=et)
 
-    if archivo:
-        df.to_csv(archivo, sep=";", decimal=",")   # formato de Excel en español
-        print(f"Matriz guardada en {archivo}")
-    else:
-        print(df)
+    print(df)
 
 
 def mostrar(m, titulo):
@@ -37,12 +33,11 @@ def mostrar(m, titulo):
         print(f"  {sid}: {s.nombre}  A={s.a}  Iy={s.iy}  Iz={s.iz}  J={s.j}")
     print("Nodos:")
     for nid, n in m.nodos.items():
-        extra = ""
-        if any(n.apoyo):
-            extra += f"  apoyo={n.apoyo}"
-        if any(n.carga):
-            extra += f"  carga={n.carga}"
+        extra = f"  apoyo={n.apoyo}" if any(n.apoyo) else ""
         print(f"  {nid}: {n.coords}{extra}")
+    print("Cargas:")
+    for cid, c in m.cargas.items():
+        print(f"  {cid}: caso {c.caso}  {c}")
     print("Elementos:")
     for eid, el in m.elementos.items():
         mat = "sin asignar" if el.material is None else el.material

@@ -21,7 +21,7 @@ El REP 2021 1.8.2 (p. 20–21) exige usar solo programas cuya validez esté veri
      - viento de servicio (×1.6) frente a viento de resistencia (×1.0).
 2. **Unidades.** Haz el análisis dimensional de cada término.
    - El ACI de `docs/codigos/` está en psi e in; las constantes con raíces (√f'c) **no son adimensionales**: 57 000√f'c solo vale en psi y 4700√f'c en MPa.
-   - El análisis del programa usa kN y m. Los `iteracion*.py` usan `pint` con in, ksi y tonf.
+   - El análisis del programa usa kN y m. Los diagramas de interacción (`calculo/interaccion/` y `scripts/interaccion_*.py`) usan `pint` con in, ksi y tonf.
    - Comprueba todas las conversiones (1 ksi = 6.895 MPa, 1 in = 25.4 mm, 1 kip = 4.448 kN, 1 tonf = 9.807 kN).
 3. **Rango de validez.** ¿Se cumplen las condiciones de la fórmula? Por ejemplo:
    - el método 6.5 exige L ≤ 3D y tramos parecidos;
@@ -68,4 +68,5 @@ Si algo no se pudo verificar, dilo explícitamente. No afirmes que está bien.
 ## Comprobaciones ya conocidas del proyecto
 
 - `pruebas/verificacion.py`: simetría de K, traslación rígida, equilibrio, voladizo e inestable.
+- `pruebas/integridad.py`: resultados de referencia de un pórtico, de vigas con cargas en la barra (biempotrada, simple e inclinada) y de los diagramas de interacción.
 - Hallazgos pendientes, en `docs/plan_de_estudio.md` → "Hallazgos de la revisión".

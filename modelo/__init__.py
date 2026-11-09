@@ -3,4 +3,5 @@
 - estructura.py: Modelo, Nodo, Material, Seccion (con Concreto: su refuerzo) y Elemento.
 - archivo.py: guardar y abrir modelos en .json.
 """
-from modelo.estructura import Concreto, Elemento, Material, Modelo, Nodo, Seccion  # noqa: F401
+from modelo.estructura import (CargaBarra, CargaNodal, Caso, Concreto, Elemento, Material,  # noqa: F401
+                               Modelo, Nodo, Seccion)

@@ -4,9 +4,9 @@
 import numpy as np
 from configuracion.formato import configurar
 from modelo import Modelo
-from calculo.analisis import resolver
+from modelo.analisis import analizar_caso
 from ejemplos.portico import crear_portico
-from salida.consola import mostrar, mostrar_resultados, ver
+from salida.consola import mostrar, mostrar_resultados
 
 
 def comprobar(descripcion, condicion):
@@ -16,11 +16,10 @@ def comprobar(descripcion, condicion):
 def verificar_portico():
     m = crear_portico()
     mostrar(m, "PÓRTICO DE PRUEBA")
-    res = resolver(m)
+    res = analizar_caso(m, m.caso_inicial()).res
 
     print("\n===== MATRIZ K GLOBAL =====")
     print("Nodos en orden:", res.ids, "  Tamaño:", res.K.shape)
-    ver(res.K, nodos=res.ids, archivo="K_global.csv")
     mostrar_resultados(m, res)
 
     print("\n===== COMPROBACIONES =====")
@@ -55,7 +54,7 @@ def verificar_voladizo():
     v.restringir(1)
     v.cargar(2, fz=-10)
 
-    rv = resolver(v)
+    rv = analizar_caso(v, v.caso_inicial()).res
     dz = rv.desplazamientos[2][2]
     teorico = -10 * 3**3 / (3 * 200e6 * 8e-5)
     comprobar(f"Voladizo: Dz = {dz:.6e}  (teórico P·L³/3EI = {teorico:.6e})", np.isclose(dz, teorico))
@@ -76,7 +75,7 @@ def verificar_inestable():
     m.restringir(1, phix=False, phiy=False, phiz=False)   # solo una articulación
     m.cargar(2, fz=-10)
     try:
-        resolver(m)
+        analizar_caso(m, m.caso_inicial())
         comprobar("Estructura inestable detectada", False)
     except ValueError as e:
         comprobar(f"Estructura inestable detectada: {e}", True)

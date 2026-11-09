@@ -1,5 +1,5 @@
 import numpy as np
-from .elemento import k_global_barra
+from .barra import k_global_barra
 
 def indices_nodos(modelo):
     """ID de nodo -> posición 0, 1, 2... en la matriz global."""
@@ -28,7 +28,3 @@ def ensamblar_k(modelo):
         K[np.ix_(gdl, gdl)] += kb
 
     return K, list(idx)
-
-def ensamblar_f(modelo):
-    """Vector de cargas nodales global (en el mismo orden que K)."""
-    return np.array([c for n in modelo.nodos.values() for c in n.carga], dtype=float)

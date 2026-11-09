@@ -3,16 +3,21 @@
 - Los números están en unidades internas (kN y m), sin importar las unidades de pantalla.
 - Se guardan los contadores de IDs ("siguiente_id"): así, al reabrir, un nodo nuevo nunca recibe
   el ID de uno que se borró antes (los IDs no se reutilizan).
-- "vista" guarda datos de la interfaz que conviene recordar con el modelo, como el plano de la
-  rejilla. Este módulo no los interpreta: solo los guarda y los devuelve.
+- "vista" guarda datos de la interfaz que conviene recordar con el modelo. Este módulo no los
+  interpreta: solo los guarda y los devuelve.
+- Versión 2: guarda también los casos de carga y las cargas. Los archivos de la versión 1 se abren
+  igual: la "carga" de cada nodo pasa a una carga nodal del caso Muerta, y los materiales de
+  concreto reciben el peso unitario del concreto reforzado (para el peso propio).
 """
 import json
 from dataclasses import asdict
 from pathlib import Path
 
-from modelo.estructura import Concreto, Elemento, Material, Modelo, Nodo, Seccion
+from calculo.concreto import GAMMA_CONCRETO
+from modelo.estructura import CargaBarra, CargaNodal, Caso, Concreto, Elemento, Material, Modelo, Nodo, Seccion
 
-VERSION_FORMATO = 1
+VERSION_FORMATO = 2
+VERSIONES_LEIDAS = (1, 2)
 UNIDADES_INTERNAS = {"fuerza": "kN", "longitud": "m"}
 
 
@@ -26,6 +31,9 @@ def a_diccionario(modelo, vista=None):
         "materiales": {str(i): asdict(m) for i, m in modelo.materiales.items()},
         "secciones": {str(i): asdict(s) for i, s in modelo.secciones.items()},
         "elementos": {str(i): asdict(e) for i, e in modelo.elementos.items()},
+        "casos": {str(i): asdict(c) for i, c in modelo.casos.items()},
+        "cargas": {str(i): {"clase": "nodal" if isinstance(c, CargaNodal) else "barra", **asdict(c)}
+                   for i, c in modelo.cargas.items()},
         "siguiente_id": dict(modelo._sig_id),
         "vista": dict(vista or {}),
     }
@@ -48,23 +56,53 @@ def _seccion(d):
     return Seccion(**d, concreto=Concreto(**concreto) if concreto else None)
 
 
+def _material(d):
+    """Material desde su diccionario. Los de concreto viejos (sin "gamma") reciben el del concreto."""
+    d = dict(d)
+    if "gamma" not in d:
+        d["gamma"] = GAMMA_CONCRETO if d.get("fc") is not None else 0.0
+    return Material(**d)
+
+
+def _carga(d):
+    d = dict(d)
+    clase = d.pop("clase")
+    return CargaNodal(**d) if clase == "nodal" else CargaBarra(**d)
+
+
 def desde_diccionario(datos):
     """Arma el modelo desde el diccionario leído. Devuelve (modelo, vista)."""
     if not isinstance(datos, dict):
         raise ValueError("El archivo no contiene un modelo")
-    if datos.get("version_formato") != VERSION_FORMATO:
-        raise ValueError(f"Versión de formato {datos.get('version_formato')!r} no reconocida "
-                         f"(se esperaba {VERSION_FORMATO})")
+    version = datos.get("version_formato")
+    if version not in VERSIONES_LEIDAS:
+        raise ValueError(f"Versión de formato {version!r} no reconocida "
+                         f"(se esperaba una de {VERSIONES_LEIDAS})")
     if datos.get("unidades") != UNIDADES_INTERNAS:
         raise ValueError(f"Las unidades del archivo {datos.get('unidades')!r} no son las internas "
                          f"{UNIDADES_INTERNAS}")
     m = Modelo()
     try:
-        m.nodos = {int(i): Nodo(**d) for i, d in datos["nodos"].items()}
-        m.materiales = {int(i): Material(**d) for i, d in datos["materiales"].items()}
+        cargas_viejas = {}                     # versión 1: la carga estaba dentro de cada nodo
+        m.nodos = {}
+        for i, d in datos["nodos"].items():
+            d = dict(d)
+            carga = d.pop("carga", None)
+            if carga and any(carga):
+                cargas_viejas[int(i)] = [float(c) for c in carga]
+            m.nodos[int(i)] = Nodo(**d)
+        m.materiales = {int(i): _material(d) for i, d in datos["materiales"].items()}
         m.secciones = {int(i): _seccion(d) for i, d in datos["secciones"].items()}
         m.elementos = {int(i): Elemento(**d) for i, d in datos["elementos"].items()}
         m._sig_id = {tipo: int(v) for tipo, v in datos["siguiente_id"].items()}
+        if version >= 2:
+            m.casos = {int(i): Caso(**d) for i, d in datos["casos"].items()}
+            m.cargas = {int(i): _carga(d) for i, d in datos["cargas"].items()}
+        else:
+            m._sig_id.setdefault("caso", max(m.casos) + 1)
+            m._sig_id.setdefault("carga", 1)
+            for nid, fuerzas in cargas_viejas.items():
+                m.agregar_carga_nodal(nid, fuerzas)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise ValueError(f"El archivo no tiene el formato esperado: {e!r}") from e
     _revisar(m)
@@ -85,11 +123,20 @@ def _revisar(m):
     for sid, sec in m.secciones.items():
         if sec.material is not None and sec.material not in m.materiales:
             problemas.append(f"la sección {sid} usa el material {sec.material}, que no existe")
-    if set(m._sig_id) != {"nodo", "elem", "mat", "sec"}:
+    if not m.casos:
+        problemas.append("no hay casos de carga")
+    for cid, c in m.cargas.items():
+        if c.caso not in m.casos:
+            problemas.append(f"la carga {cid} es del caso {c.caso}, que no existe")
+        if isinstance(c, CargaNodal) and c.nodo not in m.nodos:
+            problemas.append(f"la carga {cid} está en el nodo {c.nodo}, que no existe")
+        if isinstance(c, CargaBarra) and c.barra not in m.elementos:
+            problemas.append(f"la carga {cid} está en la barra {c.barra}, que no existe")
+    if set(m._sig_id) != {"nodo", "elem", "mat", "sec", "caso", "carga"}:
         problemas.append(f"faltan contadores de IDs: {sorted(m._sig_id)}")
     else:
-        for tipo, ids in (("nodo", m.nodos), ("elem", m.elementos),
-                          ("mat", m.materiales), ("sec", m.secciones)):
+        for tipo, ids in (("nodo", m.nodos), ("elem", m.elementos), ("mat", m.materiales),
+                          ("sec", m.secciones), ("caso", m.casos), ("carga", m.cargas)):
             if ids and m._sig_id[tipo] <= max(ids):
                 problemas.append(f"el contador de '{tipo}' ({m._sig_id[tipo]}) no es mayor que "
                                  f"el ID {max(ids)}: se repetirían IDs")

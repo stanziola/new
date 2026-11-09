@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget
 
 from configuracion import colores, unidades
-from interfaz import concreto
+from modelo import interaccion as concreto
 
 
 class VentanaDiagrama(QWidget):

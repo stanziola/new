@@ -79,7 +79,7 @@
 
 ## Diferencias o contradicciones encontradas
 
-1. **`beta1()`** (en los tres `iteracion*.py`) lanza error si f'c ≤ 2.5 ksi. La Tabla 22.2.2.4.3 incluye f'c = 2500 psi, así que la condición correcta es `fc < 2.5`.
+1. **`beta1()`** (en `calculo/interaccion/comun.py`) lanza error si f'c ≤ 2.5 ksi. La Tabla 22.2.2.4.3 incluye f'c = 2500 psi, así que la condición correcta es `fc < 2.5`.
 2. **`fy(n)`** asigna 40 ksi a las barras #3. Solo es válido si se especifica Grado 40. En sistemas sísmicos especiales hace falta A706, o A615 Grado 60 que cumpla 20.2.2.5(b).
 3. **`DIAM_ESPECIAL`** cubre #9 a #11. Para #14 y #18, n/8 da 1.75 in y 2.25 in, pero los diámetros reales son **1.693 in y 2.257 in**.
 4. **Unidades:** el análisis trabaja en kN, m y kPa; los diagramas en pulgadas, ksi y kip, con salida en tonf. Conviene una sola política: SI por dentro y pint en la entrada y la salida.

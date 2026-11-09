@@ -50,7 +50,7 @@
 
 ## Para el programa (qué implementar y cómo verificarlo)
 
-- **Cargas en barras:** uniforme (ejes globales o locales), puntual a una distancia a y, si se quiere, trapezoidal. Además, el peso propio (A · γ): γ del concreto reforzado ≈ 23.6 kN/m³ (150 lb/ft³, comentario C3 de ASCE 7-05).
+- **Cargas en barras:** uniforme (ejes globales o locales), puntual a una distancia a y, si se quiere, trapezoidal. Además, el peso propio (A · γ): γ del concreto reforzado = 150 lb/ft³ ≈ 23.56 kN/m³ (ASCE 7-05 Tabla C3-2, PDF p. 295, revisado en el PDF). El programa ya lo usa como valor por defecto del concreto.
 - **Pasos del cálculo:**
   1. Fuerzas de empotramiento en ejes locales.
   2. Transformarlas a ejes globales (Tᵀ).

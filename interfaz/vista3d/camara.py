@@ -11,7 +11,7 @@ import numpy as np
 from PySide6.QtCore import QElapsedTimer, QObject, QTimer, Signal
 
 from configuracion import interfaz as ui
-from interfaz.animacion import interpolar_camara, suavizar
+from interfaz.vista3d.animacion import interpolar_camara, suavizar
 
 
 def leer_camara(camara):

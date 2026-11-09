@@ -1,6 +1,6 @@
 """Diálogo de Configuración: cada cambio se aplica en el momento y se guarda.
 
-- Abajo solo hay dos botones: Restablecer (vuelve todo a la personalización base) y Salir.
+- Abajo solo hay dos botones: Restablecer (vuelve todo a la personalización base) y Cerrar.
 - Las pestañas se arman desde preferencias.PARAMETROS. La de Unidades es una tabla como la de
   Ftool: magnitud, unidad y decimales.
 - Los valores con unidades se muestran en la unidad vigente. Si cambias una unidad, esos campos se
@@ -14,9 +14,8 @@ from PySide6.QtWidgets import (QColorDialog, QComboBox, QDialog, QDoubleSpinBox,
                                QGridLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
                                QScrollArea, QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
-from configuracion import formato, preferencias, unidades
+from configuracion import preferencias, unidades
 from configuracion import interfaz as ui
-from interfaz.plano_trabajo import NOMBRE_EJE, PLANOS
 
 GRUPOS = ["Unidades", "Rejilla", "Vista", "Interfaz", "Colores"]
 
@@ -81,28 +80,18 @@ class DialogoConfiguracion(QDialog):
                 tabla.addWidget(self._registrar(p), fila, col)
         tabla.setRowStretch(len(unidades.UNIDADES) + 1, 1)
 
-        # ---------- Rejilla: primero el plano de trabajo (de este modelo) ----------
+        # ---------- Las demás pestañas: una fila por parámetro ----------
         formularios = {g: QFormLayout(paginas[g]) for g in GRUPOS if g != "Unidades"}
-        self._plano = QComboBox()
-        self._plano.addItems(list(PLANOS))
-        self._posicion = QDoubleSpinBox()
-        self._posicion.setDecimals(4)
-        self._posicion.setRange(-1e7, 1e7)
-        self._etiqueta_posicion = QLabel()
-        formularios["Rejilla"].addRow("Plano de trabajo (de este modelo)", self._plano)
-        formularios["Rejilla"].addRow(self._etiqueta_posicion, self._posicion)
-        self._plano.currentTextChanged.connect(self._cambio_plano)
-        self._posicion.valueChanged.connect(self._cambio_plano)
 
         for p in preferencias.PARAMETROS:
             if p.grupo != "Unidades":
                 formularios[p.grupo].addRow(p.etiqueta, self._registrar(p))
 
-        # ---------- Abajo: Restablecer a la izquierda, Salir a la derecha ----------
+        # ---------- Abajo: Restablecer a la izquierda, Cerrar a la derecha ----------
         restablecer = QPushButton("Restablecer")
         restablecer.setToolTip("Vuelve todo a la personalización base")
         restablecer.clicked.connect(self._restablecer)
-        salir = QPushButton("Salir")
+        salir = QPushButton("Cerrar")
         salir.clicked.connect(self.accept)
         abajo = QHBoxLayout()
         abajo.addWidget(restablecer)
@@ -157,20 +146,9 @@ class DialogoConfiguracion(QDialog):
             control.poner_color(valor)
         control.blockSignals(False)
 
-    def _mostrar_plano(self):
-        for control in (self._plano, self._posicion):
-            control.blockSignals(True)
-        self._plano.setCurrentText(self.ventana.plano)
-        self._posicion.setSuffix(f" {unidades.simbolo('longitud')}")
-        self._posicion.setValue(self.ventana.posicion_plano / unidades.factor("longitud"))
-        self._etiqueta_posicion.setText(f"Posición del plano ({NOMBRE_EJE[PLANOS[self.ventana.plano]]} =)")
-        for control in (self._plano, self._posicion):
-            control.blockSignals(False)
-
     def _mostrar_todo(self):
         for p, control in self._controles.items():
             self._mostrar(p, control)
-        self._mostrar_plano()
 
     # ---------- Cambios ----------
     def _leer(self, p, control):
@@ -187,16 +165,7 @@ class DialogoConfiguracion(QDialog):
             for otro, control in self._controles.items():
                 if otro.magnitud:
                     self._mostrar(otro, control)
-            self._mostrar_plano()
         self._reloj.start()
-
-    def _cambio_plano(self, *_):
-        plano = self._plano.currentText()
-        posicion = self._posicion.value() * unidades.factor("longitud")
-        if abs(posicion - self.ventana.posicion_plano) < 0.5 * 10.0 ** -4 * unidades.factor("longitud"):
-            posicion = self.ventana.posicion_plano          # no la tocó: se conserva exacta
-        self.ventana.cambiar_plano(plano, posicion)
-        self._mostrar_plano()
 
     def _restablecer(self):
         preferencias.restablecer()
@@ -211,7 +180,7 @@ class DialogoConfiguracion(QDialog):
         self.ventana.aplicar_configuracion()
 
     def done(self, resultado):
-        """Al salir (con Salir, Esc o la X), aplica lo que estuviera esperando."""
+        """Al cerrar (con Cerrar, Esc o la X), aplica lo que estuviera esperando."""
         if self._reloj.isActive():
             self._reloj.stop()
             self._aplicar()

@@ -55,15 +55,18 @@ PARAMETROS = [
         P(formato, f"DECIMALES_{m.upper()}", f"Decimales de {unidades.NOMBRES[m].lower()}", "entero",
           "Unidades", 0, 8))],
     # ---------- Rejilla ----------
-    P(interfaz, "REJILLA_DISTANCIA", "Distancia entre líneas", "real", "Rejilla", 0.001, 1e6,
-      magnitud="longitud", decimales=3),
+    *[P(interfaz, f"REJILLA_DISTANCIA_{eje}", f"Distancia entre líneas en {eje}", "real", "Rejilla",
+        0.001, 1e6, magnitud="longitud", decimales=3) for eje in "XYZ"],
     P(interfaz, "REJILLA_LINEAS_X", "Líneas en X", "entero", "Rejilla", 2, 201),
     P(interfaz, "REJILLA_LINEAS_Y", "Líneas en Y", "entero", "Rejilla", 2, 201),
-    P(interfaz, "REJILLA_LINEAS_Z", "Líneas en Z", "entero", "Rejilla", 2, 201),
+    P(interfaz, "REJILLA_LINEAS_Z", "Niveles en Z", "entero", "Rejilla", 1, 201),
     # ---------- Vista ----------
     P(interfaz, "GROSOR_BARRA", "Grosor de los elementos (píxeles)", "entero", "Vista", 1, 20),
     P(interfaz, "TAMANO_NODO", "Tamaño de los nodos (píxeles)", "entero", "Vista", 1, 50),
     P(interfaz, "TAMANO_APOYO", "Tamaño de los apoyos (fracción del modelo)", "real", "Vista", 0.01, 0.3),
+    P(interfaz, "TAMANO_CARGA", "Tamaño de las cargas (fracción del modelo)", "real", "Vista", 0.01, 0.5),
+    P(interfaz, "ESCALA_DEFORMADA", "Escala de la deformada (fracción del modelo)", "real", "Vista", 0.005, 0.5),
+    P(interfaz, "ESCALA_DIAGRAMA", "Escala de los diagramas (fracción del modelo)", "real", "Vista", 0.01, 0.5),
     # ---------- Interfaz ----------
     P(interfaz, "TAMANO_ICONO", "Íconos de las barras izquierda y Definir (píxeles)", "entero", "Interfaz", 12, 64),
     P(interfaz, "TAMANO_ICONO_INFERIOR", "Íconos de la barra inferior (píxeles)", "entero", "Interfaz", 12, 64),
@@ -77,6 +80,10 @@ PARAMETROS = [
     P(colores, "SELECCIONADO", "Seleccionado", "color", "Colores"),
     P(colores, "SIN_ASIGNAR", "Elementos sin material o sección", "color", "Colores"),
     P(colores, "ETIQUETA", "Etiquetas", "color", "Colores"),
+    P(colores, "CARGA", "Cargas", "color", "Colores"),
+    P(colores, "DEFORMADA", "Deformada", "color", "Colores"),
+    P(colores, "DIAGRAMA_POSITIVO", "Diagramas: positivo", "color", "Colores"),
+    P(colores, "DIAGRAMA_NEGATIVO", "Diagramas: negativo", "color", "Colores"),
     P(colores, "REJILLA", "Rejilla", "color", "Colores"),
     P(colores, "FONDO_VISTA", "Fondo de la vista", "color", "Colores"),
     P(colores, "CUBO_CARA", "Cubo: caras", "color", "Colores"),
@@ -89,6 +96,9 @@ PARAMETROS = [
     P(colores, "INTERFAZ_HOVER", "Interfaz: botón bajo el mouse", "color", "Colores"),
     P(colores, "INTERFAZ_ACTIVO", "Interfaz: botón activo", "color", "Colores"),
     P(colores, "INTERFAZ_ACTIVO_BORDE", "Interfaz: borde del botón activo", "color", "Colores"),
+    P(colores, "INTERFAZ_PESTANA_INACTIVA", "Interfaz: pestaña inactiva", "color", "Colores"),
+    P(colores, "INTERFAZ_SELECCION", "Interfaz: fila seleccionada", "color", "Colores"),
+    P(colores, "INTERFAZ_ENLAZADO", "Interfaz: filas relacionadas", "color", "Colores"),
     P(colores, "ICONO", "Íconos", "color", "Colores"),
 ]
 

@@ -145,6 +145,92 @@ def _apoyo(p, color):
     _mas(p, (19.5, 5.5))
 
 
+def _punta(p, x, y, dx, dy, largo=3.2):
+    """Punta de flecha en (x, y), apuntando en la dirección (dx, dy)."""
+    n = (dx * dx + dy * dy) ** 0.5
+    ux, uy = dx / n, dy / n
+    p.drawPolyline(_poligono([(x - largo * (ux - 0.6 * uy), y - largo * (uy + 0.6 * ux)), (x, y),
+                              (x - largo * (ux + 0.6 * uy), y - largo * (uy - 0.6 * ux))]))
+
+
+def _carga_nodo(p, color):
+    """Carga en nodo: una flecha que llega a un nodo, con el "+"."""
+    _punto(p, color, (9, 17), 2.4)
+    p.drawLine(QPointF(9, 4), QPointF(9, 14))
+    _punta(p, 9, 14, 0, 1)
+    _mas(p, (19.5, 5.5))
+
+
+def _carga_barra(p, color):
+    """Carga en barra: una barra con flechas repartidas encima, con el "+"."""
+    p.drawLine(QPointF(2.5, 19), QPointF(17.5, 19))
+    p.drawLine(QPointF(2.5, 9.5), QPointF(17.5, 9.5))
+    for x in (4, 10, 16):
+        p.drawLine(QPointF(x, 9.5), QPointF(x, 16.5))
+        _punta(p, x, 16.5, 0, 1, 2.6)
+    _mas(p, (20.5, 4.5), 2.5)
+
+
+def _analizar(p, color):
+    """Analizar: el triángulo de "play", relleno."""
+    p.setBrush(color)
+    p.drawPolygon(_poligono([(7, 4.5), (19.5, 12), (7, 19.5)]))
+    p.setBrush(Qt.NoBrush)
+
+
+def _deformada(p, color):
+    """Deformada: la barra recta (punteada) y la curva deformada."""
+    pluma = p.pen()
+    punteada = QPen(pluma)
+    punteada.setStyle(Qt.DashLine)
+    punteada.setWidthF(1.0)
+    p.setPen(punteada)
+    p.drawLine(QPointF(3, 8), QPointF(21, 8))
+    p.setPen(pluma)
+    camino = QPainterPath(QPointF(3, 8))
+    camino.cubicTo(QPointF(8, 19), QPointF(16, 19), QPointF(21, 8))
+    p.drawPath(camino)
+    for x in (3, 21):
+        _punto(p, color, (x, 8), 1.6)
+
+
+def _axial(p, color):
+    """Axial: una barra con dos flechas que la estiran, y la N."""
+    p.drawLine(QPointF(6, 15), QPointF(18, 15))
+    p.drawLine(QPointF(2, 15), QPointF(6, 15))
+    p.drawLine(QPointF(18, 15), QPointF(22, 15))
+    _punta(p, 2.5, 15, -1, 0, 2.6)
+    _punta(p, 21.5, 15, 1, 0, 2.6)
+    p.drawPolyline(_poligono([(8.5, 10), (8.5, 3.5), (15.5, 10), (15.5, 3.5)]))
+
+
+def _cortante(p, color):
+    """Cortante: el diagrama en escalón de una viga simple con carga al centro."""
+    p.drawLine(QPointF(3, 12), QPointF(21, 12))
+    p.drawPolyline(_poligono([(3, 12), (3, 6), (12, 6), (12, 18), (21, 18), (21, 12)]))
+
+
+def _momento(p, color):
+    """Momento: el diagrama parabólico de una viga con carga repartida."""
+    p.drawLine(QPointF(3, 7), QPointF(21, 7))
+    camino = QPainterPath(QPointF(3, 7))
+    camino.quadTo(QPointF(12, 27), QPointF(21, 7))
+    p.drawPath(camino)
+
+
+def _torsion(p, color):
+    """Torsión: una barra con una flecha que gira a su alrededor."""
+    p.drawLine(QPointF(2, 12), QPointF(22, 12))
+    p.drawArc(QRectF(7, 5, 10, 14), 30 * 16, 300 * 16)
+    _punta(p, 16.3, 8.4, 0.5, 1, 2.6)
+
+
+def _cerrar(p, color):
+    """Una x: cerrar un panel."""
+    p.drawLine(QPointF(6, 6), QPointF(18, 18))
+    p.drawLine(QPointF(18, 6), QPointF(6, 18))
+
+
 def _deshacer(p, color):
     """Flecha curva hacia la izquierda."""
     camino = QPainterPath(QPointF(19.5, 18))
@@ -201,6 +287,15 @@ _DIBUJOS = {
     "apoyo_fijo": _apoyo_fijo,
     "empotrado": _empotrado,
     "libre": _libre,
+    "cerrar": _cerrar,
+    "carga_nodo": _carga_nodo,
+    "carga_barra": _carga_barra,
+    "analizar": _analizar,
+    "deformada": _deformada,
+    "axial": _axial,
+    "cortante": _cortante,
+    "momento": _momento,
+    "torsion": _torsion,
     "deshacer": _deshacer,
     "rehacer": _rehacer,
     "seccion_real": _seccion_real,

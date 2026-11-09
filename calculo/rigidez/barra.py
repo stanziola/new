@@ -1,5 +1,5 @@
 import numpy as np
-from .tolerancias import TOL_LONGITUD
+from ..tolerancias import TOL_LONGITUD
 
 def k_local(e, g, a, l, iy, iz, j):
     return (e / l**3) * np.array([

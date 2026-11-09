@@ -200,8 +200,18 @@ class CuboVistas:
             return False
         d /= np.linalg.norm(d)
         arriba = (0, 1, 0) if abs(d[2]) > 0.99 else (0, 0, 1)   # vista superior o inferior: +Y arriba
-        self.animador.animar(lambda: self.vista.view_vector(d, viewup=arriba, render=False))
+        self.animador.animar(lambda: self._mirar_desde(d, arriba))
         return True
+
+    def _mirar_desde(self, d, arriba):
+        """Pone la cámara mirando desde la dirección d, sin encuadre: gira alrededor del mismo foco y a
+        la misma distancia (y con el mismo zoom), así el modelo queda donde el usuario lo dejó.
+        (view_vector de pyvista hace además un encuadre, que el usuario no quiere al usar el cubo.)"""
+        camara = self.vista.renderer.GetActiveCamera()
+        foco = np.array(camara.GetFocalPoint())
+        distancia = camara.GetDistance()
+        camara.SetPosition(*(foco + np.asarray(d) * distancia))
+        camara.SetViewUp(*arriba)
 
     def apagar(self):
         """Desactiva el widget (se llama antes de cerrar la ventana)."""

@@ -5,7 +5,7 @@ Su tamaño es una fracción del modelo (ui.TAMANO_APOYO), porque son objetos 3D,
 
 Sección real: una barra con sección rectangular se puede dibujar como una caja de b × h a lo largo
 de su eje. Sus esquinas son los nodos ± b/2 en el eje local y y ± h/2 en el local z (las filas de
-calculo.elemento.rotacion son los ejes locales escritos en globales). Las barras sin sección siguen
+calculo.rigidez.barra.rotacion son los ejes locales escritos en globales). Las barras sin sección siguen
 como línea.
 
 Colores por elemento: cada barra, nodo y apoyo tiene su color guardado en su malla (un arreglo
@@ -18,11 +18,11 @@ import numpy as np
 import pyvista as pv
 from vtkmodules.vtkFiltersCore import vtkAppendPolyData
 from vtkmodules.vtkRenderingCore import vtkActor, vtkPolyDataMapper
-from calculo.elemento import angulos, rotacion
-from calculo.ensamble import indices_nodos
+from calculo.rigidez.barra import angulos, rotacion
+from calculo.rigidez.ensamble import indices_nodos
 from configuracion import colores
 from configuracion import interfaz as ui
-from interfaz.apoyos import tipo_de
+from modelo.apoyos import tipo_de
 
 
 class ModeloDibujado:
@@ -56,10 +56,14 @@ class ModeloDibujado:
             return lugares
         return []
 
-    def pintar(self, resaltado=None, seleccion=None):
-        """Colores vigentes: base gris, resaltado en gris oscuro y selección en negro (gana)."""
+    def pintar(self, resaltado=None, seleccion=None, enlazados=()):
+        """Colores vigentes, en este orden (el último gana): base gris; lo enlazado a la selección
+        (los nodos y apoyos de una barra) y lo que está bajo el mouse, en gris oscuro; y lo
+        seleccionado, en negro."""
         nuevos = {nombre: base.copy() for nombre, base in self.base.items()}
-        for item, color in ((resaltado, colores.RESALTADO), (seleccion, colores.SELECCIONADO)):
+        capas = [(item, colores.RESALTADO) for item in enlazados]
+        capas += [(resaltado, colores.RESALTADO), (seleccion, colores.SELECCIONADO)]
+        for item, color in capas:
             for malla, i in self._lugares(item):
                 nuevos[malla][i] = colores.rgb(color)
         for nombre, malla in self.mallas.items():
@@ -210,27 +214,32 @@ def dibujar_modelo(vista, modelo, seccion_real=True):
         arriba, [str(nid) for nid in ids], font_size=ui.TAMANO_LETRA,
         text_color=colores.ETIQUETA, shape=None, show_points=False, always_visible=True,
         name="etiquetas", reset_camera=False)
+    # Número de cada barra, en su punto medio (Etiquetas → Números de barra)
+    if modelo.elementos:
+        medios = np.array([(np.asarray(modelo.nodos[el.ni].coords) + np.asarray(modelo.nodos[el.nj].coords)) / 2
+                           for el in modelo.elementos.values()], dtype=float)
+        d.actores["numeros_barras"] = vista.add_point_labels(
+            medios, [f"[{eid}]" for eid in modelo.elementos], font_size=ui.TAMANO_LETRA - 2,
+            text_color=colores.ETIQUETA, shape=None, show_points=False, always_visible=True,
+            name="numeros_barras", reset_camera=False)
     return d
 
 
 def dibujar_rejilla(vista, rejilla, cuenta_para_camara=False):
-    """Dibuja la rejilla (ver plano_trabajo.geometria_rejilla) y devuelve su actor.
+    """Dibuja la rejilla 3D (ver rejilla.geometria_rejilla) y devuelve su actor.
 
-    - Queda un poco detrás del plano (0.1 % del tamaño del modelo), para que no se pise con las
-      barras que están justo en el plano.
+    - En cada nivel z, la planta: líneas paralelas a X (una por cada y) y a Y (una por cada x).
+    - Cada planta queda un poco debajo de su nivel (0.1 % del tamaño del modelo), para que no se
+      pise con las vigas que están justo en ese nivel.
     - Normalmente no cuenta para el encuadre ni para el zoom (SetUseBounds(False)): la vista se
       ajusta al modelo, no a la rejilla. Con el modelo vacío sí cuenta, para que se vea.
     """
-    a, b = rejilla.ejes
-    (u0, v0), (u1, v1) = rejilla.minimo, rejilla.maximo
-    paso = rejilla.paso
-    segmentos = ([((u, v0), (u, v1)) for u in np.arange(u0, u1 + paso / 2, paso)]
-                 + [((u0, v), (u1, v)) for v in np.arange(v0, v1 + paso / 2, paso)])
-    pts = np.zeros((2 * len(segmentos), 3))
-    pts[:, rejilla.normal] = rejilla.posicion - 0.001 * rejilla.escala
-    for i, (p, q) in enumerate(segmentos):
-        pts[2 * i, [a, b]] = p
-        pts[2 * i + 1, [a, b]] = q
+    xs, ys = rejilla.xs, rejilla.ys
+    segmentos = []
+    for z in rejilla.zs - 0.001 * rejilla.escala:
+        segmentos += [((xs[0], y, z), (xs[-1], y, z)) for y in ys]     # paralelas a X
+        segmentos += [((x, ys[0], z), (x, ys[-1], z)) for x in xs]     # paralelas a Y
+    pts = np.array([p for segmento in segmentos for p in segmento], dtype=float)
     n = len(segmentos)
     lineas = np.column_stack([np.full(n, 2), np.arange(0, 2 * n, 2), np.arange(1, 2 * n, 2)]).ravel()
     actor = vista.add_mesh(pv.PolyData(pts, lines=lineas), color=colores.REJILLA,

@@ -140,7 +140,7 @@
    - 5.12 dice "S1… para periodos cortos", cuando S1 es el periodo de 1 s.
 
    Son erratas, pero conviene saberlo antes de citar esas secciones.
-3. **`combinacionescarga.py`** tiene `SDS = 0.5` y `rho = 1.3` fijos. Deberían salir de este cálculo: SDS a partir de Ss, clase de sitio y Fa; ρ según 12.3.4.
+3. **`scripts/combinaciones_asce7.py`** tiene `SDS = 0.5` y `rho = 1.3` fijos. Deberían salir de este cálculo: SDS a partir de Ss, clase de sitio y Fa; ρ según 12.3.4.
 4. En la ciudad de Panamá, con Ss y S1 altos cerca de las fallas (hoja 14) y suelo D por defecto, lo esperable es **CDS D**. Eso obliga a pórtico especial (R = 8, Cd = 5.5) y al detallado de 18.6 a 18.8 en las etapas 4 y 5.
 
 ## Para el programa (qué implementar y cómo verificarlo)
