@@ -12,7 +12,7 @@ def main():
     app = QApplication(sys.argv)
     aplicar_tema(app)                     # interfaz en blanco y negro
     ventana = Ventana(crear_portico())
-    ventana.show()
+    ventana.showMaximized()               # siempre abre maximizada
     sys.exit(app.exec())
 
 if __name__ == "__main__":

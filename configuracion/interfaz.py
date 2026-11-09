@@ -16,8 +16,10 @@ ICONO_GROSOR = 1.5                    # grosor de línea, en la cuadrícula de 2
 GROSOR_BARRA = 4                      # en píxeles; la barra seleccionada usa el mismo
 TAMANO_NODO = 9                       # en píxeles; el nodo seleccionado usa el mismo
 
+TAMANO_APOYO = 0.06                   # cono y placa de los apoyos: fracción del tamaño del modelo
+
 # Derivados y fijos
-FACTOR_APOYO = 2.0                    # los apoyos son esferas de este múltiplo del tamaño del nodo
+ANCHO_SEPARADOR = 4                   # línea entre la vista y los paneles, en píxeles
 OPACIDAD_PREVISUALIZACION = 0.35      # el gris normal, transparente, antes de colocar
 ETIQUETAS_VISIBLES = True
 TAMANO_LETRA = 14
@@ -50,6 +52,10 @@ CUBO_FRANJA = 0.2                     # ancho de aristas y esquinas clicables, f
 # ---------- Animación de la cámara (cubo de vistas y Encuadre) ----------
 ANIM_CAMARA_DURACION_MS = 350         # personalización base: duración del giro (0 = sin animación)
 ANIM_CAMARA_INTERVALO_MS = 15         # tiempo entre cuadros (~60 por segundo)
+
+# ---------- Deshacer y dibujo de secciones ----------
+HISTORIAL_MAXIMO = 50                 # personalización base: pasos que se pueden deshacer
+SECCION_REAL_VISIBLE = True           # barras dibujadas con su sección (cajas b × h) al abrir
 
 # ---------- Mensajes y configuración ----------
 DURACION_MENSAJE_MS = 3000            # cuánto se ve un aviso en la barra de comandos

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QPushButton, Q
 
 from calculo.elemento import k_global_barra
 from configuracion import formato, unidades
-from configuracion.formato import GDL
+from configuracion.formato import GDL_PANTALLA
 
 
 def bloque(i, j):
@@ -85,7 +85,7 @@ class VentanaMatriz(QWidget):
             self.tabla.clearContents()
             self.nota.setText(str(e))
             return
-        etiquetas = [f"{g}{n}" for n in (el.ni, el.nj) for g in GDL]
+        etiquetas = [f"{g}{n}" for n in (el.ni, el.nj) for g in GDL_PANTALLA]
         self.tabla.setHorizontalHeaderLabels(etiquetas)
         self.tabla.setVerticalHeaderLabels(etiquetas)
         for i in range(12):

@@ -1,32 +1,36 @@
 """Ventana principal.
 
 Organización (como ETABS y Civil 3D):
-- Arriba: menús con palabras (Archivo, Ver, Definir, Configuración) y la barra Definir con íconos.
-- Izquierda: las herramientas que cambian lo que hace el clic (Seleccionar, Nodo, Elemento) y el
+- Arriba: menús con palabras (Archivo, Editar, Ver, Definir, Configuración) y una barra con íconos:
+  Deshacer y Rehacer, y luego Material y Sección (Definir).
+- Izquierda: las herramientas que cambian lo que hace el clic (Seleccionar, Nodo, Elemento, Apoyo) y el
   Explorador del modelo (pestañas Modelo y Tablas).
 - Derecha: Propiedades de lo seleccionado.
 - Abajo: la barra de comandos (activa solo con Nodo o Elemento) y la barra de estado, con la
   posición del puntero a la izquierda y Rejilla, Snap, Etiquetas y Encuadre a la derecha.
-Los paneles se pueden agrandar, mover, cerrar y volver a abrir desde el menú Ver.
+Los paneles se pueden agrandar, mover de lado, cerrar y volver a abrir desde el menú Ver (no se
+desacoplan como ventanas sueltas).
 La lógica de cada herramienta está en herramientas.py; la del plano y el snap, en plano_trabajo.py.
 """
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QFileDialog, QLabel, QLineEdit, QMainWindow,
-                               QMessageBox, QSizePolicy, QToolBar)
+from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QPalette, QShortcut
+from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QLabel, QLineEdit,
+                               QMainWindow, QMessageBox, QSizePolicy, QToolBar)
 from pyvistaqt import QtInteractor
 
 from configuracion import colores
 from configuracion import interfaz as ui
 from interfaz.camara import AnimadorCamara
 from interfaz.cubo_vistas import CuboVistas, viewport_esquina
+from interfaz.definir import DialogoMateriales, DialogoSecciones
 from interfaz.diagramas import VentanaDiagrama
 from interfaz.dialogo_configuracion import DialogoConfiguracion
 from interfaz.dibujo import ModeloDibujado, Previsualizacion, dibujar_modelo, dibujar_rejilla
 from interfaz.explorador import Explorador
-from interfaz.herramientas import AgregarElemento, AgregarNodo, Seleccionar
+from interfaz.historial import Historial
+from interfaz.herramientas import AgregarApoyo, AgregarElemento, AgregarNodo, Seleccionar
 from interfaz.iconos import icono
 from interfaz.plano_trabajo import (PLANOS, Candidato, candidato, geometria_rejilla, interpretar,
                                     plano_por_defecto, texto_coordenadas)
@@ -35,6 +39,7 @@ from interfaz.seleccion import elemento_en
 from interfaz.tablas import VentanaMatriz
 from interfaz.tema import aplicar_tema
 from modelo import Modelo, archivo
+from modelo import concreto as cc
 
 TECLAS_A_COMANDOS = set("0123456789.-@")   # escritas sobre la vista, van a la barra de comandos
 
@@ -58,6 +63,7 @@ class Ventana(QMainWindow):
         self._mouse = None                         # última posición del mouse sobre la vista
         self._cerrando = False
         self.diagramas = []                        # ventanas de diagramas abiertas
+        self.historial = Historial()               # Deshacer (Ctrl+Z) y Rehacer (Ctrl+Y)
 
         # Tres luces blancas: los grises se ven grises (las de pyvista por defecto los tiñen)
         self.vista = QtInteractor(self, lighting="three lights")
@@ -79,6 +85,7 @@ class Ventana(QMainWindow):
         self.explorador.actualizar(self.modelo)
         self._mostrar_propiedades(None)
         self._actualizar_titulo()
+        self._actualizar_deshacer()
         self.actualizar_indicacion()
         self._actualizar_puntero()
 
@@ -112,13 +119,22 @@ class Ventana(QMainWindow):
         self.propiedades = Propiedades(self)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.explorador)
         self.addDockWidget(Qt.RightDockWidgetArea, self.propiedades)
+        for panel in (self.explorador, self.propiedades):   # sin el botón de desacoplar
+            panel.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
         self.resizeDocks([self.explorador, self.propiedades], [260, 300], Qt.Horizontal)
         self.explorador.elegido.connect(self._elegido_en_explorador)
         self.propiedades.ver_diagrama.connect(self.ver_diagrama)
+        self.propiedades.asignar_seccion.connect(self._asignar_seccion)
+        self.propiedades.editar_seccion.connect(self._editar_seccion)
 
     def _mostrar_propiedades(self, item):
+        """Propiedades muestra lo seleccionado, salvo que la herramienta use el panel (Apoyo)."""
         self._en_propiedades = item
-        self.propiedades.mostrar(self.modelo, item)
+        if not self.herramienta.mostrar_panel():
+            self.propiedades.mostrar(self.modelo, item)
+
+    def _tipo_apoyo(self, tipo):
+        self.herramienta_apoyo.tipo = tipo
 
     def _elegido_en_explorador(self, item):
         tipo, ident = item
@@ -158,18 +174,33 @@ class Ventana(QMainWindow):
             accion.setShortcut(QKeySequence(atajo))
             accion.triggered.connect(lambda *_, f=funcion: f())
 
+        editar = self.menuBar().addMenu("Editar")
+        self.accion_deshacer = self._accion("deshacer", "Deshacer", "Deshacer (Ctrl+Z)", atajo="Ctrl+Z")
+        self.accion_rehacer = self._accion("rehacer", "Rehacer", "Rehacer (Ctrl+Y)", atajo="Ctrl+Y")
+        self.accion_eliminar = QAction("Eliminar", self)
+        self.accion_eliminar.setShortcut(QKeySequence(Qt.Key_Delete))
+        self.accion_deshacer.triggered.connect(self.deshacer)
+        self.accion_rehacer.triggered.connect(self.rehacer)
+        self.accion_eliminar.triggered.connect(self.eliminar)
+        for accion in (self.accion_deshacer, self.accion_rehacer):
+            editar.addAction(accion)
+        editar.addSeparator()
+        editar.addAction(self.accion_eliminar)
+
         ver = self.menuBar().addMenu("Ver")                 # cerrar y volver a abrir los paneles
         ver.addAction(self.explorador.toggleViewAction())
         ver.addAction(self.propiedades.toggleViewAction())
 
         definir = self.menuBar().addMenu("Definir")         # etapas 1 y 3 de la hoja de ruta
         definir.setToolTipsVisible(True)
-        self.accion_material = self._accion("material", "Materiales…", "Agregar material (próximamente)")
-        self.accion_seccion = self._accion("seccion", "Secciones…", "Agregar sección (próximamente)")
+        self.accion_material = self._accion("material", "Materiales…", "Materiales de concreto")
+        self.accion_seccion = self._accion("seccion", "Secciones…", "Secciones de concreto")
+        self.accion_material.triggered.connect(lambda *_: DialogoMateriales(self).exec())
+        self.accion_seccion.triggered.connect(lambda *_: DialogoSecciones(self).exec())
         self.accion_combinaciones = QAction("Combinaciones de carga…", self)
         self.accion_combinaciones.setToolTip("Próximamente")
+        self.accion_combinaciones.setEnabled(False)
         for accion in (self.accion_material, self.accion_seccion, self.accion_combinaciones):
-            accion.setEnabled(False)
             definir.addAction(accion)
 
         self.accion_configuracion = self.menuBar().addAction("Configuración")
@@ -181,6 +212,9 @@ class Ventana(QMainWindow):
         self.barra_definir.setMovable(False)
         self.barra_definir.setFloatable(False)
         self.barra_definir.setIconSize(QSize(ui.TAMANO_ICONO, ui.TAMANO_ICONO))
+        self.barra_definir.addAction(self.accion_deshacer)
+        self.barra_definir.addAction(self.accion_rehacer)
+        self.barra_definir.addSeparator()
         self.barra_definir.addAction(self.accion_material)
         self.barra_definir.addAction(self.accion_seccion)
         self.addToolBar(Qt.TopToolBarArea, self.barra_definir)
@@ -200,15 +234,18 @@ class Ventana(QMainWindow):
                 ("seleccionar", "Seleccionar", "Seleccionar: clic sobre un nodo o una barra", Seleccionar),
                 ("nodo", "Nodo", "Agregar nodo: clic sobre la rejilla o escribe x, y, z", AgregarNodo),
                 ("elemento", "Elemento", "Agregar elemento: clic en el punto inicial y en el final",
-                 AgregarElemento)):
+                 AgregarElemento),
+                ("apoyo", "Apoyo", "Apoyo: elige el tipo en Propiedades y haz clic sobre un nodo",
+                 AgregarApoyo)):
             accion = self._accion(nombre, texto, ayuda, activable=True)
             herramienta = clase(self)
             accion.triggered.connect(lambda *_, h=herramienta: self.usar_herramienta(h))
             grupo.addAction(accion)
             self.herramientas.addAction(accion)
             self._herramientas.append((accion, herramienta))
-        (self.accion_seleccionar, self.herramienta), (self.accion_nodo, _), (self.accion_elemento, _) = \
-            self._herramientas
+        ((self.accion_seleccionar, self.herramienta), (self.accion_nodo, _), (self.accion_elemento, _),
+         (self.accion_apoyo, self.herramienta_apoyo)) = self._herramientas
+        self.propiedades.panel_apoyo.cambiado.connect(self._tipo_apoyo)
         self.accion_seleccionar.setChecked(True)   # herramienta por defecto
 
     def usar_herramienta(self, herramienta):
@@ -223,6 +260,7 @@ class Ventana(QMainWindow):
         self.comando.clear()
         self.resaltado = None                      # el resaltado gris oscuro es solo de Seleccionar
         self.pintar()
+        self._mostrar_propiedades(self.seleccion)  # el panel de Apoyo, o de nuevo lo seleccionado
         self.actualizar_indicacion()
         self._actualizar_puntero()
 
@@ -232,13 +270,12 @@ class Ventana(QMainWindow):
         self.barra_comandos.setObjectName("barra_comandos")
         self.barra_comandos.setMovable(False)
         self.barra_comandos.setFloatable(False)
-        self.indicacion = QLabel()                 # qué se espera del usuario
-        self.comando = QLineEdit()                 # coordenadas exactas
-        self.comando.setPlaceholderText("x, y, z")
+        self.comando = QLineEdit()                 # coordenadas exactas; la guía es la plantilla gris
         self.comando.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.comando.returnPressed.connect(self._ejecutar_comando)
+        self.comando.textChanged.connect(self._validar_comando)
         self.aviso = QLabel()                      # avisos cortos ("Nodo 6 agregado")
-        for widget in (self.indicacion, self.comando, self.aviso):
+        for widget in (self.comando, self.aviso):
             self.barra_comandos.addWidget(widget)
         self.addToolBar(Qt.BottomToolBarArea, self.barra_comandos)
         self._reloj_aviso = QTimer(self)
@@ -246,9 +283,28 @@ class Ventana(QMainWindow):
         self._reloj_aviso.timeout.connect(self.aviso.clear)
 
     def actualizar_indicacion(self):
-        """Texto de la barra de comandos. Solo está activa con Nodo o Elemento."""
-        self.indicacion.setText(self.herramienta.indicacion())
+        """Plantilla de la barra de comandos. Solo está activa con Nodo o Elemento."""
+        self.comando.setPlaceholderText(self.herramienta.indicacion())
         self.barra_comandos.setEnabled(self.herramienta.usa_previsualizacion)
+        self._validar_comando()
+
+    def comando_valido(self, texto=None):
+        """True si lo escrito ya es un punto válido (se puede colocar con Enter)."""
+        texto = self.comando.text() if texto is None else texto
+        if not texto.strip() or self.rejilla is None:
+            return False
+        try:
+            interpretar(texto, self.rejilla, self.herramienta.ultimo_punto())
+        except ValueError:
+            return False
+        return True
+
+    def _validar_comando(self, *_):
+        """Gris mientras lo escrito todavía no es un punto válido; negro cuando ya lo es."""
+        paleta = self.comando.palette()
+        color = colores.INTERFAZ_TEXTO if self.comando_valido() else colores.INTERFAZ_DESHABILITADO
+        paleta.setColor(QPalette.Text, QColor(color))
+        self.comando.setPalette(paleta)
 
     def mensaje(self, texto):
         """Aviso corto en la barra de comandos; se borra solo."""
@@ -312,10 +368,14 @@ class Ventana(QMainWindow):
         self.accion_etiquetas = self._accion("etiqueta", "Etiquetas", "Etiquetas: números de nodo",
                                              activable=True, activa=ui.ETIQUETAS_VISIBLES)
         self.accion_etiquetas.toggled.connect(lambda activa: self._mostrar("etiquetas", activa))
+        self.accion_seccion_real = self._accion("seccion_real", "Sección real",
+                                                "Sección real: barras con sus medidas b × h (o como líneas)",
+                                                activable=True, activa=ui.SECCION_REAL_VISIBLE)
+        self.accion_seccion_real.toggled.connect(lambda *_: self.redibujar())
         self.accion_encuadre = self._accion("encuadre", "Encuadre", "Encuadre: ajusta la vista al modelo")
         self.accion_encuadre.triggered.connect(self.encuadre)
 
-        for accion in (self.accion_rejilla, self.accion_snap, self.accion_etiquetas):
+        for accion in (self.accion_rejilla, self.accion_snap, self.accion_etiquetas, self.accion_seccion_real):
             barra.addAction(accion)
         barra.addSeparator()                       # a la izquierda, estados; a la derecha, una acción
         barra.addAction(self.accion_encuadre)
@@ -352,7 +412,7 @@ class Ventana(QMainWindow):
         for actor in self.dibujado.actores.values():
             self.vista.remove_actor(actor, render=False)
         self.vista.set_background(colores.FONDO_VISTA)
-        self.dibujado = dibujar_modelo(self.vista, self.modelo)
+        self.dibujado = dibujar_modelo(self.vista, self.modelo, self.accion_seccion_real.isChecked())
         self.rejilla = geometria_rejilla(self.modelo, self.plano, self.posicion_plano)
         self.dibujado.actores["rejilla"] = dibujar_rejilla(self.vista, self.rejilla,
                                                            cuenta_para_camara=not self.modelo.nodos)
@@ -372,9 +432,94 @@ class Ventana(QMainWindow):
         self.dibujado.pintar(self.resaltado, self.seleccion)
         self.vista.render()
 
+    # ---------- Cambios, Deshacer y Eliminar ----------
+    def antes_de_cambiar(self):
+        """Lo llama todo lo que va a cambiar el modelo: guarda una copia para Deshacer."""
+        self.historial.guardar(self.modelo, not self.modificado)
+        self._actualizar_deshacer()
+
+    def _actualizar_deshacer(self):
+        self.accion_deshacer.setEnabled(self.historial.puede_deshacer())
+        self.accion_rehacer.setEnabled(self.historial.puede_rehacer())
+
+    def _volver(self, modelo, guardado, texto):
+        """Pone una copia del historial como modelo actual."""
+        self.modelo, self.modificado = modelo, not guardado
+        self.herramienta.cancelar()
+        self._actualizar_titulo()
+        self.redibujar()
+        self.seleccionar(self.seleccion)
+        self._refrescar_paneles()
+        self._actualizar_deshacer()
+        self.mensaje(texto)
+        self._actualizar_puntero()
+
+    def deshacer(self):
+        if self.historial.puede_deshacer():
+            self._volver(*self.historial.deshacer(self.modelo, not self.modificado), "Deshecho")
+
+    def rehacer(self):
+        if self.historial.puede_rehacer():
+            self._volver(*self.historial.rehacer(self.modelo, not self.modificado), "Rehecho")
+
+    def eliminar(self):
+        """Supr: borra el nodo (con sus barras) o la barra seleccionada."""
+        if self.seleccion is None:
+            self.mensaje("Selecciona un nodo o una barra para eliminar")
+            return
+        tipo, ident = self.seleccion
+        self.antes_de_cambiar()
+        if tipo == "nodo":
+            barras = self.modelo.eliminar_nodo(ident)
+            texto = f"Nodo {ident} eliminado" + (f" (y {len(barras)} barra{'s' if len(barras) != 1 else ''})"
+                                                 if barras else "")
+        else:
+            self.modelo.eliminar_elemento(ident)
+            texto = f"Elemento {ident} eliminado"
+        self.seleccion = None
+        self.modelo_cambiado(texto)
+
+    def _asignar_seccion(self, eid, sid):
+        el = self.modelo.elementos.get(eid)
+        if el is None or el.seccion == sid:
+            return
+        self.antes_de_cambiar()
+        self.modelo.asignar_seccion(eid, sid)
+        nombre = self.modelo.secciones[sid].nombre if sid is not None else "sin sección"
+        self.modelo_cambiado(f"Elemento {eid}: {nombre}")
+
+    def _editar_seccion(self, eid, valores):
+        """Medidas nuevas para la sección de una barra: se usa (o crea) otra sección solo para ella."""
+        if eid not in self.modelo.elementos:
+            return
+        material, b, h, d, barra, nx, ny = valores
+        mat = self.modelo.materiales.get(material)
+        error = None
+        if mat is None or mat.fc is None:
+            error = "La sección necesita un material de concreto (Definir → Materiales)"
+        elif not 0 < d < min(b, h) / 2:
+            error = "d debe ser menor que la mitad de b y de h"
+        else:
+            from interfaz import concreto as puente
+            from modelo.estructura import Concreto
+            try:
+                puente.propiedades(Concreto("rectangular", mat.fc, d, barra, b, h, nx, ny))
+            except ValueError as e:
+                error = str(e)
+        if error:
+            self.mensaje(error)
+            self._mostrar_propiedades(self._en_propiedades)      # vuelven los valores anteriores
+            return
+        self.antes_de_cambiar()
+        sid, nueva = cc.buscar_o_crear_seccion(self.modelo, material, b, h, d, barra, nx, ny)
+        self.modelo.asignar_seccion(eid, sid)
+        texto = f"Elemento {eid}: {self.modelo.secciones[sid].nombre}"
+        self.modelo_cambiado(texto + (" (sección nueva)" if nueva else ""))
+
     def modelo_cambiado(self, texto):
-        """Lo llaman las herramientas después de agregar algo."""
+        """Lo llaman las herramientas y los paneles después de cambiar el modelo."""
         self.modificado = True
+        self._actualizar_deshacer()
         self._actualizar_titulo()
         self.redibujar()
         self._refrescar_paneles()
@@ -526,6 +671,7 @@ class Ventana(QMainWindow):
             return False
         self.ruta = Path(ruta)
         self.modificado = False
+        self.historial.marcar_sin_guardar()       # solo el estado actual coincide con el archivo
         self._actualizar_titulo()
         self.mensaje(f"Guardado en {self.ruta.name}")
         return True
@@ -533,6 +679,8 @@ class Ventana(QMainWindow):
     def _cargar(self, modelo, ruta, vista):
         """Pone otro modelo en la ventana (Nuevo o Abrir)."""
         self.modelo, self.ruta, self.modificado = modelo, ruta, False
+        self.historial.vaciar()
+        self._actualizar_deshacer()
         plano, posicion = vista.get("plano"), vista.get("posicion")
         if plano in PLANOS and isinstance(posicion, (int, float)) and not isinstance(posicion, bool):
             self.plano, self.posicion_plano = plano, float(posicion)

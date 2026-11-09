@@ -42,7 +42,7 @@ def guardar(modelo, ruta, vista=None):
 
 
 def _seccion(d):
-    """Seccion desde su diccionario. "concreto" puede faltar (archivos anteriores) o ser null."""
+    """Seccion desde su diccionario. "concreto" y "material" pueden faltar (archivos anteriores)."""
     d = dict(d)
     concreto = d.pop("concreto", None)
     return Seccion(**d, concreto=Concreto(**concreto) if concreto else None)
@@ -82,6 +82,9 @@ def _revisar(m):
             problemas.append(f"la barra {eid} usa el material {el.material}, que no existe")
         if el.seccion is not None and el.seccion not in m.secciones:
             problemas.append(f"la barra {eid} usa la sección {el.seccion}, que no existe")
+    for sid, sec in m.secciones.items():
+        if sec.material is not None and sec.material not in m.materiales:
+            problemas.append(f"la sección {sid} usa el material {sec.material}, que no existe")
     if set(m._sig_id) != {"nodo", "elem", "mat", "sec"}:
         problemas.append(f"faltan contadores de IDs: {sorted(m._sig_id)}")
     else:

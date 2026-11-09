@@ -27,6 +27,7 @@ class Material:
     nombre: str
     e: float
     g: float
+    fc: float = None         # f'c en kN/m² si es concreto (E y G se calcularon con él); si no, None
 
 @dataclass
 class Concreto:
@@ -55,6 +56,7 @@ class Seccion:
     iz: float
     j: float
     concreto: Concreto = None   # geometría y refuerzo (None si no es de concreto o no se definió)
+    material: int = None        # material de la sección: al asignarla a una barra, se asigna también
 
 @dataclass
 class Elemento:
@@ -82,15 +84,29 @@ class Modelo:
         self.nodos[nid] = Nodo(x, y, z)
         return nid
 
-    def agregar_material(self, nombre, e, g):
+    def agregar_material(self, nombre, e, g, fc=None):
         mid = self._nuevo_id("mat")
-        self.materiales[mid] = Material(nombre, e, g)
+        self.materiales[mid] = Material(nombre, e, g, fc)
         return mid
 
-    def agregar_seccion(self, nombre, a, iy, iz, j, concreto=None):
+    def agregar_seccion(self, nombre, a, iy, iz, j, concreto=None, material=None):
+        if material is not None and material not in self.materiales:
+            raise KeyError(f"El material {material} no existe")
         sid = self._nuevo_id("sec")
-        self.secciones[sid] = Seccion(nombre, a, iy, iz, j, concreto)
+        self.secciones[sid] = Seccion(nombre, a, iy, iz, j, concreto, material)
         return sid
+
+    def asignar_seccion(self, eid, sid):
+        """Asigna la sección sid a la barra eid y, si la sección tiene material, también ese material.
+        sid = None deja la barra sin sección."""
+        if eid not in self.elementos:
+            raise KeyError(f"El elemento {eid} no existe")
+        if sid is not None and sid not in self.secciones:
+            raise KeyError(f"La sección {sid} no existe")
+        el = self.elementos[eid]
+        el.seccion = sid
+        if sid is not None and self.secciones[sid].material is not None:
+            el.material = self.secciones[sid].material
 
     def agregar_elemento(self, ni, nj, material=None, seccion=None, alfa=0.0):
         """Agrega una barra. El material y la sección pueden quedar sin asignar (None): la barra
@@ -205,6 +221,9 @@ class Modelo:
         en_uso = [eid for eid, el in self.elementos.items() if el.material == mid]
         if en_uso:
             raise ValueError(f"El material {mid} está en uso en las barras {en_uso}")
+        secciones = [sid for sid, sec in self.secciones.items() if sec.material == mid]
+        if secciones:
+            raise ValueError(f"El material {mid} está en uso en las secciones {secciones}")
         del self.materiales[mid]
 
     def eliminar_seccion(self, sid):

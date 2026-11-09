@@ -6,7 +6,7 @@ escala de Windows (100, 125, 150 %...). Un pixmap fijo, en cambio, se estira y q
 Deshabilitados se dibujan en gris. El color se lee al dibujar, así que sigue a Configuración.
 """
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
 from configuracion import colores
 from configuracion import interfaz as ui
@@ -108,6 +108,65 @@ def _seccion(p, color):
     _mas(p, (19.5, 5.5))
 
 
+def _rayado(p, x0, x1, y):
+    """Rayas inclinadas bajo una línea de suelo: el símbolo de "fijo al terreno"."""
+    x = x0 + 1
+    while x <= x1:
+        p.drawLine(QPointF(x, y), QPointF(x - 3, y + 3))
+        x += 4
+
+
+def _apoyo_fijo(p, color):
+    """Apoyo fijo: triángulo con el nodo en la punta, sobre el suelo rayado."""
+    _punto(p, color, (12, 6), 2.2)
+    p.drawPolygon(_poligono([(12, 7), (5.5, 16), (18.5, 16)]))
+    p.drawLine(QPointF(3.5, 18), QPointF(20.5, 18))
+    _rayado(p, 5, 20, 18)
+
+
+def _empotrado(p, color):
+    """Empotrado: el nodo unido a una placa pegada al suelo."""
+    _punto(p, color, (12, 5), 2.2)
+    p.drawLine(QPointF(12, 6), QPointF(12, 12))
+    p.drawRect(QRectF(4.5, 12, 15, 4))
+    _rayado(p, 6, 20, 16)
+
+
+def _libre(p, color):
+    """Libre: el nodo solo, sin nada que lo sujete."""
+    _punto(p, color, (12, 12), 2.6)
+
+
+def _apoyo(p, color):
+    """Herramienta Apoyo: un apoyo fijo con el "+" de agregar."""
+    _punto(p, color, (10, 8), 2.0)
+    p.drawPolygon(_poligono([(10, 9), (4, 17), (16, 17)]))
+    p.drawLine(QPointF(2.5, 19.5), QPointF(17.5, 19.5))
+    _mas(p, (19.5, 5.5))
+
+
+def _deshacer(p, color):
+    """Flecha curva hacia la izquierda."""
+    camino = QPainterPath(QPointF(19.5, 18))
+    camino.cubicTo(QPointF(19.5, 9), QPointF(12, 8.5), QPointF(5, 9))
+    p.drawPath(camino)
+    p.drawPolyline(_poligono([(8.8, 5.2), (5, 9), (8.8, 12.8)]))
+
+
+def _rehacer(p, color):
+    """La misma flecha, hacia la derecha."""
+    p.translate(24, 0)
+    p.scale(-1, 1)
+    _deshacer(p, color)
+
+
+def _seccion_real(p, color):
+    """Una barra con volumen (prisma): dibujar las barras con su sección."""
+    p.drawRect(QRectF(3.5, 11, 6.5, 8))                                  # cara de la sección
+    p.drawPolyline(_poligono([(3.5, 11), (14, 4.5), (20.5, 4.5), (10, 11)]))   # cara de arriba
+    p.drawPolyline(_poligono([(20.5, 4.5), (20.5, 12.5), (10, 19)]))          # cara del costado
+
+
 def _rejilla(p, color):
     p.drawRoundedRect(QRectF(4, 4, 16, 16), 1.5, 1.5)
     for c in (4 + 16 / 3, 4 + 32 / 3):
@@ -138,6 +197,13 @@ _DIBUJOS = {
     "seleccionar": _seleccionar,
     "nodo": _nodo,
     "elemento": _elemento,
+    "apoyo": _apoyo,
+    "apoyo_fijo": _apoyo_fijo,
+    "empotrado": _empotrado,
+    "libre": _libre,
+    "deshacer": _deshacer,
+    "rehacer": _rehacer,
+    "seccion_real": _seccion_real,
     "material": _material,
     "seccion": _seccion,
     "rejilla": _rejilla,
@@ -148,6 +214,7 @@ _DIBUJOS = {
 
 
 def icono(nombre):
-    """QIcon vectorial: "seleccionar", "nodo", "elemento", "material", "seccion", "rejilla", "snap",
+    """QIcon vectorial: "seleccionar", "nodo", "elemento", "apoyo", "apoyo_fijo", "empotrado",
+    "libre", "deshacer", "rehacer", "seccion_real", "material", "seccion", "rejilla", "snap",
     "etiqueta" o "encuadre"."""
     return QIcon(IconoVectorial(_DIBUJOS[nombre]))

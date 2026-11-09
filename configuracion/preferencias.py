@@ -63,12 +63,14 @@ PARAMETROS = [
     # ---------- Vista ----------
     P(interfaz, "GROSOR_BARRA", "Grosor de los elementos (píxeles)", "entero", "Vista", 1, 20),
     P(interfaz, "TAMANO_NODO", "Tamaño de los nodos (píxeles)", "entero", "Vista", 1, 50),
+    P(interfaz, "TAMANO_APOYO", "Tamaño de los apoyos (fracción del modelo)", "real", "Vista", 0.01, 0.3),
     # ---------- Interfaz ----------
     P(interfaz, "TAMANO_ICONO", "Íconos de las barras izquierda y Definir (píxeles)", "entero", "Interfaz", 12, 64),
     P(interfaz, "TAMANO_ICONO_INFERIOR", "Íconos de la barra inferior (píxeles)", "entero", "Interfaz", 12, 64),
     P(interfaz, "CUBO_TAMANO", "Tamaño del cubo (fracción del alto de la vista)", "real", "Interfaz", 0.08, 0.5),
     P(interfaz, "EJES_TAMANO", "Tamaño de los ejes (fracción del alto de la vista)", "real", "Interfaz", 0.06, 0.4),
     P(interfaz, "ANIM_CAMARA_DURACION_MS", "Duración del giro de la cámara (ms)", "entero", "Interfaz", 0, 3000),
+    P(interfaz, "HISTORIAL_MAXIMO", "Pasos para deshacer", "entero", "Interfaz", 1, 500),
     # ---------- Colores del dibujo ----------
     P(colores, "ELEMENTO", "Nodos, elementos y apoyos", "color", "Colores"),
     P(colores, "RESALTADO", "Al pasar el mouse", "color", "Colores"),

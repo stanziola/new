@@ -12,7 +12,8 @@ import numpy as np
 from configuracion import interfaz as ui
 from configuracion import unidades
 from calculo.tolerancias import TOL_LONGITUD
-from interfaz.seleccion import elemento_en
+from interfaz.apoyos import NOMBRES, TIPOS
+from interfaz.seleccion import elemento_en, nodo_cercano
 
 
 class Herramienta:
@@ -23,8 +24,12 @@ class Herramienta:
         self.ventana = ventana
 
     def indicacion(self):
-        """Texto de la barra de comandos: qué se espera del usuario (vacío si no usa la barra)."""
+        """Plantilla gris dentro de la barra de comandos: qué valor se espera (vacía si no la usa)."""
         return ""
+
+    def mostrar_panel(self):
+        """Si la herramienta usa el panel de Propiedades, lo muestra y devuelve True."""
+        return False
 
     def clic(self, x, y, cand):
         """Clic en (x, y) de la pantalla; cand es el punto candidato (con snap si está activo)."""
@@ -66,7 +71,7 @@ class AgregarNodo(Herramienta):
         self._ultimo = None
 
     def indicacion(self):
-        return f"Nodo: haz clic o escribe x, y, z ({unidades.simbolo('longitud')})"
+        return f"x, y, z  ({unidades.simbolo('longitud')})"
 
     def previsualizar(self, cand):
         self.ventana.previsualizacion.mostrar(cand.punto)
@@ -94,6 +99,7 @@ class AgregarNodo(Herramienta):
         if existente is not None:
             self.ventana.mensaje(f"Ya hay un nodo ahí (nodo {existente})")
             return
+        self.ventana.antes_de_cambiar()
         nid = modelo.agregar_nodo(x, y, z)
         self.ventana.modelo_cambiado(f"Nodo {nid} agregado")
 
@@ -110,8 +116,8 @@ class AgregarElemento(Herramienta):
     def indicacion(self):
         u = unidades.simbolo("longitud")
         if self._inicio is None:
-            return f"Elemento: punto inicial (clic o x, y, z en {u})"
-        return f"Elemento: punto final (clic, x, y, z o @dx, dy, dz en {u})  ·  Esc cancela"
+            return f"x, y, z del punto inicial  ({u})"
+        return f"x, y, z o @dx, dy, dz del punto final  ({u})"
 
     def inicio(self):
         return self._inicio
@@ -157,14 +163,43 @@ class AgregarElemento(Herramienta):
                 self.ventana.mensaje(f"Ya existe la barra {existente} entre los nodos {ni} y {nj}")
                 return
         # Los nodos que falten se crean ahora, no en el primer clic: si se cancela, no quedan sueltos
+        self.ventana.antes_de_cambiar()
         if ni is None:
             ni = modelo.agregar_nodo(*(float(c) for c in inicio))
         if nj is None:
             nj = modelo.agregar_nodo(*(float(c) for c in punto))
         material = min(modelo.materiales) if modelo.materiales else None
         seccion = min(modelo.secciones) if modelo.secciones else None
+        if seccion is not None and modelo.secciones[seccion].material is not None:
+            material = modelo.secciones[seccion].material     # la sección lleva su material
         eid = modelo.agregar_elemento(ni, nj, material, seccion)
         texto = f"Elemento {eid} agregado (nodos {ni} y {nj})"
         if material is None or seccion is None:
             texto += ": sin material o sección, se asignarán en Definir"
         self.ventana.modelo_cambiado(texto)
+
+
+class AgregarApoyo(Herramienta):
+    """Asigna el tipo de apoyo elegido en Propiedades al nodo sobre el que se hace clic."""
+
+    def __init__(self, ventana):
+        super().__init__(ventana)
+        self.tipo = "empotrado"
+
+    def mostrar_panel(self):
+        self.ventana.propiedades.mostrar_panel_apoyo(self.tipo)
+        return True
+
+    def clic(self, x, y, cand):
+        v = self.ventana
+        nid = nodo_cercano(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        if nid is None:
+            v.mensaje("Haz clic sobre un nodo")
+            return
+        if v.modelo.nodos[nid].apoyo == TIPOS[self.tipo]:
+            v.mensaje(f"El nodo {nid} ya es {NOMBRES[self.tipo].lower()}")
+            return
+        v.antes_de_cambiar()
+        v.modelo.restringir(nid, *TIPOS[self.tipo])
+        texto = "sin apoyo" if self.tipo == "libre" else NOMBRES[self.tipo].lower()
+        v.modelo_cambiado(f"Nodo {nid}: {texto}")

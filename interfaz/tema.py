@@ -4,11 +4,48 @@ El estilo nativo de Windows 11 pinta en azul (su color de acento, #0067c0) el bo
 y las selecciones, aunque nuestros colores sean grises. Con el estilo Fusion, en cambio, manda la
 paleta de colores de la aplicación: basta con dársela en grises. La hoja de estilo agrega el
 sombreado de los botones (al pasar el mouse, activo y presionado) y el aspecto de los menús.
+Los árboles (explorador y Propiedades) usan cuadritos "+" y "−" unidos por líneas punteadas, en vez
+de flechas: los dibuja EstiloArbol, una capa sobre Fusion que solo cambia ese dibujo.
 Se puede volver a llamar después de cambiar colores en Configuración.
 """
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QPalette, QPen
+from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleFactory
 
 from configuracion import colores as c
+from configuracion import interfaz as ui
+
+LADO_CUADRITO = 9                     # cuadrito del "+" y el "−", en píxeles
+
+
+class EstiloArbol(QProxyStyle):
+    """Fusion, pero las ramas de los árboles con "+"/"−" y líneas punteadas en vez de flechas."""
+
+    def drawPrimitive(self, elemento, opcion, p, widget=None):
+        if elemento != QStyle.PE_IndicatorBranch:
+            super().drawPrimitive(elemento, opcion, p, widget)
+            return
+        r, estado = opcion.rect, opcion.state
+        cx, cy = r.center().x(), r.center().y()
+        p.save()
+        p.setPen(QPen(QColor(c.INTERFAZ_ACTIVO_BORDE), 1, Qt.DotLine))
+        if estado & QStyle.State_Sibling:          # la línea sigue hacia el hermano de abajo
+            p.drawLine(cx, r.top(), cx, r.bottom())
+        elif estado & QStyle.State_Item:           # último de su grupo: la línea termina aquí
+            p.drawLine(cx, r.top(), cx, cy)
+        if estado & QStyle.State_Item:             # tramo horizontal hacia el texto
+            p.drawLine(cx, cy, r.right(), cy)
+        if estado & QStyle.State_Children:         # tiene hijos: cuadrito con "+" o "−"
+            m = LADO_CUADRITO // 2
+            caja = QRect(cx - m, cy - m, LADO_CUADRITO - 1, LADO_CUADRITO - 1)
+            p.setPen(QPen(QColor(c.INTERFAZ_DESHABILITADO), 1))
+            p.setBrush(QColor(c.INTERFAZ_FONDO))
+            p.drawRect(caja)
+            p.setPen(QPen(QColor(c.INTERFAZ_TEXTO), 1))
+            p.drawLine(QPoint(cx - m + 2, cy), QPoint(cx + m - 2, cy))
+            if not estado & QStyle.State_Open:
+                p.drawLine(QPoint(cx, cy - m + 2), QPoint(cx, cy + m - 2))
+        p.restore()
 
 
 def _paleta():
@@ -51,6 +88,15 @@ def _hoja_de_estilo():
         QDockWidget::title {{ background: {c.INTERFAZ_HOVER}; padding: 5px;
                              border-bottom: 1px solid {c.INTERFAZ_BORDE}; }}
         QTreeWidget {{ border: none; }}
+        QTreeView::item {{ padding: 1px 0px; }}
+        QTabWidget::pane {{ border: none; border-top: 1px solid {c.INTERFAZ_BORDE}; top: -1px; }}
+        QTabBar::tab {{ background: transparent; border: 1px solid transparent; padding: 4px 12px;
+                        margin: 0px; color: {c.INTERFAZ_TEXTO}; }}
+        QTabBar::tab:selected {{ background: {c.INTERFAZ_FONDO}; border-color: {c.INTERFAZ_BORDE};
+                                 border-bottom-color: {c.INTERFAZ_FONDO}; }}
+        QMainWindow::separator {{ background: {c.INTERFAZ_ACTIVO_BORDE};
+                                  width: {ui.ANCHO_SEPARADOR}px; height: {ui.ANCHO_SEPARADOR}px; }}
+        QMainWindow::separator:hover {{ background: {c.INTERFAZ_DESHABILITADO}; }}
         QToolBar#barra_comandos {{ border-top: 1px solid {c.INTERFAZ_BORDE}; spacing: 8px; }}
         QToolBar::separator:horizontal {{ background: {c.INTERFAZ_BORDE}; width: 1px; margin: 3px 5px; }}
         QToolBar::separator:vertical {{ background: {c.INTERFAZ_BORDE}; height: 1px; margin: 5px 3px; }}
@@ -83,6 +129,6 @@ def _hoja_de_estilo():
 
 def aplicar_tema(app):
     """Pone el tema en blanco y negro a toda la aplicación (y lo actualiza si cambian los colores)."""
-    app.setStyle("Fusion")
+    app.setStyle(EstiloArbol(QStyleFactory.create("Fusion")))
     app.setPalette(_paleta())
     app.setStyleSheet(_hoja_de_estilo())
