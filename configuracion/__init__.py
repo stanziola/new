@@ -3,7 +3,7 @@
 | Archivo          | Qué tiene                                                               |
 |------------------|-------------------------------------------------------------------------|
 | unidades.py      | unidades internas (kN, m), unidad de pantalla de cada magnitud (Ftool),  |
-|                  | con las dimensiones de sección aparte, y magnitudes derivadas (F/L³)     |
+|                  | con las de sección y los desplazamientos aparte, y derivadas (F/L³)      |
 | formato.py       | decimales de cada magnitud, tablas de consola y nombres de GDL y fuerzas |
 | interfaz.py      | tamaños, rejilla, cubo y ejes, animación y constantes del mouse          |
 | colores.py       | colores de la interfaz (solo grises) y del dibujo 3D                     |

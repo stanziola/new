@@ -9,19 +9,17 @@ Todo se muestra en las unidades de pantalla y se devuelve en las internas. Los n
 CampoNumero (paneles/comunes.py): la unidad va al lado, sin flechas.
 Las medidas de la sección (b, h, d) usan la magnitud "seccion" (cm por defecto), no la longitud.
 """
-import math
-
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 
-from calculo.interaccion.comun import area_barra
 from configuracion import colores, formato
 from interfaz import textos
 from interfaz.paneles.comunes import CampoNumero
 from modelo import interaccion as puente
 from modelo import concreto as cc
 from modelo.estructura import Concreto
+from modelo.interaccion import diametro_barra, posiciones_barras
 
 BARRAS = list(range(3, 12))              # números de barra que se ofrecen (#3 a #11)
 
@@ -40,20 +38,6 @@ def campo_seccion(minimo=0.01, maximo=10.0):
 def campo_barras():
     """Nx o Ny: cantidad de barras, entero sin unidad."""
     return CampoNumero(minimo=2, maximo=30, entero=True)
-
-
-def diametro_barra(numero):
-    """Diámetro de la barra en m (del área del cálculo de interacción)."""
-    return math.sqrt(4 * area_barra(numero).to("m^2").magnitude / math.pi)
-
-
-def posiciones_barras(c):
-    """Centros de las barras (x a lo ancho b, y a lo alto h), en m, desde la esquina inferior izquierda."""
-    xs = [c.d + i * (c.b - 2 * c.d) / (c.nx - 1) for i in range(c.nx)] if c.nx > 1 else [c.b / 2]
-    ys = [c.d + j * (c.h - 2 * c.d) / (c.ny - 1) for j in range(c.ny)] if c.ny > 1 else [c.h / 2]
-    puntos = [(x, ys[0]) for x in xs] + [(x, ys[-1]) for x in xs]
-    puntos += [(x, y) for y in ys[1:-1] for x in (xs[0], xs[-1])]
-    return puntos
 
 
 # ---------------------------------------------------------------- Dibujo de la sección

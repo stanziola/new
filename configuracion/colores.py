@@ -1,8 +1,10 @@
 """Colores, todos en hexadecimal ("#rrggbb"), que entienden Qt y pyvista.
 
 - La interfaz (íconos, barras, botones, menús, paneles) va solo en blanco, negro y grises.
-- El dibujo 3D: nodos, barras y apoyos en gris; gris oscuro al pasar el mouse; negro al
-  seleccionar. La previsualización usa el mismo gris normal, transparente.
+- El dibujo 3D: nodos, barras y apoyos en gris; lo seleccionado, en gris oscuro; lo relacionado
+  con lo seleccionado (y lo que está bajo el mouse), en un gris intermedio, más tenue. La
+  previsualización usa el mismo gris normal, transparente. Las cargas, las reacciones, la
+  deformada, los diagramas y el acero de refuerzo sí llevan color.
 Para VTK, rgb() los pasa a (r, g, b).
 """
 # ---------- Interfaz (solo grises) ----------
@@ -23,13 +25,15 @@ ICONO_DESHABILITADO = "#b0b0b0"
 # ---------- Dibujo 3D (personalización base) ----------
 FONDO_VISTA = "#ffffff"
 ELEMENTO = "#9a9a9a"                  # nodos, barras y apoyos, sin seleccionar
-RESALTADO = "#4a4a4a"                 # al pasar el mouse con Seleccionar
-SELECCIONADO = "#000000"
+RESALTADO = "#707070"                 # lo relacionado con lo seleccionado y lo que está bajo el mouse
+SELECCIONADO = "#333333"              # lo seleccionado: gris oscuro
 SIN_ASIGNAR = "#c8c8c8"               # barras sin material o sección (un gris más claro)
 ETIQUETA = "#000000"
 REJILLA = "#d4d4d4"
 EJE_X = "#ff0000"                     # flecha del eje X (fijo)
 CARGA = "#c0392b"                     # flechas de las cargas
+REACCION = "#2e7d32"                  # flechas de las reacciones en los apoyos
+ACERO = "#7a4a2a"                     # barras de refuerzo de las columnas (se ven con el concreto transparente)
 DEFORMADA = "#1f4e9c"                 # barras deformadas
 DIAGRAMA_POSITIVO = "#5b9bd5"         # relleno de los diagramas: valores positivos (azul suave)
 DIAGRAMA_NEGATIVO = "#e07b7b"         # y negativos (rojo suave)

@@ -9,8 +9,13 @@ Para cada caso de carga:
 4. resolver(modelo, F, fef) (calculo/rigidez/solucion.py).
 Los diagramas y la deformada de una barra se calculan cuando se piden (calculo/rigidez/diagramas.py).
 
+Peso propio: no es una carga guardada. En los casos con factor de peso propio (el caso "Peso
+propio"), cada barra con material y sección recibe una uniforme de A·γ·factor hacia −Z global
+(peso_propio_de). La interfaz la dibuja y la lista con esa misma función.
+
 Combinaciones: no se resuelven otra vez. Como el análisis es lineal (primer orden), el resultado de
-1.2D + 1.6L es 1.2 × (resultado de D) + 1.6 × (resultado de L): superposición (combinar).
+1.2D + 1.6L es 1.2 × (resultados de los casos tipo D) + 1.6 × (resultados de los tipo L):
+superposición (combinar). Los factores van por tipo de caso.
 """
 from dataclasses import dataclass, field
 
@@ -57,6 +62,34 @@ def _vector(r, direccion, valor):
     return r @ g
 
 
+def peso_propio_de(modelo, eid, caso):
+    """Peso propio de la barra en el caso, como carga uniforme (kN/m, positiva): A·γ·factor del caso.
+    0 si el caso no lleva peso propio o a la barra le falta el material o la sección. Va hacia −Z
+    global, con la longitud entre nodos."""
+    el = modelo.elementos[eid]
+    factor = modelo.casos[caso].peso_propio
+    mat, sec = modelo.materiales.get(el.material), modelo.secciones.get(el.seccion)
+    if not factor or mat is None or sec is None or not mat.gamma:
+        return 0.0
+    return sec.a * mat.gamma * factor
+
+
+def carga_de_peso_propio(modelo, eid, caso):
+    """El peso propio de la barra en el caso como una CargaBarra (uniforme, hacia −Z global), para
+    dibujarlo y listarlo igual que las cargas puestas a mano. No se guarda en el modelo. None si la
+    barra no tiene peso propio en ese caso."""
+    peso = peso_propio_de(modelo, eid, caso)
+    return CargaBarra(caso, eid, "uniforme", -peso, "Z") if peso else None
+
+
+def cargas_de_peso_propio(modelo, caso):
+    """{ID de barra: CargaBarra} con el peso propio de cada barra en el caso (vacío si no lo lleva)."""
+    if caso not in modelo.casos or not modelo.casos[caso].peso_propio:
+        return {}
+    cargas = {eid: carga_de_peso_propio(modelo, eid, caso) for eid in modelo.elementos}
+    return {eid: c for eid, c in cargas.items() if c is not None}
+
+
 def cargas_locales(modelo, eid, caso):
     """Cargas de la barra en el caso, en ejes locales, más su peso propio."""
     r, _t, _l = geometria(modelo, eid)
@@ -64,23 +97,16 @@ def cargas_locales(modelo, eid, caso):
     for c in modelo.cargas.values():
         if isinstance(c, CargaBarra) and c.barra == eid and c.caso == caso:
             lista.append((c.tipo, _vector(r, c.direccion, c.valor), None if c.tipo == "uniforme" else c.a))
-    el = modelo.elementos[eid]
-    factor = modelo.casos[caso].peso_propio
-    mat, sec = modelo.materiales.get(el.material), modelo.secciones.get(el.seccion)
-    if factor and mat is not None and sec is not None and mat.gamma:
-        lista.append(("uniforme", r @ np.array([0.0, 0.0, -sec.a * mat.gamma * factor]), None))
+    peso = peso_propio_de(modelo, eid, caso)
+    if peso:
+        lista.append(("uniforme", r @ np.array([0.0, 0.0, -peso]), None))
     return lista
 
 
 def peso_propio_total(modelo, caso):
     """Peso propio de todas las barras en el caso (kN), para comprobar el equilibrio."""
-    total = 0.0
-    factor = modelo.casos[caso].peso_propio
-    for el in modelo.elementos.values():
-        mat, sec = modelo.materiales.get(el.material), modelo.secciones.get(el.seccion)
-        if factor and mat is not None and sec is not None and mat.gamma:
-            total += sec.a * mat.gamma * factor * modelo.nodos[el.ni].distancia(modelo.nodos[el.nj])
-    return total
+    return sum(peso_propio_de(modelo, eid, caso) * modelo.nodos[el.ni].distancia(modelo.nodos[el.nj])
+               for eid, el in modelo.elementos.items())
 
 
 def analizar_caso(modelo, caso):
@@ -112,25 +138,32 @@ def analizar(modelo):
     return {caso: analizar_caso(modelo, caso) for caso in modelo.casos}
 
 
-def combinar(modelo, resultados, coid):
-    """Resultados de la combinación coid por superposición: Σ factor × (resultados del caso).
+def combinar(modelo, resultados, combinacion):
+    """Resultados de una combinación por superposición: Σ factor × (resultados del caso).
 
+    combinacion: una Combinacion, con un factor por tipo de caso ({"D": 1.2, "L": 1.6}). Cada caso
+    entra con el factor de su tipo (los dos casos tipo D, peso propio y carga muerta adicional, con
+    el de D); un tipo sin casos no aporta nada.
     resultados: {ID de caso: ResultadoCaso} (los de analizar). No se resuelve nada otra vez:
     - U, F, R, desplazamientos, reacciones y fuerzas en los extremos: la suma con los factores
       (K es la misma en todos los casos);
     - cargas en las barras: la lista de las de cada caso, con su vector por el factor. Así
       fuerzas_en y deformada_de dan el diagrama combinado, porque internas() y deformada() suman
       el efecto de cada carga por separado (son lineales)."""
-    co = modelo.combinaciones[coid]
-    partes = [(f, resultados[cid]) for cid, f in co.factores.items()]
-    base = partes[0][1].res
+    partes = [(combinacion.factores[modelo.casos[cid].tipo], rc) for cid, rc in resultados.items()
+              if modelo.casos[cid].tipo in combinacion.factores]
+    base = next(iter(resultados.values())).res      # K y las formas de los arreglos: iguales en todos
+
+    def cero(valor):
+        return np.zeros_like(np.asarray(valor, dtype=float))
 
     def suma(nombre):
-        return sum(f * np.asarray(getattr(rc.res, nombre), dtype=float) for f, rc in partes)
+        return sum((f * np.asarray(getattr(rc.res, nombre), dtype=float) for f, rc in partes),
+                   cero(getattr(base, nombre)))
 
     def suma_por_id(nombre):
-        return {k: sum(f * np.asarray(getattr(rc.res, nombre)[k], dtype=float) for f, rc in partes)
-                for k in getattr(base, nombre)}
+        return {k: sum((f * np.asarray(getattr(rc.res, nombre)[k], dtype=float) for f, rc in partes), cero(v))
+                for k, v in getattr(base, nombre).items()}
 
     res = Resultados(ids=list(base.ids), K=base.K, F=suma("F"), U=suma("U"), R=suma("R"),
                      desplazamientos=suma_por_id("desplazamientos"), reacciones=suma_por_id("reacciones"),
@@ -139,7 +172,7 @@ def combinar(modelo, resultados, coid):
     for f, rc in partes:
         for eid, lista in rc.cargas_locales.items():
             cargas.setdefault(eid, []).extend((tipo, f * np.asarray(v, dtype=float), a) for tipo, v, a in lista)
-    return ResultadoCaso(None, res, cargas, co.nombre)
+    return ResultadoCaso(None, res, cargas, combinacion.nombre)
 
 
 def fuerzas_en(modelo, rc, eid):
@@ -158,15 +191,24 @@ def fuerzas_en_x(modelo, rc, eid, x):
     return {k: float(d[k][0]) for k in diagramas.NOMBRES}
 
 
-def deformada_de(modelo, rc, eid):
-    """Deformada de la barra: (puntos originales, desplazamientos globales) a lo largo de x."""
+def desplazamientos_locales(modelo, rc, eid, x=None):
+    """Desplazamientos de la barra en sus ejes locales: {"x", "u", "v", "w", "phi"} (u a lo largo
+    del eje, v en y local, w en z local y phi el giro alrededor de x). x: los puntos donde se piden
+    (m desde el nodo i); sin x, los mismos de los diagramas."""
     el = modelo.elementos[eid]
-    r, t, largo = geometria(modelo, eid)
+    _r, t, largo = geometria(modelo, eid)
     mat, sec = modelo.materiales[el.material], modelo.secciones[el.seccion]
     idx = indices_nodos(modelo)
     u_local = t @ rc.res.U[gdl_barra(idx[el.ni], idx[el.nj])]
-    d = diagramas.deformada(largo, rc.res.fuerzas[eid], rc.cargas_locales.get(eid, []), u_local,
-                            mat.e, mat.g, sec.a, sec.iy, sec.iz, sec.j)
+    return diagramas.deformada(largo, rc.res.fuerzas[eid], rc.cargas_locales.get(eid, []), u_local,
+                               mat.e, mat.g, sec.a, sec.iy, sec.iz, sec.j, x=x)
+
+
+def deformada_de(modelo, rc, eid):
+    """Deformada de la barra: (puntos originales, desplazamientos globales) a lo largo de x."""
+    el = modelo.elementos[eid]
+    r, _t, _largo = geometria(modelo, eid)
+    d = desplazamientos_locales(modelo, rc, eid)
     pi = np.asarray(modelo.nodos[el.ni].coords, dtype=float)
     puntos = pi + np.outer(d["x"], r[0])
     desplazamientos = np.column_stack([d["u"], d["v"], d["w"]]) @ r      # locales -> globales (Rᵀ)

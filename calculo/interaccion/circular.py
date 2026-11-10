@@ -1,6 +1,9 @@
 """Diagrama de interacción de columna circular (ACI 318-19).
 
-Movido sin cambios desde iteracion2dcir.py; sin los gráficos ni los datos de ejemplo.
+Movido desde iteracion2dcir.py; sin los gráficos ni los datos de ejemplo.
+
+Columna con espiral: φ de la Tabla 21.2.2 (a), (c) y (e) y Pn,max = 0.85·Po de la Tabla 22.4.2.1 (b).
+Con aros circulares corresponderían 0.65, 0.65 + 0.25(εt − εty)/0.003 y 0.80·Po (todavía no se elige).
 """
 import math
 
@@ -62,14 +65,14 @@ def phipnmn_circ(c, sec):
     # phi con la barra más lejana de la fibra comprimida
     et = 0.003 * (t.max() - c) / c
     if et <= ey:
-        phi = 0.65
+        phi = 0.75
     elif et >= ey + 0.003:
         phi = 0.90
     else:
-        phi = 0.65 + 0.25 * (et - ey) / 0.003
+        phi = 0.75 + 0.15 * (et - ey) / 0.003
 
     P0 = 0.85 * fc * (math.pi * R**2 - As_total) + fy_val * As_total
-    phi_P = min(phi * P, 0.80 * 0.65 * P0)
+    phi_P = min(phi * P, 0.85 * 0.75 * P0)
 
     kip_tf = 0.45359237                 # kip -> tonne_force
     kipin_tfm = 0.45359237 * 0.0254     # kip*in -> tonne_force*m

@@ -4,10 +4,13 @@ No es cálculo: solo convierte unidades y llama a calculo/interaccion, donde est
 El cálculo devuelve tonne_force (tonelada métrica) y tonne_force·m; aquí se pasan a kN y kN·m
 (× 9.80665), que son las unidades internas del programa.
 """
+import math
+from functools import lru_cache
+
 import numpy as np
 
 from calculo.interaccion import biaxial, circular
-from calculo.interaccion.comun import propiedades_seccion, ureg
+from calculo.interaccion.comun import area_barra, propiedades_seccion, ureg
 
 TONF_KN = 9.80665                       # kN por tonelada fuerza métrica (1000 kgf)
 KN_M2 = ureg.kilonewton / ureg.meter ** 2
@@ -21,6 +24,23 @@ def propiedades(concreto):
                                              concreto.nbarras, fc, concreto.barra)
     return propiedades_seccion(concreto.b * ureg.m, concreto.h * ureg.m, concreto.d * ureg.m,
                                concreto.nx, concreto.ny, fc, concreto.barra)
+
+
+@lru_cache(maxsize=None)
+def diametro_barra(numero):
+    """Diámetro de la barra de refuerzo en m (del área que usa el cálculo de interacción)."""
+    return math.sqrt(4 * area_barra(numero).to("m^2").magnitude / math.pi)
+
+
+def posiciones_barras(c):
+    """Centros de las barras de una sección rectangular, en m, desde la esquina inferior izquierda:
+    (a lo ancho b, a lo alto h). Nx barras en las caras de arriba y abajo y dos por cada fila
+    intermedia: el mismo arreglo que usa el cálculo (calculo/interaccion/biaxial.py, _barras)."""
+    xs = [c.d + i * (c.b - 2 * c.d) / (c.nx - 1) for i in range(c.nx)] if c.nx > 1 else [c.b / 2]
+    ys = [c.d + j * (c.h - 2 * c.d) / (c.ny - 1) for j in range(c.ny)] if c.ny > 1 else [c.h / 2]
+    puntos = [(x, ys[0]) for x in xs] + [(x, ys[-1]) for x in xs]
+    puntos += [(x, y) for y in ys[1:-1] for x in (xs[0], xs[-1])]
+    return puntos
 
 
 def curva_2d(concreto, sec, theta=0.0):

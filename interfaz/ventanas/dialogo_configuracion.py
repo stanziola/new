@@ -161,9 +161,9 @@ class DialogoConfiguracion(QDialog):
 
     def _cambio(self, p):
         p.poner(self._leer(p, self._controles[p]))
-        if p.modulo is unidades:                   # cambió una unidad: reconvertir lo que la usa
-            for otro, control in self._controles.items():
-                if otro.magnitud:
+        if p.modulo is unidades or p.nombre.startswith("DECIMALES_"):
+            for otro, control in self._controles.items():      # cambió una unidad o sus decimales:
+                if otro.magnitud:                              # se vuelve a mostrar lo que la usa
                     self._mostrar(otro, control)
         self._reloj.start()
 

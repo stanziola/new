@@ -8,9 +8,15 @@ de su eje. Sus esquinas son los nodos ± b/2 en el eje local y y ± h/2 en el lo
 calculo.rigidez.barra.rotacion son los ejes locales escritos en globales). Las barras sin sección siguen
 como línea.
 
+Transparencia y acero: las cajas de la sección real pueden dibujarse transparentes (opacidad < 1).
+Entonces se dibuja también el acero longitudinal de las columnas (las barras verticales con sección
+rectangular y refuerzo): un tubo por barra de refuerzo, con su diámetro real, de nodo a nodo, en
+las posiciones del arreglo Nx × Ny de la sección. Es un dibujo esquemático: sin estribos, traslapes
+ni ganchos. Las vigas todavía no llevan acero dibujado (su armado real llega con el diseño de vigas).
+
 Colores por elemento: cada barra, nodo y apoyo tiene su color guardado en su malla (un arreglo
-RGB). Para resaltar (gris oscuro) o seleccionar (negro) solo se cambia ese color: no se dibuja
-nada encima. Así el tamaño es el mismo y no hay parpadeo (dos objetos en el mismo lugar se
+RGB). Para marcar lo seleccionado (gris oscuro) o lo relacionado y lo que está bajo el mouse (un
+gris intermedio) solo se cambia ese color: no se dibuja nada encima. Así el tamaño es el mismo y no hay parpadeo (dos objetos en el mismo lugar se
 "pelean" por verse cuando la tarjeta de video decide cuál está adelante).
 Nada de esto mueve la cámara (reset_camera=False): agregar un nodo no debe cambiar la vista.
 """
@@ -23,6 +29,7 @@ from calculo.rigidez.ensamble import indices_nodos
 from configuracion import colores
 from configuracion import interfaz as ui
 from modelo.apoyos import tipo_de
+from modelo.interaccion import diametro_barra, posiciones_barras
 
 
 class ModeloDibujado:
@@ -41,7 +48,8 @@ class ModeloDibujado:
     def _lugares(self, item):
         """Dónde está pintado un ("nodo", id), ("apoyo", id) o ("barra", id): lista de (malla, índice).
 
-        Un nodo incluye su apoyo (el apoyo es parte del nodo); un apoyo es solo su cono o su placa."""
+        Un nodo es solo su punto y un apoyo solo su cono o su placa: el apoyo de un nodo seleccionado
+        se pinta aparte, como relacionado (lo decide la ventana)."""
         if item is None:
             return []
         tipo, ident = item
@@ -55,16 +63,13 @@ class ModeloDibujado:
                 lugares.append(("solidos", slice(*self.indice_solido[ident])))
             return lugares
         if tipo == "nodo" and ident in self.indice_nodo:
-            lugares = [("nodos", self.indice_nodo[ident])]
-            if ident in self.indice_apoyo:
-                lugares.append(("apoyos", slice(*self.indice_apoyo[ident])))
-            return lugares
+            return [("nodos", self.indice_nodo[ident])]
         return []
 
     def pintar(self, resaltado=None, seleccion=None, enlazados=()):
-        """Colores vigentes, en este orden (el último gana): base gris; lo enlazado a la selección
-        (los nodos y apoyos de una barra) y lo que está bajo el mouse, en gris oscuro; y lo
-        seleccionado, en negro."""
+        """Colores vigentes, en este orden (el último gana): base gris; lo relacionado con la
+        selección (los nodos y apoyos de una barra, el apoyo y las barras de un nodo) y lo que está
+        bajo el mouse, en un gris intermedio (RESALTADO); y lo seleccionado, en gris oscuro."""
         nuevos = {nombre: base.copy() for nombre, base in self.base.items()}
         capas = [(item, colores.RESALTADO) for item in enlazados]
         capas += [(resaltado, colores.RESALTADO), (seleccion, colores.SELECCIONADO)]
@@ -137,17 +142,46 @@ def _unir(mallas):
     return pv.wrap(union.GetOutput())
 
 
-def _rectangular(modelo, el):
+def seccion_rectangular(modelo, el):
     """El Concreto rectangular de la sección de la barra, o None."""
     sec = modelo.secciones.get(el.seccion) if el.seccion is not None else None
     c = sec.concreto if sec is not None else None
     return c if c is not None and c.forma == "rectangular" and c.b > 0 and c.h > 0 else None
 
 
-def dibujar_modelo(vista, modelo, seccion_real=True):
+def acero_columnas(modelo, barras):
+    """Malla con el acero longitudinal de las columnas, o None si no hay ninguna con refuerzo.
+
+    barras: {ID de barra: Concreto} de las barras que se dibujan con su sección. De ellas, solo las
+    columnas (verticales). Cada barra de refuerzo es un tubo de su diámetro real, de nodo a nodo, a
+    (y − b/2) en el eje local y y (z − h/2) en el local z del centro, como las cajas de caja_barra."""
+    por_radio = {}                                   # radio -> (puntos, líneas): un filtro tube por diámetro
+    for eid, c in barras.items():
+        if not modelo.es_columna(eid) or c.nx < 2 or c.ny < 2 or not 0 < c.d < min(c.b, c.h) / 2:
+            continue
+        el = modelo.elementos[eid]
+        pi = np.asarray(modelo.nodos[el.ni].coords, dtype=float)
+        pj = np.asarray(modelo.nodos[el.nj].coords, dtype=float)
+        beta, gamma, _ = angulos(pi, pj)
+        r = rotacion(np.radians(el.alfa), beta, gamma)
+        puntos, lineas = por_radio.setdefault(diametro_barra(c.barra) / 2, ([], []))
+        for y, z in posiciones_barras(c):
+            desplazado = r[1] * (y - c.b / 2) + r[2] * (z - c.h / 2)
+            n = len(puntos)
+            puntos += [pi + desplazado, pj + desplazado]
+            lineas += [2, n, n + 1]
+    tubos = [pv.PolyData(np.array(puntos), lines=np.array(lineas)).tube(radius=radio, n_sides=10, capping=True)
+             for radio, (puntos, lineas) in por_radio.items()]
+    if not tubos:
+        return None
+    return tubos[0].merge(tubos[1:]) if len(tubos) > 1 else tubos[0]
+
+
+def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
     """Dibuja barras, nodos, apoyos y números de nodo. Devuelve un ModeloDibujado.
 
-    Con seccion_real, las barras con sección rectangular se dibujan como cajas de b × h."""
+    Con seccion_real, las barras con sección rectangular se dibujan como cajas de b × h, con la
+    opacidad dada (1 = opaco). Con opacidad < 1 se dibuja también el acero de las columnas."""
     d = ModeloDibujado()
     if not modelo.nodos:
         return d
@@ -158,7 +192,7 @@ def dibujar_modelo(vista, modelo, seccion_real=True):
 
     # Barras con sección real: una caja por barra, todas en una malla
     con_caja = {eid: c for eid, el in modelo.elementos.items()
-                if seccion_real and (c := _rectangular(modelo, el)) is not None}
+                if seccion_real and (c := seccion_rectangular(modelo, el)) is not None}
     if con_caja:
         cajas, inicio = [], 0
         for eid, c in con_caja.items():
@@ -172,6 +206,11 @@ def dibujar_modelo(vista, modelo, seccion_real=True):
         malla.cell_data["color"] = d.base["solidos"].copy()
         d.mallas["solidos"] = malla
         d.actores["solidos"] = _agregar(vista, "solidos", malla, por_celda=True)
+        d.actores["solidos"].GetProperty().SetOpacity(opacidad)
+        acero = acero_columnas(modelo, con_caja) if opacidad < 1 else None
+        if acero is not None:                         # se ve a través del concreto transparente
+            d.actores["acero"] = vista.add_mesh(acero, color=colores.ACERO, pickable=False,
+                                                reset_camera=False, name="acero", render=False)
 
     # Barras como línea (las que no tienen caja); las sin material o sección, en un gris más claro
     lineales = [(eid, el) for eid, el in modelo.elementos.items() if eid not in con_caja]

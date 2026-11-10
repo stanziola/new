@@ -4,6 +4,7 @@ from configuracion import unidades
 # ---------- Decimales en pantalla, uno por magnitud (personalización base) ----------
 DECIMALES_LONGITUD = 3
 DECIMALES_SECCION = 1
+DECIMALES_DESPLAZAMIENTO = 3
 DECIMALES_AREA = 2
 DECIMALES_INERCIA = 1
 DECIMALES_FUERZA = 2

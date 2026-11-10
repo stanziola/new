@@ -72,6 +72,10 @@ ANIM_CAMARA_INTERVALO_MS = 15         # tiempo entre cuadros (~60 por segundo)
 HISTORIAL_MAXIMO = 50                 # personalización base: pasos que se pueden deshacer
 SECCION_REAL_VISIBLE = True           # barras dibujadas con su sección (cajas b × h) al abrir
 CARGAS_VISIBLES = True                # cargas del caso activo dibujadas al abrir (botón Cargas)
+REACCIONES_VISIBLES = False           # reacciones en los apoyos, con resultados a la vista (botón Reacciones)
+OPACIDAD_MINIMA = 0.1                 # concreto con la transparencia al máximo: no llega a desaparecer
+ANCHO_DESLIZADOR_PX = 90              # deslizador de transparencia de la barra inferior
+ANCHO_MAXIMO_LISTA_PX = 240           # listas Caso y Combinación de la barra de arriba
 
 # ---------- Panel Diagrama ----------
 PASOS_DESLIZADOR = 400                # posiciones del deslizador a lo largo de la barra

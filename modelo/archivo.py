@@ -8,19 +8,27 @@
 - Versión 2: guarda también los casos de carga y las cargas. Los archivos de la versión 1 se abren
   igual: la "carga" de cada nodo pasa a una carga nodal del caso Muerta, y los materiales de
   concreto reciben el peso unitario del concreto reforzado (para el peso propio).
-- Versión 3: guarda también las combinaciones ({ID: {"nombre", "factores": {ID de caso: factor}}}).
-  Los archivos de las versiones 1 y 2 se abren sin combinaciones.
+- Versión 3: guarda también las combinaciones, con un factor por caso.
+- Versión 4: el peso propio va en su propio caso ("Peso propio", automático) y las combinaciones
+  propias llevan un factor por TIPO de caso ({"D": 1.2, "L": 1.6}); se guardan los datos del sismo
+  ("sismo": SDS y ρ) de las combinaciones predeterminadas, que no se guardan (salen de
+  modelo/combinaciones.py).
+  Los archivos de las versiones 1 a 3 se abren igual:
+  - el caso que llevaba el peso propio junto con cargas a mano (la "Muerta" de antes) se separa en
+    "Peso propio" y el caso original sin peso propio (ver _separar_peso_propio). La carga muerta
+    total no cambia;
+  - las combinaciones de la versión 3 pasan de factores por caso a factores por tipo.
 """
 import json
 from dataclasses import asdict
 from pathlib import Path
 
 from calculo.concreto import GAMMA_CONCRETO
-from modelo.estructura import (CargaBarra, CargaNodal, Caso, Combinacion, Concreto, Elemento, Material, Modelo,
-                               Nodo, Seccion)
+from modelo.estructura import (NOMBRE_MUERTA_ADICIONAL, NOMBRE_PESO_PROPIO, CargaBarra, CargaNodal, Caso,
+                               Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
 
-VERSION_FORMATO = 3
-VERSIONES_LEIDAS = (1, 2, 3)
+VERSION_FORMATO = 4
+VERSIONES_LEIDAS = (1, 2, 3, 4)
 CONTADORES = {"nodo", "elem", "mat", "sec", "caso", "carga", "combo"}
 UNIDADES_INTERNAS = {"fuerza": "kN", "longitud": "m"}
 
@@ -38,8 +46,9 @@ def a_diccionario(modelo, vista=None):
         "casos": {str(i): asdict(c) for i, c in modelo.casos.items()},
         "cargas": {str(i): {"clase": "nodal" if isinstance(c, CargaNodal) else "barra", **asdict(c)}
                    for i, c in modelo.cargas.items()},
-        "combinaciones": {str(i): {"nombre": co.nombre, "factores": {str(c): f for c, f in co.factores.items()}}
+        "combinaciones": {str(i): {"nombre": co.nombre, "factores": dict(co.factores)}
                           for i, co in modelo.combinaciones.items()},
+        "sismo": {"sds": modelo.sds, "rho": modelo.rho},
         "siguiente_id": dict(modelo._sig_id),
         "vista": dict(vista or {}),
     }
@@ -76,6 +85,37 @@ def _carga(d):
     return CargaNodal(**d) if clase == "nodal" else CargaBarra(**d)
 
 
+def _separar_peso_propio(m):
+    """Versiones 2 y 3: el peso propio iba dentro de un caso que también tenía cargas a mano (la
+    "Muerta" de antes). Se separa en dos:
+    - nace el caso "Peso propio", con el mismo factor y un ID nuevo, que queda primero;
+    - el caso original conserva su ID y sus cargas, ya sin peso propio. Si se llamaba "Muerta",
+      pasa a llamarse "Carga muerta adicional".
+    Los dos son del mismo tipo, así que la carga muerta total (su suma) no cambia."""
+    nuevos = {}
+    for caso in list(m.casos.values()):
+        if not caso.peso_propio:
+            continue
+        nombre = NOMBRE_PESO_PROPIO if not nuevos else f"{NOMBRE_PESO_PROPIO} ({caso.nombre})"
+        nuevos[m._nuevo_id("caso")] = Caso(nombre, caso.tipo, caso.peso_propio)
+        caso.peso_propio = 0.0
+        if caso.nombre == "Muerta":
+            caso.nombre = NOMBRE_MUERTA_ADICIONAL
+    m.casos = {**nuevos, **m.casos}
+
+
+def _combinacion_v3(m, d):
+    """Versión 3: los factores iban por caso ({ID de caso: factor}). Pasan a ir por tipo. Si dos
+    casos del mismo tipo tenían factores distintos no se puede representar: queda el del primero y
+    el nombre lo avisa, para que se revise."""
+    factores, conflicto = {}, False
+    for cid, f in d["factores"].items():
+        tipo, f = m.casos[int(cid)].tipo, float(f)
+        conflicto = conflicto or factores.get(tipo, f) != f
+        factores.setdefault(tipo, f)
+    return Combinacion(d["nombre"] + (" (revisar factores)" if conflicto else ""), factores)
+
+
 def desde_diccionario(datos):
     """Arma el modelo desde el diccionario leído. Devuelve (modelo, vista)."""
     if not isinstance(datos, dict):
@@ -109,11 +149,16 @@ def desde_diccionario(datos):
             m._sig_id.setdefault("carga", 1)
             for nid, fuerzas in cargas_viejas.items():
                 m.agregar_carga_nodal(nid, fuerzas)
-        if version >= 3:
-            m.combinaciones = {int(i): Combinacion(d["nombre"], {int(c): float(f) for c, f in d["factores"].items()})
+        if version >= 4:
+            m.combinaciones = {int(i): Combinacion(d["nombre"], {str(t): float(f) for t, f in d["factores"].items()})
                                for i, d in datos["combinaciones"].items()}
+            m.poner_sismo(datos["sismo"]["sds"], datos["sismo"]["rho"])
+        elif version == 3:
+            m.combinaciones = {int(i): _combinacion_v3(m, d) for i, d in datos["combinaciones"].items()}
         else:
             m._sig_id.setdefault("combo", 1)
+        if version in (2, 3):
+            _separar_peso_propio(m)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise ValueError(f"El archivo no tiene el formato esperado: {e!r}") from e
     _revisar(m)
@@ -144,9 +189,8 @@ def _revisar(m):
         if isinstance(c, CargaBarra) and c.barra not in m.elementos:
             problemas.append(f"la carga {cid} está en la barra {c.barra}, que no existe")
     for coid, co in m.combinaciones.items():
-        for caso in co.factores:
-            if caso not in m.casos:
-                problemas.append(f"la combinación {coid} usa el caso {caso}, que no existe")
+        if not co.factores or not all(isinstance(t, str) for t in co.factores):
+            problemas.append(f"la combinación {coid} no tiene factores por tipo de caso")
     if set(m._sig_id) != CONTADORES:
         problemas.append(f"faltan contadores de IDs: {sorted(m._sig_id)}")
     else:

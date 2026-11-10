@@ -10,13 +10,16 @@
   primera fila como "actual" y la dibuja marcada aunque nadie la haya elegido; este árbol no toma
   el foco, así que eso no pasa. Además, un clic en el vacío o sobre la fila ya elegida la
   deselecciona (señal `vaciado`), y las carpetas no se eligen: un clic las abre o las cierra.
-- CampoNumero: un número con su unidad al lado (como en Ftool), sin flechas y de ancho fijo.
+- CampoNumero: un número con su unidad al lado (como en Ftool), sin flechas y de ancho fijo. Es una
+  caja de texto: deja escribir libremente y revisa el número al terminar.
 """
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtWidgets import (QAbstractSpinBox, QDoubleSpinBox, QHBoxLayout, QLabel, QMenu, QSpinBox,
-                               QToolButton, QTreeWidget, QWidget)
+import math
 
-from configuracion import formato, unidades
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton, QTreeWidget, QWidget
+
+from configuracion import colores, formato, unidades
 from interfaz.iconos import icono
 
 TAMANO_X = 12                          # la x de cerrar, en píxeles
@@ -138,41 +141,59 @@ class ArbolLimpio(QTreeWidget):
 
 
 # ---------------------------------------------------------------- Campos numéricos
-class _SinRueda:
-    """Mezcla para las cajas: sin flechas, y la rueda del mouse no cambia el número (mueve el
-    panel). Así no se cambia un valor sin querer al desplazarse por Propiedades."""
+class _Caja(QLineEdit):
+    """La caja de texto de un CampoNumero.
 
-    def _preparar_caja(self):
-        self.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.setFocusPolicy(Qt.StrongFocus)
+    - Al entrar (con un clic o con Tab) queda todo seleccionado: lo que se escriba reemplaza el
+      valor. Después de escribir o de un primer clic, otro clic pone el cursor donde se quiera.
+    - Enter confirma el número, lo deja seleccionado y se queda ahí: no pasa al botón por defecto de
+      la ventana (si no, escribir un número y presionar Enter cerraría el diálogo)."""
 
-    def wheelEvent(self, evento):
-        evento.ignore()
-
-
-class _CajaReal(_SinRueda, QDoubleSpinBox):
     def __init__(self):
         super().__init__()
-        self._preparar_caja()
+        self._primer_clic = False            # el primer clic después de entrar selecciona todo
 
+    def focusInEvent(self, evento):
+        super().focusInEvent(evento)
+        self._primer_clic = True
+        if evento.reason() != Qt.MouseFocusReason:
+            self.selectAll()                 # con un clic se selecciona al soltar (el clic deselecciona)
 
-class _CajaEntera(_SinRueda, QSpinBox):
-    def __init__(self):
-        super().__init__()
-        self._preparar_caja()
+    def mouseReleaseEvent(self, evento):
+        super().mouseReleaseEvent(evento)
+        if self._primer_clic:
+            self._primer_clic = False
+            if not self.hasSelectedText():   # si arrastró para elegir una parte, se respeta
+                self.selectAll()
+
+    def keyPressEvent(self, evento):
+        super().keyPressEvent(evento)
+        self._primer_clic = False            # ya está escribiendo: un clic pone el cursor
+        if evento.key() in (Qt.Key_Return, Qt.Key_Enter):
+            evento.accept()
+            self.selectAll()
 
 
 class CampoNumero(QWidget):
     """Un número con la unidad al lado, sin flechas y de ancho fijo (no se estira con el panel).
 
-    - Con `magnitud` ("longitud", "seccion", "fuerza", "peso_unitario"...), se muestra en la unidad
-      de pantalla y valor()/poner() trabajan en unidades INTERNAS.
-    - Recuerda el valor exacto que se le puso: si el usuario no lo cambia, valor() devuelve ese
-      mismo número, sin el redondeo de los decimales de pantalla. Si las unidades cambian,
-      valor() sigue siendo correcto y actualizar_unidades() lo vuelve a mostrar en las nuevas.
-    - Sin magnitud, `unidad` es un texto fijo ("°") o nada (Nx, Ny); entero=True solo acepta
-      enteros.
-    Señales: `cambiado` con cada cambio (al escribir) y `terminado` al presionar Enter o salir.
+    Es una caja de texto, no un QSpinBox: un QSpinBox rechaza cada tecla que deja el texto fuera del
+    rango o con decimales de más (con "3" y máximo 8 no deja escribir "32"; con "1.000" no deja
+    agregar cifras), y sin flechas parece que el campo no deja escribir. Aquí se escribe libremente
+    y el número se revisa después:
+    - mientras se escribe, el texto va en gris si todavía no es un número dentro del rango; cuando lo
+      es, va en negro, el campo toma ese valor y emite `cambiado` (para las vistas previas);
+    - al terminar (Enter o salir del campo) emite `terminado`: se acepta coma o punto, un número
+      fuera del rango se lleva al límite, y si no es un número vuelve el valor anterior.
+
+    Valores:
+    - con `magnitud` ("longitud", "seccion", "fuerza", "peso_unitario"...), se muestra en la unidad
+      de pantalla y valor()/poner() trabajan en unidades INTERNAS;
+    - recuerda el valor exacto que se le puso: si el usuario no lo cambia, valor() devuelve ese
+      mismo número, sin el redondeo de los decimales de pantalla. Si las unidades cambian, valor()
+      sigue siendo correcto y actualizar_unidades() lo vuelve a mostrar en las nuevas;
+    - sin magnitud, `unidad` es un texto fijo ("°") o nada (Nx, Ny); entero=True solo acepta enteros;
+    - `cifras`: ancho de la caja en cifras, si conviene otro que el normal (CIFRAS).
     """
     cambiado = Signal()
     terminado = Signal()
@@ -180,12 +201,12 @@ class CampoNumero(QWidget):
     CIFRAS = 11                              # ancho de la caja, en cifras
 
     def __init__(self, magnitud=None, minimo=-1e9, maximo=1e9, decimales=None, entero=False, unidad="",
-                 parent=None):
+                 cifras=None, parent=None):
         super().__init__(parent)
         self.magnitud, self.entero = magnitud, entero
         self._minimo, self._maximo, self._decimales = minimo, maximo, decimales
-        self.caja = _CajaEntera() if entero else _CajaReal()
-        self.caja.setFixedWidth(self.caja.fontMetrics().horizontalAdvance("0" * self.CIFRAS) + 14)
+        self.caja = _Caja()
+        self.caja.setFixedWidth(self.caja.fontMetrics().horizontalAdvance("0" * (cifras or self.CIFRAS)) + 14)
         self.unidad = QLabel(unidad)
         fila = QHBoxLayout(self)
         fila.setContentsMargins(0, 0, 0, 0)
@@ -193,48 +214,103 @@ class CampoNumero(QWidget):
         fila.addWidget(self.caja)
         fila.addWidget(self.unidad)
         fila.addStretch(1)
+        self.setFocusProxy(self.caja)
         self._factor = 1.0
-        self._exacto = None                  # el valor interno puesto con poner(), si no se tocó
-        self.caja.valueChanged.connect(self._al_cambiar)
-        self.caja.editingFinished.connect(self.terminado.emit)
+        self._valor = int(min(max(0, minimo), maximo)) if entero else float(min(max(0.0, minimo), maximo))
+        self._valor_escrito = self._valor    # el valor que tenía cuando el programa escribió el texto
+        self._editado = False                # el usuario cambió el texto desde entonces
+        self.caja.textEdited.connect(self._al_escribir)
+        self.caja.editingFinished.connect(self._al_terminar)
         self._preparar()
+        self._escribir()
 
+    # ---------- Unidades y texto ----------
     def _preparar(self):
-        """Unidad, decimales y rango con las unidades vigentes."""
+        """Factor y símbolo de la unidad de pantalla vigente."""
         self._factor = unidades.factor(self.magnitud) if self.magnitud else 1.0
         if self.magnitud:
             self.unidad.setText(unidades.simbolo(self.magnitud))
-        self.caja.blockSignals(True)
+
+    def _cifras(self):
+        if self._decimales is not None:
+            return self._decimales
+        return max(2, formato.decimales(self.magnitud)) if self.magnitud else 2
+
+    def _escribir(self):
+        """Pone en la caja el valor vigente, con su formato."""
         if self.entero:
-            self.caja.setRange(int(self._minimo), int(min(self._maximo, 2**31 - 1)))
+            texto = str(int(self._valor))
         else:
-            if self._decimales is not None:
-                decimales = self._decimales
+            texto = formato.numero(self._valor / self._factor, self._cifras())
+        self.caja.setText(texto)             # setText no emite textEdited
+        self.caja.setCursorPosition(0)       # si no cabe, se ve el principio del número
+        self._valor_escrito = self._valor
+        self._editado = False
+        self._pintar(True)
+
+    def _pintar(self, valido):
+        """Negro si lo escrito ya es un valor válido; gris mientras no lo es."""
+        paleta = self.caja.palette()
+        color = QColor(colores.INTERFAZ_TEXTO if valido else colores.INTERFAZ_DESHABILITADO)
+        for grupo in (QPalette.Active, QPalette.Inactive):
+            paleta.setColor(grupo, QPalette.Text, color)
+        self.caja.setPalette(paleta)
+
+    def _leer(self, texto):
+        """El número escrito, en unidades internas (int si es entero); None si no es un número."""
+        try:
+            numero = float(texto.strip().replace(",", "."))
+        except ValueError:
+            return None
+        if not math.isfinite(numero):
+            return None
+        if self.entero:
+            return int(round(numero)) if abs(numero - round(numero)) < 1e-9 else None
+        return numero * self._factor
+
+    def _en_rango(self, valor):
+        holgura = 0 if self.entero else 1e-9 * max(1.0, abs(valor))
+        return self._minimo - holgura <= valor <= self._maximo + holgura
+
+    # ---------- Lo que hace el usuario ----------
+    def _al_escribir(self, texto):
+        self._editado = True
+        valor = self._leer(texto)
+        valido = valor is not None and self._en_rango(valor)
+        self._pintar(valido)
+        if valido and valor != self._valor:
+            self._valor = valor
+            self.cambiado.emit()
+
+    def _al_terminar(self):
+        if self._editado:
+            valor = self._leer(self.caja.text())
+            if valor is None:
+                valor = self._valor_escrito  # no es un número: vuelve el valor que había antes de escribir
             else:
-                decimales = max(2, formato.decimales(self.magnitud)) if self.magnitud else 2
-            self.caja.setDecimals(decimales)
-            self.caja.setRange(self._minimo / self._factor, self._maximo / self._factor)
-        self.caja.blockSignals(False)
+                valor = min(max(valor, self._minimo), self._maximo)      # al rango
+                if self.entero:
+                    valor = int(valor)
+            cambio = valor != self._valor
+            self._valor = valor
+            self._escribir()                 # con su formato
+            if cambio:
+                self.cambiado.emit()
+        self.terminado.emit()
 
-    def _al_cambiar(self, *_):
-        self._exacto = None                  # lo cambió el usuario: vale lo que se ve
-        self.cambiado.emit()
-
+    # ---------- Para el programa ----------
     def valor(self):
         """Valor en unidades internas (int si es entero)."""
-        if self._exacto is not None:
-            return self._exacto
-        return self.caja.value() if self.entero else self.caja.value() * self._factor
+        return self._valor
 
     def poner(self, valor):
         """Pone un valor en unidades internas, sin emitir `cambiado`."""
-        self._exacto = int(valor) if self.entero else float(valor)
-        self.caja.blockSignals(True)
-        self.caja.setValue(self._exacto if self.entero else self._exacto / self._factor)
-        self.caja.blockSignals(False)
+        self._valor = int(valor) if self.entero else float(valor)
+        self._escribir()
 
     def actualizar_unidades(self):
-        """Vuelve a mostrar el mismo valor en las unidades de pantalla vigentes."""
-        valor = self.valor()
+        """Vuelve a mostrar el mismo valor en las unidades (y con los decimales) vigentes. Si el
+        usuario está a mitad de escribir en este campo, no se le cambia el texto."""
         self._preparar()
-        self.poner(valor)
+        if not (self._editado and self.caja.hasFocus()):
+            self._escribir()

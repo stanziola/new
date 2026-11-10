@@ -49,9 +49,10 @@ class DiagramaInteraccion(QWidget):
             self.selector_modo.addItem("3D (superficie)", "3D")
             self.selector_modo.currentIndexChanged.connect(self._cambio_modo)
             fila.addWidget(self.selector_modo)
-        self.etiqueta_theta = QLabel("Compresión hacia θ")
-        self.etiqueta_theta.setToolTip("Dirección de la fibra más comprimida, en el plano de la sección")
-        self.theta = CampoNumero(minimo=0, maximo=359, entero=True, unidad="°")
+        self.etiqueta_theta = QLabel("θ" if con_modo else "Compresión hacia θ")     # corto en la pestaña
+        self.etiqueta_theta.setToolTip("θ: dirección de la fibra más comprimida, en el plano de la sección")
+        self.theta = CampoNumero(minimo=0, maximo=359, entero=True, unidad="°", cifras=5)
+        self.theta.setToolTip(self.etiqueta_theta.toolTip())
         self.theta.poner(0)
         self.theta.terminado.connect(self._al_cambiar_theta)
         fila.addWidget(self.etiqueta_theta)

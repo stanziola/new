@@ -4,12 +4,22 @@ combinaciones.
 No es cálculo. Todo en unidades internas: kN y m (E, G y f'c en kN/m²; A en m²; I y J en m⁴;
 peso unitario en kN/m³; cargas en kN, kN/m y kN·m).
 
-Casos de carga: "Muerta" (D, con el peso propio de las barras) y los que defina el usuario (Viva,
-Viento...), cada uno con su tipo (las letras de ASCE 7-05 §2.3.2: D, L, Lr, R, W, E, H, F, T).
-Cada carga pertenece a un caso.
-Combinaciones: un factor por caso (1.2D + 1.6L). Como el análisis es lineal, su resultado es la
-suma de los resultados de los casos por sus factores (modelo/analisis.py, combinar). Por ahora
-solo sirven para ver resultados; el generador del ASCE 7-05 y las envolventes son la etapa 3.
+Casos de carga. Cada carga pertenece a un caso, y cada caso tiene un tipo (la letra de las
+combinaciones de ASCE 7-05 §2.3.2; por ahora solo D muerta, L viva, W viento y E sismo):
+- "Peso propio" (D): automático. Sus cargas no se guardan: salen de A·γ de cada barra, por el
+  factor `peso_propio` del caso (modelo/analisis.py). Un caso con ese factor distinto de 0 es
+  "automático": en la interfaz no recibe cargas a mano.
+- "Carga muerta adicional" (D): las cargas muertas que pone el usuario. Es el caso inicial: ahí van
+  las cargas si no se dice otro.
+- Los que agregue el usuario (Viva, Viento, Sismo u otra Muerta).
+La carga muerta total (D) es la suma de todos los casos tipo D: peso propio más la adicional.
+
+Combinaciones: un factor por TIPO de caso ({"D": 1.2, "L": 1.6}), que se aplica a todos los casos
+de ese tipo. Como el análisis es lineal, su resultado es la suma de los resultados de los casos por
+sus factores (modelo/analisis.py, combinar). Aquí se guardan las propias del usuario; las
+predeterminadas (ASCE 7-05) salen de modelo/combinaciones.py con los datos del sismo del modelo
+(SDS y ρ). Por ahora solo sirven para ver resultados.
+
 Tipos de carga:
 - CargaNodal: fuerzas y momentos en un nodo, en ejes globales [Fx, Fy, Fz, Mx, My, Mz].
 - CargaBarra: en una barra, "uniforme" (kN/m, en toda la barra), "puntual" (kN) o "momento"
@@ -82,21 +92,33 @@ class Elemento:
 
 @dataclass
 class Caso:
-    """Caso de carga. tipo es la letra de las combinaciones (D, L, Lr, W, E...)."""
+    """Caso de carga. tipo es la letra de las combinaciones (D, L, W o E)."""
     nombre: str
     tipo: str = "D"
-    peso_propio: float = 1.0   # multiplicador del peso propio de las barras (0 = no lo incluye)
+    peso_propio: float = 0.0   # multiplicador del peso propio de las barras (0 = no lo incluye)
 
 @dataclass
 class Combinacion:
-    """Combinación de carga: un factor por caso, {ID de caso: factor}."""
+    """Combinación de carga: un factor por tipo de caso, {"D": 1.2, "L": 1.6}."""
     nombre: str
     factores: dict = field(default_factory=dict)
 
-# Tipos de caso: las letras de ASCE 7-05 §2.3.2 (sin S, nieve, que en Panamá no aplica) y un nombre
-# propuesto para cada uno
-TIPOS_CASO = {"D": "Muerta", "L": "Viva", "Lr": "Viva de techo", "R": "Lluvia", "W": "Viento",
-              "E": "Sismo", "H": "Empuje de suelo", "F": "Fluidos", "T": "Temperatura"}
+# Tipos de caso que se pueden crear por ahora: la letra de ASCE 7-05 §2.3.2 y su nombre
+TIPOS_CASO = {"D": "Muerta", "L": "Viva", "W": "Viento", "E": "Sismo"}
+NOMBRE_PESO_PROPIO = "Peso propio"
+NOMBRE_MUERTA_ADICIONAL = "Carga muerta adicional"
+
+
+def nombre_combinacion(factores):
+    """Nombre automático de una combinación: "1.2D + 1.6L", "0.9D - 1.6W", "D"."""
+    texto = ""
+    for tipo, f in factores.items():
+        termino = ("" if abs(f) == 1 else f"{abs(f):g}") + tipo
+        if texto:
+            texto += (" - " if f < 0 else " + ") + termino
+        else:
+            texto = ("-" if f < 0 else "") + termino
+    return texto
 
 @dataclass
 class CargaNodal:
@@ -122,10 +144,15 @@ class Modelo:
         self.elementos = {}    # id -> Elemento
         self.materiales = {}   # id -> Material
         self.secciones = {}    # id -> Seccion
-        self.casos = {1: Caso("Muerta", "D", 1.0)}   # Muerta (con peso propio) y los que se definan
+        # Peso propio se muestra primero (el orden del diccionario), pero lleva el ID 2: el caso 1 sigue
+        # siendo el caso inicial, donde van las cargas si no se dice otro.
+        self.casos = {2: Caso(NOMBRE_PESO_PROPIO, "D", 1.0), 1: Caso(NOMBRE_MUERTA_ADICIONAL, "D", 0.0)}
         self.cargas = {}       # id -> CargaNodal o CargaBarra
-        self.combinaciones = {}  # id -> Combinacion
-        self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 2, "carga": 1, "combo": 1}
+        self.combinaciones = {}  # id -> Combinacion: las propias (las predeterminadas, modelo/combinaciones.py)
+        # Datos del sismo para las combinaciones 5 y 7 (ASCE 7-05 §12.4.2.3). Provisionales, a mano: los
+        # valores reales saldrán de la etapa de sismo (SDS del sitio; ρ = 1.0 o 1.3, §12.3.4).
+        self.sds, self.rho = 0.5, 1.3
+        self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 3, "carga": 1, "combo": 1}
 
     def _nuevo_id(self, tipo):
         i = self._sig_id[tipo]
@@ -256,8 +283,14 @@ class Modelo:
 
     # ---------- CARGAS ----------
     def caso_inicial(self):
-        """El primer caso (Muerta): ahí van las cargas si no se dice otro."""
-        return min(self.casos)
+        """El caso donde van las cargas si no se dice otro: el primero que no es de peso propio
+        (Carga muerta adicional). Si todos lo fueran, el primero."""
+        manuales = [cid for cid, c in self.casos.items() if not c.peso_propio]
+        return min(manuales) if manuales else min(self.casos)
+
+    def es_automatico(self, cid):
+        """True si el caso es de peso propio: sus cargas salen solas de A·γ de cada barra."""
+        return bool(self.casos[cid].peso_propio)
 
     def cargar(self, nid, fx=0.0, fy=0.0, fz=0.0, mx=0.0, my=0.0, mz=0.0, caso=None):
         """Carga nodal (ejes globales). Devuelve su ID."""
@@ -306,77 +339,74 @@ class Modelo:
         del self.cargas[cid]
 
     # ---------- CASOS ----------
+    def tipos_de_caso(self):
+        """Los tipos que se pueden usar: los de TIPOS_CASO y, si un archivo viejo trae otro, ese también."""
+        return list(TIPOS_CASO) + [c.tipo for c in self.casos.values() if c.tipo not in TIPOS_CASO]
+
     def agregar_caso(self, nombre, tipo="L", peso_propio=0.0):
-        """Caso nuevo. Sin nombre, toma el propuesto para su tipo ("Viva" para L). Devuelve su ID."""
+        """Caso nuevo. Sin nombre, toma el de su tipo ("Viva" para L). Devuelve su ID."""
         self._revisar_caso(tipo, peso_propio)
         cid = self._nuevo_id("caso")
-        self.casos[cid] = Caso(nombre.strip() or TIPOS_CASO[tipo], tipo, float(peso_propio))
+        self.casos[cid] = Caso(nombre.strip() or TIPOS_CASO.get(tipo, tipo), tipo, float(peso_propio))
         return cid
 
-    def cambiar_caso(self, cid, nombre, tipo, peso_propio):
+    def cambiar_caso(self, cid, nombre, tipo, peso_propio=None):
+        """Cambia el nombre y el tipo de un caso (y su factor de peso propio, si se da)."""
         if cid not in self.casos:
             raise KeyError(f"El caso {cid} no existe")
-        self._revisar_caso(tipo, peso_propio)
         caso = self.casos[cid]
-        caso.nombre, caso.tipo, caso.peso_propio = nombre.strip() or TIPOS_CASO[tipo], tipo, float(peso_propio)
+        peso_propio = caso.peso_propio if peso_propio is None else peso_propio
+        self._revisar_caso(tipo, peso_propio)
+        caso.nombre, caso.tipo, caso.peso_propio = nombre.strip() or TIPOS_CASO.get(tipo, tipo), tipo, float(peso_propio)
 
-    @staticmethod
-    def _revisar_caso(tipo, peso_propio):
-        if tipo not in TIPOS_CASO:
+    def _revisar_caso(self, tipo, peso_propio):
+        if tipo not in self.tipos_de_caso():
             raise ValueError(f"Tipo de caso desconocido: {tipo}")
         if not math.isfinite(float(peso_propio)) or peso_propio < 0:
             raise ValueError("El factor del peso propio debe ser 0 o positivo")
 
     def uso_caso(self, cid):
-        """(cargas, combinaciones) que usan el caso cid."""
-        return ([c for c, carga in self.cargas.items() if carga.caso == cid],
-                [k for k, co in self.combinaciones.items() if cid in co.factores])
+        """IDs de las cargas del caso cid."""
+        return [c for c, carga in self.cargas.items() if carga.caso == cid]
+
+    def es_fijo(self, cid):
+        """True si el caso no se puede eliminar ni cambiar: el de peso propio y el caso inicial (así
+        siempre hay peso propio y siempre hay dónde poner cargas)."""
+        return self.es_automatico(cid) or cid == self.caso_inicial()
 
     def eliminar_caso(self, cid):
-        """Elimina un caso sin cargas que no esté en ninguna combinación. Siempre queda uno."""
+        """Elimina un caso sin cargas. Los fijos (peso propio y caso inicial) no se eliminan."""
         if cid not in self.casos:
             raise KeyError(f"El caso {cid} no existe")
-        if len(self.casos) == 1:
-            raise ValueError("Tiene que quedar al menos un caso de carga")
-        cargas, combos = self.uso_caso(cid)
-        if cargas or combos:
-            raise ValueError(f"El caso {self.casos[cid].nombre} está en uso ({len(cargas)} cargas y "
-                             f"{len(combos)} combinaciones)")
+        if self.es_fijo(cid):
+            raise ValueError(f"El caso {self.casos[cid].nombre} no se puede eliminar")
+        cargas = self.uso_caso(cid)
+        if cargas:
+            raise ValueError(f"El caso {self.casos[cid].nombre} tiene {len(cargas)} cargas: bórralas primero")
         del self.casos[cid]
 
     # ---------- COMBINACIONES ----------
     def _factores(self, factores):
-        """Los factores limpios: {ID de caso: factor}, sin los 0. ValueError si no queda ninguno."""
+        """Los factores limpios: {tipo de caso: factor}, sin los 0. ValueError si no queda ninguno."""
         limpios = {}
-        for cid, f in factores.items():
-            cid, f = int(cid), float(f)
-            if cid not in self.casos:
-                raise KeyError(f"El caso {cid} no existe")
+        permitidos = self.tipos_de_caso()
+        for tipo, f in factores.items():
+            f = float(f)
+            if tipo not in permitidos:
+                raise ValueError(f"Tipo de caso desconocido: {tipo}")
             if not math.isfinite(f):
                 raise ValueError("Los factores deben ser números")
             if f != 0:
-                limpios[cid] = f
+                limpios[tipo] = f
         if not limpios:
             raise ValueError("La combinación necesita al menos un factor distinto de 0")
         return limpios
 
-    def nombre_combinacion(self, factores):
-        """Nombre automático: "1.2D + 1.6L" (con el nombre del caso si hay dos del mismo tipo)."""
-        tipos = [c.tipo for c in self.casos.values()]
-        texto = ""
-        for cid, f in factores.items():
-            caso = self.casos[cid]
-            etiqueta = caso.tipo if tipos.count(caso.tipo) == 1 else f" {caso.nombre}"
-            numero = "" if abs(f) == 1 else f"{abs(f):g}"
-            termino = f"{numero}{etiqueta}".strip()
-            texto += (" - " if f < 0 else " + ") + termino if texto else ("-" if f < 0 else "") + termino
-        return texto
-
     def agregar_combinacion(self, nombre, factores):
-        """Combinación nueva. Sin nombre, el automático. Devuelve su ID."""
+        """Combinación propia nueva: {tipo de caso: factor}. Sin nombre, el automático. Devuelve su ID."""
         factores = self._factores(factores)
         coid = self._nuevo_id("combo")
-        self.combinaciones[coid] = Combinacion(nombre.strip() or self.nombre_combinacion(factores), factores)
+        self.combinaciones[coid] = Combinacion(nombre.strip() or nombre_combinacion(factores), factores)
         return coid
 
     def cambiar_combinacion(self, coid, nombre, factores):
@@ -384,12 +414,22 @@ class Modelo:
             raise KeyError(f"La combinación {coid} no existe")
         factores = self._factores(factores)
         co = self.combinaciones[coid]
-        co.nombre, co.factores = nombre.strip() or self.nombre_combinacion(factores), factores
+        co.nombre, co.factores = nombre.strip() or nombre_combinacion(factores), factores
 
     def eliminar_combinacion(self, coid):
         if coid not in self.combinaciones:
             raise KeyError(f"La combinación {coid} no existe")
         del self.combinaciones[coid]
+
+    def poner_sismo(self, sds, rho):
+        """Datos del sismo para las combinaciones 5 y 7 (ASCE 7-05 §12.4.2.3): SDS y la redundancia ρ,
+        que solo puede ser 1.0 o 1.3 (§12.3.4)."""
+        sds, rho = float(sds), float(rho)
+        if not math.isfinite(sds) or sds < 0:
+            raise ValueError("SDS debe ser 0 o positivo")
+        if min(abs(rho - 1.0), abs(rho - 1.3)) > 1e-9:
+            raise ValueError("ρ solo puede ser 1.0 o 1.3 (ASCE 7-05 §12.3.4)")
+        self.sds, self.rho = sds, rho
 
     # ---------- ELIMINAR ----------
     def eliminar_elemento(self, eid):

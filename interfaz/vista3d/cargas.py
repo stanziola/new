@@ -4,8 +4,15 @@
   una flecha doble que sale del nodo (regla de la mano derecha).
 - Carga en barra: la uniforme es una fila de flechas que llegan a la barra, unidas por una línea;
   la puntual, una flecha en x = a; el momento, una flecha doble en x = a.
+- Peso propio: en el caso que lo lleva, cada barra muestra su uniforme A·γ hacia −Z global. No es
+  una carga guardada: sale de modelo/analisis.cargas_de_peso_propio y se dibuja como las demás.
+- Una uniforme paralela a la barra (el peso propio de una columna) no se puede dibujar con flechas
+  que "llegan" a la barra: va al costado, en una línea paralela con las flechas a lo largo.
+- Con la sección real a la vista, las flechas de las cargas en barra llegan a la cara de la sección
+  y no al eje: si no, quedarían metidas dentro del concreto.
 Todas del mismo largo (ui.TAMANO_CARGA × tamaño del modelo) y del color colores.CARGA: el valor se
 lee en las etiquetas (Etiquetas → Valores de las cargas).
+flecha, flecha_doble y flechas_en_nodo las usa también el dibujo de las reacciones (resultados.py).
 """
 import numpy as np
 import pyvista as pv
@@ -13,26 +20,50 @@ import pyvista as pv
 from configuracion import colores
 from configuracion import interfaz as ui
 from interfaz.textos import texto_carga
-from modelo.analisis import geometria
+from interfaz.vista3d.dibujo import seccion_rectangular
+from modelo.analisis import cargas_de_peso_propio, geometria
 from modelo.estructura import CargaBarra, CargaNodal
 
 GLOBALES = {"X": 0, "Y": 1, "Z": 2}
 LOCALES = {"x": 0, "y": 1, "z": 2}
+PARALELA = 0.999                       # |coseno| entre la carga y la barra a partir del cual es paralela
+HACIA_LA_VISTA = np.array([1.0, 1.0, 0.3]) / np.linalg.norm([1.0, 1.0, 0.3])   # hacia la cámara isométrica
 
 
-def _flecha(punta, u, largo):
+def flecha(punta, u, largo):
     """Flecha de largo `largo` que termina en `punta`, en la dirección u."""
     return pv.Arrow(start=punta - u * largo, direction=u, scale=largo, tip_length=0.28,
                     tip_radius=0.09, shaft_radius=0.025)
 
 
-def _flecha_doble(origen, u, largo):
+def flecha_doble(origen, u, largo):
     """Flecha doble (momento) que sale de `origen` en la dirección u."""
-    flecha = pv.Arrow(start=origen, direction=u, scale=largo, tip_length=0.25, tip_radius=0.09,
+    cuerpo = pv.Arrow(start=origen, direction=u, scale=largo, tip_length=0.25, tip_radius=0.09,
                       shaft_radius=0.025)
     cono = pv.Cone(center=origen + u * largo * 0.74, direction=u, height=largo * 0.25,
                    radius=largo * 0.09, resolution=16)
-    return flecha.merge(cono)
+    return cuerpo.merge(cono)
+
+
+def flechas_en_nodo(piezas, p, fuerzas, largo, separacion=0.0, minimo_fuerza=0.0, minimo_momento=0.0):
+    """Agrega a `piezas` la flecha de la fuerza resultante de [Fx, Fy, Fz, Mx, My, Mz] y la flecha
+    doble del momento resultante, en el punto p. La flecha de la fuerza termina a `separacion` de p
+    (0 = llega al punto). Lo que no pase de su mínimo no se dibuja.
+    Devuelve dónde va la etiqueta (junto a la fuerza; si no hay, junto al momento) o None."""
+    fuerza, momento = np.asarray(fuerzas[:3], dtype=float), np.asarray(fuerzas[3:], dtype=float)
+    nf, nm = np.linalg.norm(fuerza), np.linalg.norm(momento)
+    lugar = None
+    if nf > minimo_fuerza:
+        u = fuerza / nf
+        punta = p - u * separacion
+        piezas.append(flecha(punta, u, largo))
+        lugar = punta - u * largo * 1.05
+    if nm > minimo_momento:
+        u = momento / nm
+        piezas.append(flecha_doble(p, u, largo))
+        if lugar is None:
+            lugar = p + u * largo * 1.05
+    return lugar
 
 
 def _vector_global(modelo, c):
@@ -46,30 +77,56 @@ def _vector_global(modelo, c):
     return r.T @ v
 
 
-def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True):
-    """Dibuja las cargas del caso. Devuelve {"cargas": actor, "valores_cargas": actor} (si hay)."""
+def _media_seccion(modelo, eid, u, seccion_real):
+    """Lo que hay del eje de la barra a la cara de su sección en la dirección u (m). 0 si las barras
+    se dibujan como líneas o la barra no tiene sección rectangular."""
+    c = seccion_rectangular(modelo, modelo.elementos[eid]) if seccion_real else None
+    if c is None:
+        return 0.0
+    r, _t, _l = geometria(modelo, eid)
+    return float(abs(u @ r[1]) * c.b / 2 + abs(u @ r[2]) * c.h / 2)
+
+
+def _uniforme(piezas, modelo, eid, pi, pj, eje, u, largo, seccion_real):
+    """Agrega a `piezas` la fila de flechas de una carga uniforme. Devuelve dónde va su etiqueta."""
+    tramos = np.linspace(0, 1, 7)
+    if abs(u @ eje) < PARALELA:                    # lo normal: flechas que llegan a la barra
+        cara = u * _media_seccion(modelo, eid, u, seccion_real)
+        puntos = [pi + (pj - pi) * t - cara for t in tramos]
+        for q in puntos:
+            piezas.append(flecha(q, u, largo * 0.8))
+        colas = np.array([q - u * largo * 0.8 for q in puntos])
+        piezas.append(pv.lines_from_points(colas))
+        return colas[len(colas) // 2] - u * largo * 0.15
+    # Paralela a la barra: al costado, con las flechas a lo largo. El costado es el que mira hacia la
+    # vista isométrica (HACIA_LA_VISTA), para que la barra no la tape al abrir el modelo.
+    lado = HACIA_LA_VISTA - (HACIA_LA_VISTA @ eje) * eje
+    lado = lado / np.linalg.norm(lado) if np.linalg.norm(lado) > 1e-6 else geometria(modelo, eid)[0][2]
+    separado = lado * (_media_seccion(modelo, eid, lado, seccion_real) + largo * 0.45)
+    puntos = [pi + (pj - pi) * t + separado for t in tramos]
+    cada = min(largo * 0.8, 0.85 * float(np.linalg.norm(puntos[1] - puntos[0])))
+    for q in (puntos[1:] if u @ eje > 0 else puntos[:-1]):     # cada flecha queda dentro de su tramo
+        piezas.append(flecha(q, u, cada))
+    piezas.append(pv.lines_from_points(np.array([puntos[0], puntos[-1]])))
+    return puntos[len(puntos) // 2] + lado * largo * 0.2
+
+
+def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True, seccion_real=False):
+    """Dibuja las cargas del caso (las puestas a mano y, si el caso lo lleva, el peso propio de
+    cada barra). seccion_real: las barras se ven con su sección (las flechas llegan a la cara).
+    Devuelve {"cargas": actor, "valores_cargas": actor} (si hay)."""
     actores = {}
     piezas, etiquetas, posiciones = [], [], []
     largo = ui.TAMANO_CARGA * tamano
-    for c in modelo.cargas.values():
-        if c.caso != caso:
-            continue
+    cargas = [c for c in modelo.cargas.values() if c.caso == caso]
+    cargas += list(cargas_de_peso_propio(modelo, caso).values())
+    for c in cargas:
         if isinstance(c, CargaNodal):
             p = np.asarray(modelo.nodos[c.nodo].coords, dtype=float)
-            fuerza, momento = np.asarray(c.fuerzas[:3]), np.asarray(c.fuerzas[3:])
-            if np.linalg.norm(fuerza) > 0:
-                u = fuerza / np.linalg.norm(fuerza)
-                piezas.append(_flecha(p, u, largo))
-                posiciones.append(p - u * largo * 1.05)
-            if np.linalg.norm(momento) > 0:
-                u = momento / np.linalg.norm(momento)
-                piezas.append(_flecha_doble(p, u, largo))
-                posiciones.append(p + u * largo * 1.05)
-            if np.linalg.norm(fuerza) == 0 and np.linalg.norm(momento) == 0:
-                continue
-            etiquetas.append(texto_carga(c))
-            if np.linalg.norm(fuerza) > 0 and np.linalg.norm(momento) > 0:
-                posiciones.pop()                   # una etiqueta por carga
+            lugar = flechas_en_nodo(piezas, p, c.fuerzas, largo)
+            if lugar is not None:
+                etiquetas.append(texto_carga(c))
+                posiciones.append(lugar)
             continue
         if not isinstance(c, CargaBarra) or c.valor == 0:
             continue
@@ -80,19 +137,14 @@ def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True):
         v = _vector_global(modelo, c)
         u = v / np.linalg.norm(v)
         if c.tipo == "uniforme":
-            puntos = [pi + (pj - pi) * t for t in np.linspace(0, 1, 7)]
-            for q in puntos:
-                piezas.append(_flecha(q, u, largo * 0.8))
-            colas = np.array([q - u * largo * 0.8 for q in puntos])
-            piezas.append(pv.lines_from_points(colas))
-            posiciones.append(colas[len(colas) // 2] - u * largo * 0.15)
+            posiciones.append(_uniforme(piezas, modelo, c.barra, pi, pj, eje, u, largo, seccion_real))
         elif c.tipo == "puntual":
-            q = pi + eje * c.a
-            piezas.append(_flecha(q, u, largo))
+            q = pi + eje * c.a - u * _media_seccion(modelo, c.barra, u, seccion_real)
+            piezas.append(flecha(q, u, largo))
             posiciones.append(q - u * largo * 1.05)
         else:
             q = pi + eje * c.a
-            piezas.append(_flecha_doble(q, u, largo))
+            piezas.append(flecha_doble(q, u, largo))
             posiciones.append(q + u * largo * 1.05)
         etiquetas.append(texto_carga(c))
     if not piezas:

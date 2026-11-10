@@ -11,6 +11,10 @@
       Vy: hacia +y; Vz: hacia +z; N y T: hacia +z.
   Relleno en colores.DIAGRAMA_POSITIVO o DIAGRAMA_NEGATIVO según el signo, con borde. Si el signo
   cambia dentro de un tramo, se parte en el cruce por cero.
+- Reacciones: en cada apoyo, la flecha de la fuerza resultante (que llega al símbolo del apoyo, no
+  al nodo, para que no la tape) y la flecha doble del momento resultante, en colores.REACCION, con
+  una etiqueta que lista las componentes que no son cero (Fx, Fy, Fz, Mx, My, Mz en ejes globales).
+  Es lo que el apoyo le hace a la estructura.
 Los valores vienen de modelo/analisis.py (que usa las fórmulas de calculo/rigidez/diagramas.py).
 """
 import numpy as np
@@ -18,7 +22,8 @@ import pyvista as pv
 
 from configuracion import colores
 from configuracion import interfaz as ui
-from interfaz.textos import valor_corto
+from interfaz.textos import texto_fuerzas, valor_corto
+from interfaz.vista3d.cargas import flechas_en_nodo
 from modelo.analisis import deformada_de, fuerzas_en, geometria
 
 DIRECCION = {"My": (2, -1.0), "Mz": (1, -1.0), "Vy": (1, 1.0), "Vz": (2, 1.0), "N": (2, 1.0), "T": (2, 1.0)}
@@ -112,4 +117,38 @@ def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
         actores["valores_resultados"] = vista.add_point_labels(
             np.array(lugares), etiquetas, font_size=ui.TAMANO_LETRA - 3, text_color=colores.DIAGRAMA_BORDE,
             shape=None, show_points=False, always_visible=True, name="valores_resultados", reset_camera=False)
+    return actores
+
+
+def dibujar_reacciones(vista, modelo, rc, tamano, con_valores=True):
+    """Reacciones de los apoyos para los resultados rc (de un caso o de una combinación).
+    Devuelve {"reacciones": actor, "valores_reacciones": actor} (si hay)."""
+    reacciones = {nid: np.asarray(r, dtype=float) for nid, r in rc.res.reacciones.items() if nid in modelo.nodos}
+    if not reacciones:
+        return {}
+    largo = ui.TAMANO_CARGA * tamano
+    separacion = ui.TAMANO_APOYO * tamano             # la flecha llega al cono o la placa, no al nodo
+    # Lo que es ruido numérico frente a la reacción mayor no se dibuja
+    minimo_f = 1e-9 * max(np.abs(r[:3]).max() for r in reacciones.values())
+    minimo_m = 1e-9 * max(np.abs(r[3:]).max() for r in reacciones.values())
+    piezas, etiquetas, posiciones = [], [], []
+    for nid, r in reacciones.items():
+        texto = texto_fuerzas(r)
+        if not texto:
+            continue
+        p = np.asarray(modelo.nodos[nid].coords, dtype=float)
+        lugar = flechas_en_nodo(piezas, p, r, largo, separacion, minimo_f, minimo_m)
+        if lugar is not None:
+            etiquetas.append(texto)
+            posiciones.append(lugar)
+    if not piezas:
+        return {}
+    malla = piezas[0].merge(piezas[1:]) if len(piezas) > 1 else piezas[0]
+    actores = {"reacciones": vista.add_mesh(malla, color=colores.REACCION, pickable=False, reset_camera=False,
+                                            name="reacciones", render=False)}
+    actores["reacciones"].SetUseBounds(False)
+    if con_valores and etiquetas:
+        actores["valores_reacciones"] = vista.add_point_labels(
+            np.array(posiciones), etiquetas, font_size=ui.TAMANO_LETRA - 3, text_color=colores.REACCION,
+            shape=None, show_points=False, always_visible=True, name="valores_reacciones", reset_camera=False)
     return actores

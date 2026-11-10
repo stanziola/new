@@ -17,6 +17,9 @@ from modelo.apoyos import NOMBRES, TIPOS
 from interfaz.vista3d.seleccion import barra_cercana, elemento_en, nodo_cercano
 
 
+AVISO_AUTOMATICO = "El peso propio es automático: elige otro caso (Carga muerta adicional…) para poner cargas"
+
+
 class Herramienta:
     """Base: no hace nada. Las herramientas concretas redefinen lo que necesitan."""
     usa_previsualizacion = False
@@ -263,6 +266,9 @@ class AgregarCargaNodo(Herramienta):
             v.mensaje("Escribe algún valor de fuerza o momento")
             return
         caso = v.caso_activo()
+        if v.modelo.es_automatico(caso):
+            v.mensaje(AVISO_AUTOMATICO)
+            return
         v.antes_de_cambiar()
         if panel.reemplazar.isChecked():
             for cid in v.modelo.cargas_en("nodo", nid, caso):
@@ -298,6 +304,9 @@ class AgregarCargaBarra(Herramienta):
             v.mensaje(f"a es mayor que el largo de la barra {eid} ({largo:.3f} m)")
             return
         caso = v.caso_activo()
+        if v.modelo.es_automatico(caso):
+            v.mensaje(AVISO_AUTOMATICO)
+            return
         v.antes_de_cambiar()
         if panel.reemplazar.isChecked():
             for cid in v.modelo.cargas_en("barra", eid, caso):

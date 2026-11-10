@@ -2,8 +2,8 @@
 
 - Pestaña Modelo: nodos, elementos, apoyos y cargas. Elegir uno lo selecciona en 3D y lo muestra
   en Propiedades. Un apoyo es un objeto aparte ("apoyo", ID del nodo): se puede elegir y borrar
-  solo. Las cargas son las del caso activo (en el modo Combinaciones no se listan: las cargas solo
-  existen en los casos). Debajo, Materiales y Secciones con sus carpetas (interfaz/definir.py):
+  solo. Las cargas son las del caso activo (viendo una combinación no se listan: las cargas solo
+  existen en los casos); en el caso de peso propio se lista el de cada barra, que es automático. Debajo, Materiales y Secciones con sus carpetas (interfaz/definir.py):
   clic los muestra en Propiedades, doble clic los edita ahí y el clic derecho da Nuevo, Editar,
   Copiar y Eliminar.
 - Pestaña Tablas: la matriz de rigidez global de cada elemento y los diagramas de interacción de
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import QDockWidget, QTabWidget, QTreeWidgetItem
 from configuracion import colores, formato
 from interfaz import textos
 from interfaz.textos import donde, texto_carga
+from modelo.analisis import cargas_de_peso_propio
 from modelo.apoyos import describir
 from interfaz.ventanas.definir import CLAVE, info_de, llenar_definiciones
 from interfaz.paneles.comunes import ArbolLimpio, carpeta
@@ -101,8 +102,11 @@ class Explorador(QDockWidget):
             self._registrar(("apoyo", nid), self._hoja(apoyos, f"Nodo {nid}: {describir(n.apoyo)}", ("apoyo", nid)),
                             True)
         de_caso = [(cid, c) for cid, c in modelo.cargas.items() if c.caso == caso]
-        titulo = f"Cargas ({len(de_caso)})" if caso is not None else "Cargas (se ven en los casos)"
+        propias = cargas_de_peso_propio(modelo, caso) if caso is not None else {}
+        titulo = f"Cargas ({len(de_caso) + len(propias)})" if caso is not None else "Cargas (se ven en los casos)"
         cargas = self._grupo(self.arbol_modelo, titulo, "cargas")
+        for eid, c in propias.items():                 # el peso propio no se guarda: elegirlo elige su barra
+            self._hoja(cargas, f"Barra {eid}: peso propio, {texto_carga(c)}", ("barra", eid))
         for cid, c in de_caso:
             self._registrar(("carga", cid), self._hoja(cargas, f"{donde(c)}: {texto_carga(c)}", ("carga", cid)), True)
         abierto = lambda clave: clave in self._abiertos          # noqa: E731

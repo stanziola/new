@@ -20,6 +20,17 @@ def texto_carga(c):
     return texto
 
 
+def texto_fuerzas(valores):
+    """Las componentes [Fx, Fy, Fz, Mx, My, Mz] que no se ven como cero con los decimales vigentes:
+    "Fx 1.25 kN, Fz 35.20 kN, My -4.10 kN·m". Vacío si todas son cero."""
+    partes = []
+    for nombre, v in zip(FUERZAS, valores):
+        magnitud = "fuerza" if nombre[0] == "F" else "momento"
+        if float(formato.cantidad(v, magnitud, con_unidad=False)) != 0:
+            partes.append(f"{nombre} {formato.cantidad(v, magnitud)}")
+    return ", ".join(partes)
+
+
 def donde(c):
     """"Nodo 3" o "Barra 2"."""
     return f"Nodo {c.nodo}" if isinstance(c, CargaNodal) else f"Barra {c.barra}"

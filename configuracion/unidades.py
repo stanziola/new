@@ -11,8 +11,9 @@ Cada tabla dice cuántas unidades internas vale una unidad de pantalla. Ejemplos
 tonf es la tonelada fuerza MÉTRICA (1000 kgf = 9.80665 kN), la misma de los diagramas de
 interacción. Ojo: en pint, "ton_force" es la tonelada CORTA de EE. UU. (2000 lbf = 8.896 kN).
 
-"seccion" (dimensiones de sección: b, h, d) es una longitud con unidad propia: la geometría del
-modelo suele ir en m y las secciones en cm o mm.
+"seccion" (dimensiones de sección: b, h, d) y "desplazamiento" (los resultados: desplazamientos de
+nodos y barras) son longitudes con unidad propia: la geometría del modelo suele ir en m, las
+secciones en cm o mm y los desplazamientos en mm.
 Magnitudes derivadas (DERIVADAS): no tienen unidad propia; se arman con las de fuerza y longitud,
 como el peso unitario γ en F/L³ (kN/m³, tonf/m³, lbf/ft³...).
 """
@@ -25,6 +26,7 @@ FT, PULG = 0.3048, 0.0254         # m
 UNIDADES = {
     "longitud": {"m": 1.0, "cm": 0.01, "mm": 0.001, "ft": FT, "in": PULG},
     "seccion": {"cm": 0.01, "mm": 0.001, "m": 1.0, "in": PULG},
+    "desplazamiento": {"mm": 0.001, "cm": 0.01, "m": 1.0, "in": PULG},
     "area": {"m²": 1.0, "cm²": 1e-4, "mm²": 1e-6, "in²": PULG ** 2, "ft²": FT ** 2},
     "inercia": {"m⁴": 1.0, "cm⁴": 1e-8, "mm⁴": 1e-12, "in⁴": PULG ** 4, "ft⁴": FT ** 4},
     "fuerza": {"kN": 1.0, "N": 0.001, "tonf": TONF, "kgf": KGF, "kip": KIP, "lbf": LBF},
@@ -36,7 +38,8 @@ UNIDADES = {
                  "ksi": KIP / PULG ** 2, "psi": LBF / PULG ** 2},
 }
 
-NOMBRES = {"longitud": "Longitud", "seccion": "Dimensiones de sección", "area": "Área", "inercia": "Inercia",
+NOMBRES = {"longitud": "Longitud", "seccion": "Dimensiones de sección", "desplazamiento": "Desplazamientos",
+           "area": "Área", "inercia": "Inercia",
            "fuerza": "Fuerza", "momento": "Momento", "carga_lineal": "Carga distribuida",
            "esfuerzo": "Esfuerzo y módulos"}
 
@@ -45,6 +48,7 @@ DERIVADAS = {"peso_unitario": (1, -3)}     # magnitud -> (a, b) de F^a·L^b (ver
 # ---------- Personalización base: unidad de pantalla de cada magnitud ----------
 LONGITUD = "m"
 SECCION = "cm"
+DESPLAZAMIENTO = "mm"
 AREA = "cm²"
 INERCIA = "cm⁴"
 FUERZA = "kN"

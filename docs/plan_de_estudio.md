@@ -18,12 +18,12 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - reacciones y fuerzas en los extremos de cada barra (ejes locales);
   - cargas en los nodos y en las barras (uniforme, puntual y momento), con sus fuerzas de empotramiento, y peso propio;
   - diagramas N, V, M y T y la deformada a lo largo de cada barra.
-- **Casos de carga:** Muerta (D, con el peso propio) y los que defina el usuario (Definir → Casos de carga). **Combinaciones** con factores a mano, solo para ver resultados (superposición).
+- **Casos de carga:** Peso propio (automático: A·γ de cada barra) y Carga muerta adicional, fijos, y los que agregue el usuario (Muerta, Viva, Viento o Sismo). **Combinaciones**: las 12 de ASCE 7-05 ya cargadas (con SDS y ρ a mano) y las propias, por tipo de caso; solo para ver resultados (superposición).
 - **Materiales y secciones de concreto** (`calculo/concreto.py`, `modelo/concreto.py`): E, G, A, I, J y γ, con su refuerzo.
-- **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas), Analizar y resultados (deformada y diagramas en 3D, y los de una barra en el panel Diagrama, en ejes locales y con un corte que se desliza).
+- **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas) y tres estados: editar, resultados de un caso y resultados de una combinación (deformada, diagramas y reacciones en 3D, y lo mismo para una barra en el panel Diagrama, en ejes locales y con un corte que se desliza). El concreto se puede ver transparente, con el acero de las columnas.
 - **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`.
 - **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
-- Borrador de combinaciones (`scripts/combinaciones_asce7.py`).
+- Combinaciones predeterminadas en `modelo/combinaciones.py` (`scripts/combinaciones_asce7.py` las imprime).
 
 ## Hoja de ruta (orden acordado)
 
@@ -124,7 +124,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
     - cargas parciales y trapezoidales;
     - la viga continua contra la Tabla 6.5.2;
     - un pórtico comparado con Ftool o PyNite;
-    - la viva de las losas (cargas de área, etapa 6). Los casos L, Lr… ya se pueden definir y cargar a mano (noviembre de 2026).
+    - la viva de las losas (cargas de área, etapa 6). Los casos de viva, viento y sismo ya se pueden definir y cargar a mano (noviembre de 2026).
 
 ## Etapa 3: Combinaciones de carga
 
@@ -145,17 +145,22 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - con SDS = 0.5: 1.3D + ρQE + L y 0.8D + ρQE;
   - la envolvente coincide con el máximo calculado a mano.
 - **Listo cuando:** `scripts/combinaciones_asce7.py` queda reemplazado por un módulo con pruebas, que incluye Lr, 0.5L y las dos direcciones.
-- **Avance (noviembre de 2026), parte mínima:**
+- **Avance (noviembre de 2026), una parte:**
   - **hecho:**
-    - casos definidos por el usuario (Definir → Casos de carga: tipo D, L, Lr, R, W, E, H, F o T, y factor del peso propio);
-    - combinaciones con factores escritos a mano (Definir → Combinaciones de carga), con nombre automático ("1.2D + 1.6L");
+    - el peso propio en su propio caso, automático, y la carga muerta adicional aparte: la muerta total (D) es su suma;
+    - casos que agrega el usuario (Definir → Casos de carga), de tipo Muerta (D), Viva (L), Viento (W) o Sismo (E);
+    - las 12 combinaciones de ASCE 7-05 §2.3.2 y §12.4.2.3 para D, L, W y E, ya cargadas (`modelo/combinaciones.py`), con SDS y ρ como datos del modelo (por ahora escritos a mano) y los dos signos de W y E;
+    - combinaciones propias, con un factor por tipo de caso (Definir → Combinaciones de carga) y nombre automático ("1.2D + 1.6L");
     - resultados por **superposición** (`modelo/analisis.combinar`), sin volver a resolver;
-    - modo Combinaciones en la interfaz (Σ): solo se ven resultados, la edición queda en gris;
-    - archivo `.json` versión 3, con las combinaciones.
+    - tres estados en la interfaz: editar, resultados de un caso y resultados de una combinación (Σ); con resultados a la vista no se edita;
+    - archivo `.json` versión 4 (combinaciones propias por tipo, SDS y ρ); los anteriores abren con la misma muerta total.
   - **verificado** (con `verificar-calculos`, y en `pruebas/verificacion.py`):
-    - 1.2D + 1.6L por superposición = un análisis con las cargas multiplicadas (U, R y diagramas de todas las barras);
-    - viga simple con D = 10 y L = 5 kN/m: 1.2D + 1.6L da wL²/8 = 90 kN·m y wL/2 = 60 kN; 1.4D, 63 kN·m y 42 kN.
-  - **falta:** el generador de ASCE 7-05 2.3.2 y 12.4 (con 0.5L, ± W y E en X e Y, SDS y ρ), las envolventes y su uso en el diseño.
+    - combinaciones leídas en la norma: las siete de §2.3.2 en la imagen de la página (PDF p. 34) y las sísmicas de §12.4.2.3 en el texto (PDF p. 156); 1.6W en REP §8.4 (PDF p. 101);
+    - con SDS = 0.5 y ρ = 1.3: la 5 da 1.3D + 1.3E + L y la 7, 0.8D + 1.3E;
+    - 1.2D + 1.6L y 1.2D − 1.6W + L por superposición (el factor de D en los dos casos tipo D) = un análisis con todas las cargas multiplicadas (U, R y diagramas de todas las barras);
+    - peso propio: ΣRz = ΣA·γ·L; y Carga muerta (D) = peso propio + carga muerta adicional;
+    - viga simple con D = 10 y L = 5 kN/m y un viento de 10 kN al centro: 1.2D + 1.6L da wL²/8 = 90 kN·m y wL/2 = 60 kN; 1.4D, 63 kN·m y 42 kN; 1.2D + 1.6W + L, 100.5 kN·m y 59 kN.
+  - **falta:** Lr y R (el 0.5Lr de la 2 y la 4 y el 1.6Lr de la 3) y "1.2D + L" de la 3; la opción de 0.5L; W y E en X y en Y, con la torsión accidental; SDS y ρ calculados (etapa 7) en vez de escritos a mano; Ev = 0 si SDS ≤ 0.125; las envolventes y su uso en el diseño. Y decidir si las combinaciones pasan a `calculo/` cuando se usen para diseñar.
 
 ## Etapa 4: Columnas (estribos, cortante, esbeltez)
 
@@ -181,7 +186,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - diagrama de interacción contra **spColumn** o un ejemplo publicado.
 - **Corregir antes** (hallazgos):
   - `beta1` con f'c = 2.5 ksi;
-  - φ y Pn,max de la columna circular con espiral;
+  - ~~φ y Pn,max de la columna circular con espiral~~: ya usa los de espiral; falta poder elegir espiral o aros (con aros: 0.65 y 0.80·Po);
   - diámetros de las barras #14 y #18;
   - límite de cuantía de 6 % en pórtico especial.
 - **Listo cuando:** dada una columna y sus fuerzas, el programa dice qué cumple, qué no, y por qué (con la cláusula).
@@ -306,12 +311,12 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 2. ~~**`requirements.txt`** no incluye `pint` ni `matplotlib`~~. Resuelto: ya los incluye.
 3. **`beta1`:** rechaza f'c = 2.5 ksi, que el ACI permite (Tabla 22.2.2.4.3).
 4. **Barras #14 y #18:** sus diámetros salen mal con n/8 (son 1.693 in y 2.257 in).
-5. **Columna circular:** usa φ y 0.80·Po de columna con estribos. Con espiral son 0.75 y 0.85·Po.
+5. ~~**Columna circular:** usa φ y 0.80·Po de columna con estribos~~. Resuelto (noviembre de 2026): usa los valores de espiral, φ = 0.75 y 0.75 + 0.15(εt − εty)/0.003 (ACI 318-19 Tabla 21.2.2 (a) y (c), PDF p. 395) y Pn,max = 0.85·Po (Tabla 22.4.2.1 (b), PDF p. 402). **Queda pendiente:** toda columna circular se trata como con espiral; una con aros circulares necesita 0.65, 0.65 + 0.25(…) y 0.80·Po (hasta un 22.6 % menos de φPn), así que hay que poder elegir el refuerzo transversal (etapa 4).
 6. **Cuantía máxima de 8 %:** en pórtico especial es 6 %.
 7. **Combinaciones:**
    - les falta Lr;
    - no aplican la opción 0.5L;
-   - SDS y ρ están fijos en el código;
+   - ~~SDS y ρ están fijos en el código~~: ya son datos del modelo, escritos a mano en Definir → Combinaciones; falta que salgan de la etapa de sismo;
    - no consideran X e Y ni la torsión accidental.
 8. **Análisis:**
    - ~~solo cargas nodales~~: ya hay cargas en barras y peso propio; faltan las parciales y trapezoidales;

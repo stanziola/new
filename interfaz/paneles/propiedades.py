@@ -16,15 +16,17 @@
 - Sin barra de desplazamiento horizontal: la columna Valor se ajusta al ancho del panel y lo que no
   cabe termina en "…" (el texto completo sale al pasar el mouse).
 
-PanelPropiedades es el contenido; Propiedades es el panel acoplable que lo contiene, con dos
-pestañas: Propiedades e Interacción (el diagrama de interacción de una columna). La ventana
-Definir usa otro PanelPropiedades a su derecha.
+PanelPropiedades es el contenido; Propiedades es el panel acoplable que lo contiene. Con una columna
+de concreto con refuerzo seleccionada aparecen dos pestañas, Propiedades e Interacción (su diagrama
+de interacción); con cualquier otra cosa no hay pestañas. La ventana Definir usa otro
+PanelPropiedades a su derecha.
 """
 import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDockWidget, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QRadioButton,
-                               QScrollArea, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                               QScrollArea, QSizePolicy, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from calculo.rigidez.barra import angulos
 from configuracion import colores, formato
@@ -39,6 +41,7 @@ from interfaz.textos import DIRECCION, UNIDAD_CARGA, donde, texto_carga
 from interfaz.ventanas.interaccion import DiagramaInteraccion
 from modelo import concreto as cc
 from modelo import interaccion as puente
+from modelo.analisis import carga_de_peso_propio
 from modelo.apoyos import NOMBRES, TIPOS, describir, tipo_de
 from modelo.estructura import CargaNodal
 
@@ -411,7 +414,8 @@ class PanelPropiedades(QWidget):
         if rc is not None and nid in rc.res.desplazamientos:
             g = self._grupo(f"Desplazamientos ({rc.nombre})")
             for k, (nombre, valor) in enumerate(zip(GDL_PANTALLA, rc.res.desplazamientos[nid])):
-                self._fila(g, nombre, formato.cantidad(valor, "longitud") if k < 3 else f"{formato.numero(valor, 6)} rad")
+                self._fila(g, nombre, formato.cantidad(valor, "desplazamiento") if k < 3
+                           else f"{formato.numero(valor, 6)} rad")
             self._reaccion(nid)
 
     def _reaccion(self, nid):
@@ -432,12 +436,16 @@ class PanelPropiedades(QWidget):
         self._reaccion(nid)
 
     def _cargas(self, modelo, tipo, ident):
-        """Las cargas del nodo o la barra en el caso activo (ninguna en el modo Combinaciones)."""
+        """Las cargas del nodo o la barra en el caso activo (ninguna si se ve una combinación). En el
+        caso de peso propio, la barra muestra el suyo, que es automático."""
         if self._caso is None or self._caso not in modelo.casos:
             return
         ids = modelo.cargas_en(tipo, ident, self._caso)
-        if ids:
+        propio = carga_de_peso_propio(modelo, ident, self._caso) if tipo == "barra" else None
+        if ids or propio is not None:
             g = self._grupo(f"Cargas ({modelo.casos[self._caso].nombre})")
+            if propio is not None:
+                self._fila(g, "Peso propio (A·γ)", texto_carga(propio))
             for cid in ids:
                 self._fila(g, f"Carga {cid}", texto_carga(modelo.cargas[cid]))
 
@@ -653,23 +661,25 @@ class PanelPropiedades(QWidget):
 
 
 class Propiedades(QDockWidget):
-    """El panel acoplable de la derecha, con dos pestañas:
-    - Propiedades: un PanelPropiedades;
-    - Interacción: el diagrama de interacción de la columna elegida. Solo se habilita con una
-      columna (barra vertical) de concreto con refuerzo, y se calcula al abrir la pestaña."""
+    """El panel acoplable de la derecha: un PanelPropiedades y, solo cuando aplica, la pestaña
+    Interacción con el diagrama de interacción de la columna elegida (barra vertical de concreto con
+    refuerzo), que se calcula al abrir la pestaña. Si no aplica, no hay pestañas a la vista."""
 
     def __init__(self, parent=None):
         super().__init__("Propiedades", parent)
         self.setObjectName("propiedades")
         self.panel = PanelPropiedades()
         self.interaccion = DiagramaInteraccion(con_modo=True, con_barra=False)
+        # Que la pestaña no ensanche el panel al aparecer: toma el ancho que haya
+        self.interaccion.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.pestanas = QTabWidget()
         self.pestanas.setDocumentMode(True)
         self.pestanas.addTab(self.panel, "Propiedades")
         self.pestanas.addTab(self.interaccion, "Interacción")
         self.pestanas.setTabToolTip(1, "Diagrama de interacción (flexocompresión) de la sección de la "
                                        "columna elegida. Solo para columnas de concreto con refuerzo")
-        self.pestanas.setTabEnabled(1, False)
+        self.pestanas.setTabVisible(1, False)
+        self.pestanas.tabBar().hide()              # una sola pestaña: no hace falta mostrarla
         self.pestanas.currentChanged.connect(lambda *_: self._ver_interaccion())
         self.setWidget(self.pestanas)
         self._columna = None                       # sección de la columna elegida, o None
@@ -716,11 +726,14 @@ class Propiedades(QDockWidget):
         return sec
 
     def _poner_columna(self, seccion):
+        """Con una columna (su sección), aparecen las pestañas; sin ella, solo se ve Propiedades."""
         self._columna = seccion
-        self.pestanas.setTabEnabled(1, seccion is not None)
-        if seccion is None:
+        hay = seccion is not None
+        if not hay:
             self.pestanas.setCurrentIndex(0)
-        else:
+        self.pestanas.setTabVisible(1, hay)
+        self.pestanas.tabBar().setVisible(hay)
+        if hay:
             self._ver_interaccion()
 
     def _ver_interaccion(self):

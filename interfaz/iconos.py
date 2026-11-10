@@ -193,6 +193,30 @@ def _cargas(p, color):
         _punta(p, x, 16, 0, 1, 2.6)
 
 
+def _reacciones(p, color):
+    """Reacciones: un apoyo (triángulo sobre el suelo) y, debajo, la flecha de la reacción, que sube."""
+    p.drawPolygon(_poligono([(12, 3), (6.5, 10.5), (17.5, 10.5)]))
+    p.drawLine(QPointF(4, 10.5), QPointF(20, 10.5))
+    p.drawLine(QPointF(12, 21), QPointF(12, 14))
+    _punta(p, 12, 13.5, 0, -1, 3.0)
+
+
+def _transparencia(p, color):
+    """Transparencia del concreto: un prisma al que se le ven las aristas de atrás (punteadas)."""
+    p.drawRect(QRectF(4, 9, 11, 11))                                         # cara del frente
+    p.drawPolyline(_poligono([(4, 9), (9, 4), (20, 4), (15, 9)]))            # cara de arriba
+    p.drawPolyline(_poligono([(20, 4), (20, 15), (15, 20)]))                 # cara del costado
+    pluma = p.pen()
+    punteada = QPen(pluma)
+    punteada.setStyle(Qt.DotLine)
+    punteada.setWidthF(1.0)
+    p.setPen(punteada)                                                       # las aristas de atrás
+    p.drawLine(QPointF(9, 4), QPointF(9, 15))
+    p.drawLine(QPointF(9, 15), QPointF(4, 20))
+    p.drawLine(QPointF(9, 15), QPointF(20, 15))
+    p.setPen(pluma)
+
+
 def _combinaciones(p, color):
     """Combinaciones: la Σ de la suma de los casos por sus factores."""
     p.drawPolyline(_poligono([(18, 7), (18, 4.5), (6, 4.5), (12.5, 12), (6, 19.5), (18, 19.5), (18, 17)]))
@@ -330,6 +354,8 @@ _DIBUJOS = {
     "seccion": _seccion,
     "asignar_seccion": _asignar_seccion,
     "cargas": _cargas,
+    "reacciones": _reacciones,
+    "transparencia": _transparencia,
     "combinaciones": _combinaciones,
     "rejilla": _rejilla,
     "snap": _snap,
