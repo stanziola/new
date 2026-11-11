@@ -149,7 +149,8 @@ def calcular_resultados():
             rect.append([phi, pn.magnitude, mn.magnitude, ppn.magnitude, pmn.magnitude])
     resultados["rectangular"] = rect
 
-    sec = circular.propiedades_circular(0.7335 * ureg.m, 0.075 * ureg.m, 16, 4 * ureg.ksi, 8)
+    sec = circular.propiedades_circular(0.7335 * ureg.m, 0.075 * ureg.m, 16, 4 * ureg.ksi, 8,
+                                        confinamiento="espiral")
     D = sec["D"].to("inch").magnitude
     resultados["circular"] = [list(circular.phipnmn_circ(c, sec)) for c in np.geomspace(0.01 * D, 2 * D, 10)]
 

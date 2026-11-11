@@ -11,7 +11,7 @@
 - Versión 3: guarda también las combinaciones, con un factor por caso.
 - Versión 4: el peso propio va en su propio caso ("Peso propio", automático) y las combinaciones
   propias llevan un factor por TIPO de caso ({"D": 1.2, "L": 1.6}); se guardan los datos del sismo
-  ("sismo": SDS y ρ) de las combinaciones predeterminadas, que no se guardan (salen de
+  ("sismo": SDS, ρ y si el pórtico es especial) de las combinaciones predeterminadas, que no se guardan (salen de
   modelo/combinaciones.py).
   Los archivos de las versiones 1 a 3 se abren igual:
   - el caso que llevaba el peso propio junto con cargas a mano (la "Muerta" de antes) se separa en
@@ -48,7 +48,7 @@ def a_diccionario(modelo, vista=None):
                    for i, c in modelo.cargas.items()},
         "combinaciones": {str(i): {"nombre": co.nombre, "factores": dict(co.factores)}
                           for i, co in modelo.combinaciones.items()},
-        "sismo": {"sds": modelo.sds, "rho": modelo.rho},
+        "sismo": {"sds": modelo.sds, "rho": modelo.rho, "portico_especial": modelo.portico_especial},
         "siguiente_id": dict(modelo._sig_id),
         "vista": dict(vista or {}),
     }
@@ -152,7 +152,7 @@ def desde_diccionario(datos):
         if version >= 4:
             m.combinaciones = {int(i): Combinacion(d["nombre"], {str(t): float(f) for t, f in d["factores"].items()})
                                for i, d in datos["combinaciones"].items()}
-            m.poner_sismo(datos["sismo"]["sds"], datos["sismo"]["rho"])
+            m.poner_sismo(datos["sismo"]["sds"], datos["sismo"]["rho"], datos["sismo"].get("portico_especial", True))
         elif version == 3:
             m.combinaciones = {int(i): _combinacion_v3(m, d) for i, d in datos["combinaciones"].items()}
         else:

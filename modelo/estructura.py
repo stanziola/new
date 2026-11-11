@@ -30,6 +30,8 @@ import math
 from dataclasses import dataclass, field
 from calculo.tolerancias import TOL_LONGITUD, TOL_RELATIVA
 
+FY_DEFECTO = 60 * 6894.757293168361      # 60 ksi en kN/m² (acero Grado 60)
+
 @dataclass
 class Nodo:
     x: float
@@ -58,8 +60,8 @@ class Concreto:
     """Geometría y refuerzo de una sección de concreto, para su diagrama de interacción.
 
     Todo en unidades internas (m y kN/m²). Rectangular: b, h, nx (barras en las caras de arriba y
-    abajo) y ny (filas). Circular: D y nbarras. En las dos: d (del borde al centro de las barras),
-    f'c y el número de barra.
+    abajo) y ny (filas). Circular: D, nbarras y el confinamiento (aros o espiral). En las dos: d (del
+    borde al centro de las barras), f'c, el número de barra y fy del refuerzo.
     """
     forma: str               # "rectangular" o "circular"
     fc: float                # f'c, en kN/m²
@@ -71,6 +73,8 @@ class Concreto:
     ny: int = 0              # rectangular: filas de barras
     D: float = 0.0           # circular: diámetro, en m
     nbarras: int = 0         # circular: cantidad de barras
+    fy: float = FY_DEFECTO   # fluencia del refuerzo, en kN/m² (Grado 60 por defecto)
+    confinamiento: str = "aros"   # circular: "aros" (estribos circulares) o "espiral"
 
 @dataclass
 class Seccion:
@@ -152,6 +156,8 @@ class Modelo:
         # Datos del sismo para las combinaciones 5 y 7 (ASCE 7-05 §12.4.2.3). Provisionales, a mano: los
         # valores reales saldrán de la etapa de sismo (SDS del sitio; ρ = 1.0 o 1.3, §12.3.4).
         self.sds, self.rho = 0.5, 1.3
+        # Pórticos especiales (SMF), lo usual en Panamá (CDS D): cuantía de columnas ≤ 6 % (ACI §18.7.4.1)
+        self.portico_especial = True
         self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 3, "carga": 1, "combo": 1}
 
     def _nuevo_id(self, tipo):
@@ -421,15 +427,18 @@ class Modelo:
             raise KeyError(f"La combinación {coid} no existe")
         del self.combinaciones[coid]
 
-    def poner_sismo(self, sds, rho):
+    def poner_sismo(self, sds, rho, portico_especial=None):
         """Datos del sismo para las combinaciones 5 y 7 (ASCE 7-05 §12.4.2.3): SDS y la redundancia ρ,
-        que solo puede ser 1.0 o 1.3 (§12.3.4)."""
+        que solo puede ser 1.0 o 1.3 (§12.3.4). portico_especial (None: no se cambia): si los pórticos
+        son especiales (cambia, por ejemplo, la cuantía máxima de las columnas, ACI 318-19 §18.7.4.1)."""
         sds, rho = float(sds), float(rho)
         if not math.isfinite(sds) or sds < 0:
             raise ValueError("SDS debe ser 0 o positivo")
         if min(abs(rho - 1.0), abs(rho - 1.3)) > 1e-9:
             raise ValueError("ρ solo puede ser 1.0 o 1.3 (ASCE 7-05 §12.3.4)")
         self.sds, self.rho = sds, rho
+        if portico_especial is not None:
+            self.portico_especial = bool(portico_especial)
 
     # ---------- ELIMINAR ----------
     def eliminar_elemento(self, eid):

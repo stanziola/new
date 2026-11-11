@@ -143,6 +143,43 @@ def verificar_desplazamientos_globales():
                   np.isclose(d[clave][0], esperado) and otros < 1e-12)
 
 
+def verificar_interaccion():
+    """Correcciones del diagrama de interacción (noviembre de 2026), contra el ACI 318-19:
+    - β1 con f'c = 2.5 ksi es 0.85 (Tabla 22.2.2.4.3, PDF p. 401);
+    - diámetros nominales de las barras #14 y #18: 1.693 y 2.257 in (Apéndice B, PDF p. 583);
+    - fy es un dato: con 40 ksi, Po = 0.85·f'c·(Ag − Ast) + fy·Ast se calcula a mano igual;
+    - columna circular: con aros, techo de diseño 0.65·0.80·Po; con espiral, 0.75·0.85·Po
+      (Tablas 21.2.2 y 22.4.2.1, PDF p. 395 y 402);
+    - cuantía: 1–8 % y, en pórtico especial, 1–6 % (§10.6.1.1 y §18.7.4.1)."""
+    import math
+    from calculo.interaccion import circular, rectangular
+    from calculo.interaccion.comun import area_barra, beta1, limites_cuantia, propiedades_seccion, ureg
+
+    print("\n===== DIAGRAMA DE INTERACCIÓN =====")
+    comprobar(f"β1 con f'c = 2.5 ksi: {beta1(2.5 * ureg.ksi)}  (Tabla 22.2.2.4.3: 0.85)",
+              beta1(2.5 * ureg.ksi) == 0.85)
+    for n, diametro in ((14, 1.693), (18, 2.257)):
+        a = area_barra(n).to("inch**2").magnitude
+        comprobar(f"Barra #{n}: área {a:.4f} in²  (π·{diametro}²/4 = {math.pi * diametro ** 2 / 4:.4f})",
+                  math.isclose(a, math.pi * diametro ** 2 / 4))
+
+    b = h = 16.0                                                  # in
+    ast = 8 * math.pi * 0.75 ** 2 / 4                             # 8 barras #6
+    sec = propiedades_seccion(b * ureg.inch, h * ureg.inch, 2.5 * ureg.inch, 3, 3, 4 * ureg.ksi, 6, 40 * ureg.ksi)
+    _phi, pn, *_ = rectangular.phipnmn(3 * h * ureg.inch, sec)
+    po = (0.85 * 4 * (b * h - ast) + 40 * ast) * 0.45359237      # tonf
+    comprobar(f"fy = 40 ksi: Po = {pn.magnitude:.3f} tonf  (a mano {po:.3f})", math.isclose(pn.magnitude, po))
+
+    for confinamiento, techo in (("aros", 0.65 * 0.80), ("espiral", 0.75 * 0.85)):
+        sc = circular.propiedades_circular(20 * ureg.inch, 2.5 * ureg.inch, 8, 4 * ureg.ksi, 8,
+                                           confinamiento=confinamiento)
+        _phi, p_o, _m, phi_p, _pm = circular.phipnmn_circ(60.0, sc)
+        comprobar(f"Circular con {confinamiento}: φPn,max / Po = {phi_p / p_o:.4f}  (esperado {techo:.4f})",
+                  math.isclose(phi_p / p_o, techo))
+    comprobar(f"Cuantía: {limites_cuantia(False)} y en pórtico especial {limites_cuantia(True)}  (1–8 % y 1–6 %)",
+              limites_cuantia(False) == (1.0, 8.0) and limites_cuantia(True) == (1.0, 6.0))
+
+
 def verificar_combinaciones():
     """Combinaciones por superposición (modelo/analisis.combinar) contra otro método, a mano y
     contra la norma (ASCE 7-05 §2.3.2, PDF p. 34, y §12.4.2.3, PDF p. 156).
@@ -225,6 +262,7 @@ if __name__ == "__main__":
     verificar_inestable()
     verificar_peso_propio()
     verificar_desplazamientos_globales()
+    verificar_interaccion()
     verificar_combinaciones()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()

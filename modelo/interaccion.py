@@ -10,7 +10,7 @@ from functools import lru_cache
 import numpy as np
 
 from calculo.interaccion import biaxial, circular
-from calculo.interaccion.comun import area_barra, propiedades_seccion, ureg
+from calculo.interaccion.comun import area_barra, limites_cuantia, propiedades_seccion, ureg
 
 TONF_KN = 9.80665                       # kN por tonelada fuerza métrica (1000 kgf)
 KN_M2 = ureg.kilonewton / ureg.meter ** 2
@@ -18,12 +18,21 @@ KN_M2 = ureg.kilonewton / ureg.meter ** 2
 
 def propiedades(concreto):
     """Propiedades de la sección (el diccionario de calculo.interaccion) desde un Concreto."""
-    fc = concreto.fc * KN_M2
+    fc, fy = concreto.fc * KN_M2, concreto.fy * KN_M2
     if concreto.forma == "circular":
         return circular.propiedades_circular(concreto.D * ureg.m, concreto.d * ureg.m,
-                                             concreto.nbarras, fc, concreto.barra)
+                                             concreto.nbarras, fc, concreto.barra, fy, concreto.confinamiento)
     return propiedades_seccion(concreto.b * ureg.m, concreto.h * ureg.m, concreto.d * ureg.m,
-                               concreto.nx, concreto.ny, fc, concreto.barra)
+                               concreto.nx, concreto.ny, fc, concreto.barra, fy)
+
+
+def aviso_cuantia(cuantia, especial):
+    """Texto de aviso si la cuantía (%) de una columna se sale de sus límites, o "" si cumple."""
+    minima, maxima = limites_cuantia(especial)
+    if minima <= cuantia <= maxima:
+        return ""
+    regla = "pórtico especial, ACI 318-19 §18.7.4.1" if especial else "ACI 318-19 §10.6.1.1"
+    return f"fuera de {minima:g} %–{maxima:g} % ({regla})"
 
 
 @lru_cache(maxsize=None)

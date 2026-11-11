@@ -1122,7 +1122,7 @@ class Ventana(QMainWindow):
         """Medidas nuevas para la sección de una barra: se usa (o crea) otra sección solo para ella."""
         if eid not in self.modelo.elementos:
             return
-        material, b, h, d, barra, nx, ny = valores
+        material, b, h, d, barra, nx, ny, fy = valores
         mat = self.modelo.materiales.get(material)
         error = None
         if mat is None or mat.fc is None:
@@ -1133,7 +1133,7 @@ class Ventana(QMainWindow):
             from modelo import interaccion as puente
             from modelo.estructura import Concreto
             try:
-                puente.propiedades(Concreto("rectangular", mat.fc, d, barra, b, h, nx, ny))
+                puente.propiedades(Concreto("rectangular", mat.fc, d, barra, b, h, nx, ny, fy=fy))
             except ValueError as e:
                 error = str(e)
         if error:
@@ -1141,7 +1141,7 @@ class Ventana(QMainWindow):
             self._mostrar_propiedades(self._en_propiedades)      # vuelven los valores anteriores
             return
         self.antes_de_cambiar()
-        sid, nueva = cc.buscar_o_crear_seccion(self.modelo, material, b, h, d, barra, nx, ny)
+        sid, nueva = cc.buscar_o_crear_seccion(self.modelo, material, b, h, d, barra, nx, ny, fy)
         self.modelo.asignar_seccion(eid, sid)
         texto = f"Elemento {eid}: {textos.nombre(self.modelo.secciones[sid], self.modelo)}"
         self.modelo_cambiado(texto + (" (sección nueva)" if nueva else ""))

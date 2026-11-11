@@ -558,8 +558,8 @@ class PanelPropiedades(QWidget):
         material = sec.material if sec.material is not None else el.material
 
         def cambio(*_):
-            nuevos = (material, b.valor(), h.valor(), c.d, barra.currentData(), nx.valor(), ny.valor())
-            actuales = (material, c.b, c.h, c.d, c.barra, c.nx, c.ny)
+            nuevos = (material, b.valor(), h.valor(), c.d, barra.currentData(), nx.valor(), ny.valor(), c.fy)
+            actuales = (material, c.b, c.h, c.d, c.barra, c.nx, c.ny, c.fy)
             if any(abs(x - y) > 1e-9 if isinstance(x, float) else x != y for x, y in zip(nuevos, actuales)):
                 self._despues(self.editar_seccion, eid, nuevos)
 
@@ -610,6 +610,7 @@ class PanelPropiedades(QWidget):
         if c.forma == "circular":
             self._fila(g, "Forma", "circular")
             self._fila(g, "D", formato.cantidad(c.D, "seccion"))
+            self._fila(g, "Refuerzo transversal", "espiral" if c.confinamiento == "espiral" else "aros (estribos circulares)")
         else:
             self._fila(g, "Forma", "rectangular")
             self._fila(g, "b × h", f"{formato.cantidad(c.b, 'seccion', False)} × {formato.cantidad(c.h, 'seccion')}")
@@ -622,7 +623,8 @@ class PanelPropiedades(QWidget):
             return
         self._fila(g, "Barras de refuerzo", f"{p['nbarras']} #{c.barra}")
         self._fila(g, "As", formato.cantidad(p["As_total"].to("m^2").magnitude, "area"))
-        self._fila(g, "Cuantía ρ", f"{p['cuantia']:.2f} %")
+        aviso = puente.aviso_cuantia(p["cuantia"], modelo.portico_especial)
+        self._fila(g, "Cuantía ρ", f"{p['cuantia']:.2f} %" + (f": {aviso}" if aviso else ""))
         self._fila(g, "β1", f"{p['beta1']:.3f}")
         self._fila(g, "fy", formato.cantidad(p["fy"].to("kN/m^2").magnitude, "esfuerzo"))
         self._sid = sid

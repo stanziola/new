@@ -153,7 +153,7 @@ def _hacer(modelo, pedido):
             texto += f" (lo usan {len(barras)} barras y {len(secciones)} secciones)"
         return ("material", ident), texto
     if familia == "concreto":
-        args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"])
+        args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"], v["fy"])
         if nuevo:
             existente = cc.buscar_seccion(modelo, *args)
             if existente is not None:

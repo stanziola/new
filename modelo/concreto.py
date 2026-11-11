@@ -5,7 +5,7 @@ módulo arma, busca y cambia materiales y secciones del modelo.
 Todo en unidades internas: m y kN/m².
 """
 from calculo.concreto import GAMMA_CONCRETO, POISSON, PSI, modulos, propiedades_rectangulo   # noqa: F401
-from modelo.estructura import Concreto
+from modelo.estructura import FY_DEFECTO, Concreto
 
 TOL = 1e-9
 
@@ -15,9 +15,11 @@ def _cm(x):
     return f"{round(x * 100, 1):g}"
 
 
-def nombre_seccion(b, h, nx, ny, barra):
-    """Nombre automático, siempre en cm: "Concreto 20x20 Nx5 Ny6 #6"."""
-    return f"Concreto {_cm(b)}x{_cm(h)} Nx{nx} Ny{ny} #{barra}"
+def nombre_seccion(b, h, nx, ny, barra, fy=FY_DEFECTO):
+    """Nombre automático, siempre en cm y MPa: "Concreto 20x20 Nx5 Ny6 #6". Si el acero no es el de
+    Grado 60, se agrega su fy: "Concreto 20x20 Nx5 Ny6 #6 fy 276 MPa"."""
+    nombre = f"Concreto {_cm(b)}x{_cm(h)} Nx{nx} Ny{ny} #{barra}"
+    return nombre if abs(fy - FY_DEFECTO) < 1e-6 * FY_DEFECTO else f"{nombre} fy {round(fy / 1000):g} MPa"
 
 
 def nombre_material(fc):
@@ -25,37 +27,39 @@ def nombre_material(fc):
     return f"Concreto f'c {round(fc / 1000, 1):g} MPa"
 
 
-def _igual(c, b, h, d, barra, nx, ny):
+def _igual(c, b, h, d, barra, nx, ny, fy):
     return (c is not None and c.forma == "rectangular" and c.barra == barra and c.nx == nx and c.ny == ny
-            and all(abs(x - y) < TOL for x, y in ((c.b, b), (c.h, h), (c.d, d))))
+            and all(abs(x - y) < TOL for x, y in ((c.b, b), (c.h, h), (c.d, d)))
+            and abs(c.fy - fy) < 1e-6 * fy)
 
 
-def buscar_seccion(modelo, material, b, h, d, barra, nx, ny):
+def buscar_seccion(modelo, material, b, h, d, barra, nx, ny, fy=FY_DEFECTO):
     """ID de una sección rectangular con exactamente esos datos y ese material, o None."""
     for sid, sec in modelo.secciones.items():
-        if sec.material == material and _igual(sec.concreto, b, h, d, barra, nx, ny):
+        if sec.material == material and _igual(sec.concreto, b, h, d, barra, nx, ny, fy):
             return sid
     return None
 
 
-def crear_seccion(modelo, material, b, h, d, barra, nx, ny):
+def crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy=FY_DEFECTO):
     """Crea la sección rectangular de concreto (con nombre y propiedades) y devuelve su ID."""
     mat = modelo.materiales.get(material)
     if mat is None or mat.fc is None:
         raise ValueError("Elige un material de concreto")
     if not 0 < d < min(b, h) / 2:
         raise ValueError("d debe ser positivo y menor que la mitad de b y de h")
-    concreto = Concreto(forma="rectangular", fc=mat.fc, d=d, barra=barra, b=b, h=h, nx=nx, ny=ny)
+    _positivos(fy=fy)
+    concreto = Concreto(forma="rectangular", fc=mat.fc, d=d, barra=barra, b=b, h=h, nx=nx, ny=ny, fy=fy)
     a, iy, iz, j = propiedades_rectangulo(b, h)
-    return modelo.agregar_seccion(nombre_seccion(b, h, nx, ny, barra), a, iy, iz, j, concreto, material)
+    return modelo.agregar_seccion(nombre_seccion(b, h, nx, ny, barra, fy), a, iy, iz, j, concreto, material)
 
 
-def buscar_o_crear_seccion(modelo, material, b, h, d, barra, nx, ny):
+def buscar_o_crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy=FY_DEFECTO):
     """La sección con esos datos: la que ya existe o una nueva. Devuelve (ID, True si es nueva)."""
-    sid = buscar_seccion(modelo, material, b, h, d, barra, nx, ny)
+    sid = buscar_seccion(modelo, material, b, h, d, barra, nx, ny, fy)
     if sid is not None:
         return sid, False
-    return crear_seccion(modelo, material, b, h, d, barra, nx, ny), True
+    return crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy), True
 
 
 # ---------------------------------------------------------------- Familias, uso y cambios
@@ -136,7 +140,7 @@ def cambiar_material(modelo, mid, nombre, fc=None, e=None, g=None, gamma=None):
     return uso_material(modelo, mid)
 
 
-def cambiar_seccion(modelo, sid, material, b, h, d, barra, nx, ny):
+def cambiar_seccion(modelo, sid, material, b, h, d, barra, nx, ny, fy=FY_DEFECTO):
     """Cambia una sección de concreto en su lugar (todas sus barras la toman, con su material).
 
     No se permite que quede igual a otra sección: habría dos con el mismo nombre y los mismos datos.
@@ -147,13 +151,14 @@ def cambiar_seccion(modelo, sid, material, b, h, d, barra, nx, ny):
         raise ValueError("Elige un material de concreto")
     if not 0 < d < min(b, h) / 2:
         raise ValueError("d debe ser positivo y menor que la mitad de b y de h")
-    otra = buscar_seccion(modelo, material, b, h, d, barra, nx, ny)
+    _positivos(fy=fy)
+    otra = buscar_seccion(modelo, material, b, h, d, barra, nx, ny, fy)
     if otra is not None and otra != sid:
         raise ValueError(f"Ya existe una sección igual: {modelo.secciones[otra].nombre}")
     sec = modelo.secciones[sid]
-    sec.concreto = Concreto(forma="rectangular", fc=mat.fc, d=d, barra=barra, b=b, h=h, nx=nx, ny=ny)
+    sec.concreto = Concreto(forma="rectangular", fc=mat.fc, d=d, barra=barra, b=b, h=h, nx=nx, ny=ny, fy=fy)
     sec.material = material
-    sec.nombre = nombre_seccion(b, h, nx, ny, barra)
+    sec.nombre = nombre_seccion(b, h, nx, ny, barra, fy)
     sec.a, sec.iy, sec.iz, sec.j = propiedades_rectangulo(b, h)
     barras = uso_seccion(modelo, sid)
     for eid in barras:

@@ -18,7 +18,7 @@ from interfaz import textos
 from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import interaccion as puente
 from modelo import concreto as cc
-from modelo.estructura import Concreto
+from modelo.estructura import FY_DEFECTO, Concreto
 from modelo.interaccion import diametro_barra, posiciones_barras
 
 BARRAS = list(range(3, 12))              # números de barra que se ofrecen (#3 a #11)
@@ -172,8 +172,9 @@ class FormularioOtroMaterial(QWidget):
 
 # ---------------------------------------------------------------- Secciones
 class FormularioSeccion(QWidget):
-    """Sección rectangular de concreto: material, b, h, d, barra, Nx y Ny; nombre y propiedades
-    calculadas; y el dibujo debajo, que se actualiza con cada cambio."""
+    """Sección rectangular de concreto: material, b, h, d, barra, Nx, Ny y fy del acero; nombre y
+    propiedades calculadas (con el aviso si la cuantía se sale de sus límites); y el dibujo debajo, que
+    se actualiza con cada cambio."""
 
     def __init__(self, modelo, parent=None):
         super().__init__(parent)
@@ -184,6 +185,9 @@ class FormularioSeccion(QWidget):
         for n in BARRAS:
             self.barra.addItem(f"#{n}", n)
         self.nx, self.ny = campo_barras(), campo_barras()
+        self.fy = campo("esfuerzo", 100000, 1000000)               # 14.5 a 145 ksi
+        self.fy.poner(FY_DEFECTO)
+        self.fy.setToolTip("Fluencia del acero de refuerzo. Grado 60: 60 ksi = 420 MPa (lo usual en Panamá)")
         self.nombre = QLabel()
         self.datos = QLabel()
         self.datos.setTextFormat(Qt.RichText)
@@ -196,13 +200,14 @@ class FormularioSeccion(QWidget):
         forma.addRow("Barra", self.barra)
         forma.addRow("Nx (arriba y abajo)", self.nx)
         forma.addRow("Ny (filas)", self.ny)
+        forma.addRow("fy (acero)", self.fy)
         forma.addRow("Nombre", self.nombre)
         forma.addRow(self.datos)
         diseno = QVBoxLayout(self)
         diseno.setContentsMargins(0, 0, 0, 0)
         diseno.addLayout(forma)
         diseno.addWidget(self.vista, 1)
-        for caja in (self.b, self.h, self.d, self.nx, self.ny):
+        for caja in (self.b, self.h, self.d, self.nx, self.ny, self.fy):
             caja.cambiado.connect(self._actualizar)
         for combo in (self.material, self.barra):
             combo.currentIndexChanged.connect(self._actualizar)
@@ -231,6 +236,7 @@ class FormularioSeccion(QWidget):
         self.d.poner(c.d)
         self.nx.poner(c.nx)
         self.ny.poner(c.ny)
+        self.fy.poner(c.fy)
         i = self.barra.findData(c.barra)
         self.barra.setCurrentIndex(i if i >= 0 else BARRAS.index(6))
         if material is not None and self.material.findData(material) >= 0:
@@ -242,13 +248,13 @@ class FormularioSeccion(QWidget):
     def valores(self):
         return {"material": self.material.currentData(), "b": self.b.valor(), "h": self.h.valor(),
                 "d": self.d.valor(), "barra": self.barra.currentData(), "nx": self.nx.valor(),
-                "ny": self.ny.valor()}
+                "ny": self.ny.valor(), "fy": self.fy.valor()}
 
     def concreto(self):
         v = self.valores()
         mat = self.modelo.materiales.get(v["material"])
         return Concreto(forma="rectangular", fc=mat.fc if mat else 0.0, d=v["d"], barra=v["barra"],
-                        b=v["b"], h=v["h"], nx=v["nx"], ny=v["ny"])
+                        b=v["b"], h=v["h"], nx=v["nx"], ny=v["ny"], fy=v["fy"])
 
     def error(self):
         v = self.valores()
@@ -268,13 +274,15 @@ class FormularioSeccion(QWidget):
 
     def _actualizar(self, *_):
         v = self.valores()
-        self.nombre.setText(textos.nombre_rectangular(v["b"], v["h"], v["nx"], v["ny"], v["barra"]))
+        self.nombre.setText(textos.nombre_rectangular(v["b"], v["h"], v["nx"], v["ny"], v["barra"], v["fy"]))
         a, iy, iz, j = cc.propiedades_rectangulo(v["b"], v["h"])
         error = self.error()
         if error is None:
             p = puente.propiedades(self.concreto())
+            aviso = puente.aviso_cuantia(p["cuantia"], self.modelo.portico_especial)
             extra = (f"ρ = {p['cuantia']:.2f} %  ·  As = "
-                     f"{formato.cantidad(p['As_total'].to('m^2').magnitude, 'area')}")
+                     f"{formato.cantidad(p['As_total'].to('m^2').magnitude, 'area')}"
+                     + (f"<br><b>ρ {aviso}</b>" if aviso else ""))
         else:
             extra = f"<span style='color:{colores.INTERFAZ_DESHABILITADO}'>{error}</span>"
         self.datos.setText(

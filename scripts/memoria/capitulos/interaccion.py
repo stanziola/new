@@ -178,9 +178,13 @@ def capitulo(m):
                r"1.05 - 0.05 \, f'_c & 4 < f'_c < 8 \text{ ksi} \\ 0.65 & f'_c \ge 8 \text{ ksi} \end{cases}",
                cita="ACI 318-19, Tabla 22.2.2.4.3 (PDF p. 401)")
     m.ecuacion(r"\varepsilon_y = \frac{f_y}{E_s}", cita="ACI 318-19 §21.2.2.1 (PDF p. 394)")
+    m.parrafo("$f_y$: dato de la sección (60 ksi, Grado 60, por defecto). Diámetro nominal: $n/8$ in hasta la "
+              "#8; de la #9 a la #18, el del Apéndice B (1.128, 1.270, 1.410, 1.693 y 2.257 in).")
+    m.ecuacion(r"0.01 \, A_g \le A_{st} \le 0.08 \, A_g \;\; \text{(}0.06 \, A_g \text{ en pórtico especial)}",
+               cita="ACI 318-19 §10.6.1.1 (PDF p. 160) y §18.7.4.1 (PDF p. 308)")
     m.codigo(comun.beta1)
-    m.codigo(comun.fy)
     m.codigo(comun.propiedades_seccion)
+    m.codigo(comun.limites_cuantia)
 
     # ------------------------------------------------------------------ Rectangular
     m.titulo("Columna rectangular con flexión en un eje", 2)
@@ -209,7 +213,7 @@ def capitulo(m):
     # ------------------------------------------------------------------ φ y Pn,max
     m.titulo("Factor φ y resistencia axial máxima", 2)
     m.ecuacion(r"\varepsilon_t = 0.003 \, \frac{d_t - c}{c}")
-    m.tabla([r"$\varepsilon_t$", r"$\phi$ con estribos", r"$\phi$ con espiral"], [
+    m.tabla([r"$\varepsilon_t$", r"$\phi$ con estribos o aros", r"$\phi$ con espiral"], [
         [r"$\varepsilon_t \le \varepsilon_{ty}$", "0.65", "0.75"],
         [r"$\varepsilon_{ty} < \varepsilon_t < \varepsilon_{ty} + 0.003$",
          r"$0.65 + 0.25 \, \frac{\varepsilon_t - \varepsilon_{ty}}{0.003}$",
@@ -219,7 +223,7 @@ def capitulo(m):
     m.parrafo("ACI 318-19, Tabla 21.2.2 (PDF p. 395).").style = "Cita"
     m.ecuacion(r"P_o = 0.85 \, f'_c \left( A_g - A_{st} \right) + f_y \, A_{st}",
                cita="ACI 318-19 Ec. 22.4.2.2 (PDF p. 402)")
-    m.ecuacion(r"\phi P_n \le 0.65 \cdot 0.80 \, P_o \;\; \text{(estribos)}, \quad "
+    m.ecuacion(r"\phi P_n \le 0.65 \cdot 0.80 \, P_o \;\; \text{(estribos o aros)}, \quad "
                r"\phi P_n \le 0.75 \cdot 0.85 \, P_o \;\; \text{(espiral)}",
                cita="ACI 318-19 Tabla 22.4.2.1 (PDF p. 402)")
     _phi, pn_fin, _mn, _ppn, _pmn = rectangular.phipnmn(3 * h * ureg.inch, sec)
@@ -249,7 +253,8 @@ def capitulo(m):
 
     # ------------------------------------------------------------------ Circular
     m.titulo("Columna circular", 2)
-    m.parrafo("Diámetro $D$ (radio $R$), $n$ barras en un círculo de radio $R_s = R - d$. Siempre con espiral.")
+    m.parrafo("Diámetro $D$ (radio $R$), $n$ barras en un círculo de radio $R_s = R - d$. Refuerzo transversal: aros "
+              "(estribos circulares, por defecto) o espiral, que fija $\\phi$ y $P_{n,max}$ según la tabla anterior.")
     m.ecuacion(r"a = \text{mín} \left( \beta_1 c, \; D \right), \quad \alpha = \arccos \left( \frac{R - a}{R} \right)")
     m.ecuacion(r"A = R^2 \left( \alpha - \text{sen}\,\alpha \, \cos\alpha \right), \quad "
                r"\bar{y} = \frac{4 R \, \text{sen}^3 \alpha}{3 \left( 2\alpha - \text{sen}\,2\alpha \right)}")
@@ -258,14 +263,10 @@ def capitulo(m):
     m.codigo(circular.phipnmn_circ)
 
     # ------------------------------------------------------------------ Limitaciones
-    m.titulo("Limitaciones y hallazgos pendientes", 2)
+    m.titulo("Limitaciones", 2)
     m.lista([
-        "$\\beta_1$: rechaza $f'_c$ = 2.5 ksi, que la Tabla 22.2.2.4.3 sí incluye.",
-        "Barras #14 y #18: diámetro como $n/8$ in; los nominales son 1.693 y 2.257 in.",
         "Área de barra $\\pi d_b^2/4$, no la nominal del Apéndice B (diferencia < 1 %).",
-        "$f_y$: 40 ksi en la #3 y 60 ksi en las demás (supuesto del programa).",
-        "Cuantía sin límite: $0.01 A_g \\le A_{st} \\le 0.08 A_g$ (§10.6.1.1) y $0.06 A_g$ en pórticos "
-        "especiales (§18.7.4.1).",
-        "Circular siempre con espiral; con aros correspondería 0.65 y $0.80 P_o$.",
+        "$\\varepsilon_{ty} = f_y / E_s$ (el ACI permite 0.002 con Grado 60).",
+        "La cuantía fuera de sus límites solo se avisa.",
         "Todavía sin los puntos $P_u$–$M_u$ ni esbeltez (etapa 4).",
     ])

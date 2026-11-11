@@ -185,11 +185,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - ejemplo resuelto de un libro con ACI 318-19 (diagrama y estribos);
   - casos borde: Pu = 0.3·Ag·f'c y el paso de barra #10 a #11 (cambio de diámetro mínimo del estribo);
   - diagrama de interacción contra **spColumn** o un ejemplo publicado.
-- **Corregir antes** (hallazgos):
-  - `beta1` con f'c = 2.5 ksi;
-  - ~~φ y Pn,max de la columna circular con espiral~~: ya usa los de espiral; falta poder elegir espiral o aros (con aros: 0.65 y 0.80·Po);
-  - diámetros de las barras #14 y #18;
-  - límite de cuantía de 6 % en pórtico especial.
+- ~~**Corregir antes** (hallazgos)~~: corregidos en noviembre de 2026 (β1 con 2.5 ksi, barras #14 y #18, fy como dato, aros o espiral en la circular y aviso de cuantía con el tipo de pórtico). Ver "Hallazgos".
 - **Listo cuando:** dada una columna y sus fuerzas, el programa dice qué cumple, qué no, y por qué (con la cláusula).
 
 ## Etapa 5: Vigas (acero longitudinal y estribos)
@@ -313,14 +309,14 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 6. **Unidades:** la misma estructura en m y kN y en mm y N debe dar resultados equivalentes.
 7. Mantener una **tabla de limitaciones** del programa en `CLAUDE.md`, como pide el REP 1.8.2.
 
-## Hallazgos de la revisión (pendientes de decidir; no se tocaron)
+## Hallazgos de la revisión
 
 1. **Unidades mezcladas:** el análisis trabaja en kN y m; los diagramas en pulgadas y ksi, con salida en tonf. Se sugiere SI por dentro y `pint` en la entrada y la salida.
 2. ~~**`requirements.txt`** no incluye `pint` ni `matplotlib`~~. Resuelto: ya los incluye.
-3. **`beta1`:** rechaza f'c = 2.5 ksi, que el ACI permite (Tabla 22.2.2.4.3).
-4. **Barras #14 y #18:** sus diámetros salen mal con n/8 (son 1.693 in y 2.257 in).
-5. ~~**Columna circular:** usa φ y 0.80·Po de columna con estribos~~. Resuelto (noviembre de 2026): usa los valores de espiral, φ = 0.75 y 0.75 + 0.15(εt − εty)/0.003 (ACI 318-19 Tabla 21.2.2 (a) y (c), PDF p. 395) y Pn,max = 0.85·Po (Tabla 22.4.2.1 (b), PDF p. 402). **Queda pendiente:** toda columna circular se trata como con espiral; una con aros circulares necesita 0.65, 0.65 + 0.25(…) y 0.80·Po (hasta un 22.6 % menos de φPn), así que hay que poder elegir el refuerzo transversal (etapa 4).
-6. **Cuantía máxima de 8 %:** en pórtico especial es 6 %.
+3. ~~**`beta1`:** rechaza f'c = 2.5 ksi~~. Resuelto (noviembre de 2026): acepta 2.5 ksi (Tabla 22.2.2.4.3, PDF p. 401).
+4. ~~**Barras #14 y #18**~~. Resuelto (noviembre de 2026): 1.693 y 2.257 in (Apéndice B, PDF p. 583).
+5. ~~**Columna circular:** usa φ y 0.80·Po de columna con estribos~~. Resuelto (noviembre de 2026): usa los valores de espiral, φ = 0.75 y 0.75 + 0.15(εt − εty)/0.003 (ACI 318-19 Tabla 21.2.2 (a) y (c), PDF p. 395) y Pn,max = 0.85·Po (Tabla 22.4.2.1 (b), PDF p. 402). Después (noviembre de 2026) se puede elegir: `Concreto.confinamiento` = "aros" (por defecto: 0.65 y 0.80·Po) o "espiral". Falta elegirlo en la interfaz cuando se definan circulares.
+6. ~~**Cuantía máxima de 8 %**~~. Resuelto (noviembre de 2026): aviso de 1–8 % (§10.6.1.1) o 1–6 % con la casilla Pórtico especial (§18.7.4.1); solo avisa, no impide.
 7. **Combinaciones:**
    - les falta Lr;
    - no aplican la opción 0.5L;
@@ -339,7 +335,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
    - 8.3 cita los capítulos 3 y 5 del ACI 318-19 (en esa edición corresponde a los caps. 19, 20 y 26);
    - 8.5 dice "anexo 2" para desempeño, cuando es el Anexo 1.
 10. **Diferencia REP–ASCE en tabiques:** el REP los trata como carga muerta (0.75 kPa si L < 4 kPa); ASCE como viva (0.72 kPa si L ≤ 3.83 kPa). Manda el REP.
-11. **`fy` según la barra** (`calculo/interaccion/comun.py`): 40 ksi para la #3 y 60 ksi para las demás. Es un supuesto del programa; el grado del acero debería ser un dato de la sección (ver `docs/normas/etapa1_materiales_secciones.md`).
+11. ~~**`fy` según la barra**~~. Resuelto (noviembre de 2026): fy es un dato de la sección (`Concreto.fy`, 60 ksi por defecto), que se escribe en el formulario de la sección.
 12. **Área de la barra:** se calcula como π·db²/4 y no con el área nominal del ACI 318-19, Apéndice B (PDF p. 583). La diferencia es menor de 1 % (#6: 0.4418 contra 0.44 in²).
 13. **Dirección por defecto del diagrama 2D** (interfaz): θ = 0° es compresión hacia +b, es decir, flexión en la dirección de b. La flexión "de un eje" de `rectangular.py` (en la dirección de h) corresponde a θ = 90°. En una sección cuadrada da igual; en una rectangular conviene decidir cuál se muestra primero y decirlo en la pantalla.
 

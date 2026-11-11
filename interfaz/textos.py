@@ -2,7 +2,7 @@
 from configuracion import formato, unidades
 from configuracion.formato import FUERZAS
 from modelo import concreto as cc
-from modelo.estructura import CargaNodal, Material
+from modelo.estructura import FY_DEFECTO, CargaNodal, Material
 
 UNIDAD_CARGA = {"uniforme": "carga_lineal", "puntual": "fuerza", "momento": "momento"}
 DIRECCION = {"X": "X global", "Y": "Y global", "Z": "Z global", "x": "x local", "y": "y local", "z": "z local"}
@@ -56,16 +56,20 @@ def nombre_concreto(fc):
     return f"Concreto {fc_corto(fc)}"
 
 
-def nombre_rectangular(b, h, nx, ny, barra):
-    """Nombre automático de una sección rectangular, en la unidad de sección: "Concreto 30x50 Nx3 Ny2 #6"."""
-    return f"Concreto {formato.compacto(b, 'seccion')}x{formato.compacto(h, 'seccion')} Nx{nx} Ny{ny} #{barra}"
+def nombre_rectangular(b, h, nx, ny, barra, fy=FY_DEFECTO):
+    """Nombre automático de una sección rectangular, en la unidad de sección: "Concreto 30x50 Nx3 Ny2 #6".
+    Si el acero no es Grado 60, con su fy en la unidad de esfuerzo: "… #6 fy 40 ksi"."""
+    texto = f"Concreto {formato.compacto(b, 'seccion')}x{formato.compacto(h, 'seccion')} Nx{nx} Ny{ny} #{barra}"
+    if abs(fy - FY_DEFECTO) >= 1e-6 * FY_DEFECTO:
+        texto += f" fy {formato.compacto(fy, 'esfuerzo')} {unidades.simbolo('esfuerzo')}"
+    return texto
 
 
 def _automatico(sec):
     """True si la sección tiene el nombre automático (el canónico, en cm)."""
     c = sec.concreto
     return (c is not None and c.forma == "rectangular"
-            and sec.nombre == cc.nombre_seccion(c.b, c.h, c.nx, c.ny, c.barra))
+            and sec.nombre == cc.nombre_seccion(c.b, c.h, c.nx, c.ny, c.barra, c.fy))
 
 
 def nombre(obj, modelo=None):
@@ -82,7 +86,7 @@ def nombre(obj, modelo=None):
     if not _automatico(obj):
         return obj.nombre
     c = obj.concreto
-    texto = nombre_rectangular(c.b, c.h, c.nx, c.ny, c.barra)
+    texto = nombre_rectangular(c.b, c.h, c.nx, c.ny, c.barra, c.fy)
     if modelo is not None:
         gemelas = [s for s in modelo.secciones.values()
                    if s is not obj and s.nombre == obj.nombre and s.material != obj.material]

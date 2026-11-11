@@ -18,7 +18,7 @@ import copy
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
                                QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from configuracion import colores
@@ -240,11 +240,16 @@ class DialogoCombinaciones(_DialogoTabla):
         self.rho.setCurrentIndex(max(0, self.rho.findData(modelo.rho)))
         self.rho.setToolTip("ρ, factor de redundancia (ASCE 7-05 §12.3.4): 1.0 en las categorías de diseño\n"
                             "sísmico B y C; 1.3 en D, E y F, salvo que se cumpla una de las dos excepciones.")
+        self.especial = QCheckBox("Pórtico especial (SMF)")
+        self.especial.setChecked(modelo.portico_especial)
+        self.especial.setToolTip("Pórticos especiales resistentes a momento (lo usual en Panamá, CDS D).\n"
+                                 "Cambia la cuantía máxima de las columnas: 6 % en vez de 8 % "
+                                 "(ACI 318-19 §18.7.4.1 y §10.6.1.1).")
         arriba = QHBoxLayout()
         etiqueta_sds, etiqueta_rho = QLabel("SDS"), QLabel("ρ")
         etiqueta_sds.setToolTip(self.sds.toolTip())
         etiqueta_rho.setToolTip(self.rho.toolTip())
-        for w in (etiqueta_sds, self.sds, etiqueta_rho, self.rho):
+        for w in (etiqueta_sds, self.sds, etiqueta_rho, self.rho, self.especial):
             arriba.addWidget(w)
         arriba.addStretch(1)
         self.diseno.insertLayout(0, arriba)
@@ -300,7 +305,7 @@ class DialogoCombinaciones(_DialogoTabla):
         return "Las predeterminadas no se eliminan" if fila < len(self.claves) else None
 
     def _aplicar(self, modelo):
-        modelo.poner_sismo(self.sds.valor(), self.rho.currentData())
+        modelo.poner_sismo(self.sds.valor(), self.rho.currentData(), self.especial.isChecked())
         for coid in self._borradas:
             modelo.eliminar_combinacion(coid)
         for fila in range(len(self.claves), self.tabla.rowCount()):
@@ -319,7 +324,8 @@ class DialogoCombinaciones(_DialogoTabla):
 
     @staticmethod
     def _igual(a, b):
-        return (a.combinaciones, a.sds, a.rho) == (b.combinaciones, b.sds, b.rho)
+        return ((a.combinaciones, a.sds, a.rho, a.portico_especial)
+                == (b.combinaciones, b.sds, b.rho, b.portico_especial))
 
     def _terminar(self, texto):
         self.ventana.modelo_cambiado(texto, invalida=False)  # superposición: no hay que reanalizar

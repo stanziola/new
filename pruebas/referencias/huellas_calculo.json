@@ -1,12 +1,12 @@
 {
-  "aprobado": "2026-11-10",
+  "aprobado": "2026-11-11",
   "archivos": {
     "calculo/__init__.py": "36f0aa08a207ec5d91ccc664d50f88ca76081013fcd7dbd3f8bb8a4bc799cd16",
     "calculo/concreto.py": "37290055b516bae696fd24efe3d54543d92406ecd643e6738dd239ad07c2fec1",
     "calculo/interaccion/__init__.py": "1135f810c04dc98373bf1425f0659e5a61a16e9b545711d1bfa86dc0eda23c71",
     "calculo/interaccion/biaxial.py": "71037217898b2efad33101573ab5a02f6242aaca3051c49b1e21a770d3e07d3d",
-    "calculo/interaccion/circular.py": "dee2e5767b157b0b6dd01da138841ec4a570fd60758706b7c8aa951ef5fea40f",
-    "calculo/interaccion/comun.py": "d2d7324b26b03030433dbb8260ff5d6efbae58f3989ddba27f3f1e83c5c195dc",
+    "calculo/interaccion/circular.py": "ac074575b2255108a148c238539f8f0a02ee3c2424f30db3ae3da36eeb2b19ab",
+    "calculo/interaccion/comun.py": "3726e7ab979ff0cb39697871579dfd8c05d321f6a6b214f52257aa235708f6f0",
     "calculo/interaccion/rectangular.py": "03b40aa8b679939da349ebddeb95a55c65f873291c430399288c4c72468d70d1",
     "calculo/rigidez/__init__.py": "2035a1d33ae849d0e67c811c42b455cd82cf2a36476bcd34a5da00d98de7935c",
     "calculo/rigidez/barra.py": "3d6e59e659de8e96573dc421acb59d2c8ba728a9f5eb7ebf8a4ae931b48cd0c9",
