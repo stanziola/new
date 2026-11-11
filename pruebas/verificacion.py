@@ -190,14 +190,18 @@ def verificar_combinaciones():
        sumando resultados deben dar lo mismo que UN análisis con todas las cargas ya multiplicadas
        (y el peso propio × 1.2). Vale porque el análisis es lineal (primer orden). El factor de D
        se aplica a los dos casos tipo D.
-    3. Viga simple de 6 m con D = 10 y L = 5 kN/m y un viento de servicio de 10 kN al centro:
-       - 1.2D + 1.6L: w = 20 kN/m → M = wL²/8 = 90 kN·m y V = wL/2 = 60 kN;
-       - 1.4D: w = 14 kN/m → 63 kN·m y 42 kN;
-       - 1.2D + 1.6W + L: w = 17 kN/m y P = 1.6·10 = 16 kN → M = 76.5 + PL/4 = 100.5 kN·m y
-         V = 51 + P/2 = 59 kN (el viento del REP es de servicio: va con 1.6, REP 2021 §8.4)."""
+    3. Viga simple de 6 m con D = 10, L = 5 y Lr = 4 kN/m y un viento de servicio de 10 kN al centro
+       (M = wL²/8 + PL/4 = 4.5w + 1.5P y V = wL/2 + P/2 = 3w + P/2):
+       - 1.4D: w = 14 → 63 kN·m y 42 kN;
+       - 1.2D + 1.6L + 0.5Lr: w = 12 + 8 + 2 = 22 → 99 kN·m y 66 kN;
+       - 1.2D + 1.6Lr + L: w = 12 + 6.4 + 5 = 23.4 → 105.3 kN·m y 70.2 kN;
+       - 1.2D + 1.6Lr + 0.8W: w = 18.4 y P = 8 → 94.8 kN·m y 59.2 kN;
+       - 1.2D + 1.6W + L + 0.5Lr: w = 19 y P = 16 → 109.5 kN·m y 65 kN (el viento del REP es de
+         servicio: va con 1.6, REP 2021 §8.4). L va con 1.0: no se usa la opción de 0.5L."""
     print("\n===== COMBINACIONES (SUPERPOSICIÓN) =====")
     pre = comb.predeterminadas(0.5, 1.3)
-    comprobar(f"ASCE 7-05: 12 combinaciones, más la carga muerta total: {len(pre) - 1}", len(pre) == 13)
+    comprobar(f"ASCE 7-05: 13 combinaciones, más la carga muerta total: {len(pre) - 1}", len(pre) == 14)
+    comprobar(f"3 con L (sin reducir): {pre['C3'].nombre}", pre["C3"].factores == {"D": 1.2, "Lr": 1.6, "L": 1.0})
     comprobar(f"5 con SDS = 0.5 y ρ = 1.3: {pre['C5a'].nombre}  (1.2 + 0.2·SDS = 1.3)",
               pre["C5a"].factores == {"D": 1.3, "E": 1.3, "L": 1.0})
     comprobar(f"7 con SDS = 0.5 y ρ = 1.3: {pre['C7a'].nombre}  (0.9 − 0.2·SDS = 0.8)",
@@ -240,12 +244,14 @@ def verificar_combinaciones():
     v.agregar_elemento(1, 2, 1, 1)
     v.restringir(1, phiy=False, phiz=False)                   # apoyo fijo (con torsión)
     v.restringir(2, dx=False, phix=False, phiy=False, phiz=False)
-    viva, viento = v.agregar_caso("", "L"), v.agregar_caso("", "W")
+    viva, techo, viento = v.agregar_caso("", "L"), v.agregar_caso("", "Lr"), v.agregar_caso("", "W")
     v.agregar_carga_barra(1, "uniforme", -10.0, "Z")
     v.agregar_carga_barra(1, "uniforme", -5.0, "Z", caso=viva)
+    v.agregar_carga_barra(1, "uniforme", -4.0, "Z", caso=techo)
     v.agregar_carga_barra(1, "puntual", -10.0, "Z", a=3.0, caso=viento)
     resultados = analizar(v)
-    for clave, w, p in (("C2", 20.0, 0.0), ("C1", 14.0, 0.0), ("C4a", 17.0, 16.0)):
+    for clave, w, p in (("C1", 14.0, 0.0), ("C2", 22.0, 0.0), ("C3", 23.4, 0.0), ("C3a", 18.4, 8.0),
+                        ("C4a", 19.0, 16.0)):
         r = combinar(v, resultados, pre[clave])
         centro, apoyo = fuerzas_en_x(v, r, 1, 3.0), fuerzas_en_x(v, r, 1, 0.0)
         momento, cortante = w * 6 ** 2 / 8 + p * 6 / 4, w * 6 / 2 + p / 2

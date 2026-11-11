@@ -11,8 +11,11 @@ Son las de ASCE 7-05 §2.3.2 (PDF p. 34), que el REP 2021 §1.4.1 manda usar, co
     6. 0.9D + 1.6W + 1.6H
     7. (0.9 − 0.2·SDS)D + ρ·QE + 1.6H            (§12.4.2.3; en §2.3.2 es 0.9D + 1.0E + 1.6H)
 
-El programa solo tiene casos tipo D, L, W y E, así que F, T, H, Lr, S y R valen cero y quedan las
-12 de TABLA (las que estaban en scripts/combinaciones_asce7.py). W y E van con los dos signos.
+El programa tiene casos tipo D, L, Lr (viva de techo), W y E; F, T, H, S y R valen cero (en Panamá no
+hay nieve, y la lluvia es otro tema del REP), y quedan las 13 de TABLA. W y E van con los dos signos.
+En la 3, "(L o 0.8W)" da tres: con L, con +0.8W y con −0.8W.
+- L va siempre con su factor completo (1.0 en la 3, la 4 y la 5): NO se usa la opción de 0.5L
+  (decisión del usuario: no reducir cargas).
 - 1.6W: el viento del REP es de servicio y se multiplica por 1.6 (REP 2021 §8.4, PDF p. 101;
   ACI 318-19 §5.3.5). Es el mismo factor que ya trae ASCE 7-05.
 - SDS y ρ son datos del modelo (Modelo.sds y Modelo.rho), por ahora escritos a mano. ρ es 1.0 o 1.3
@@ -24,9 +27,8 @@ Además, "Carga muerta (D)" = 1.0·D: no es de la norma; sirve para ver la muert
 más carga muerta adicional).
 
 Lo que todavía NO hace (limitaciones):
-- Lr (viva de techo) y R (lluvia): faltan el 0.5Lr de la 2 y la 4 y el 1.6Lr de la 3;
-- "1.2D + L" de la 3 (la otra opción de "L o 0.8W");
-- la opción de 0.5L en la 3, la 4 y la 5 (Lo ≤ 100 psf, salvo garajes y reunión pública);
+- R (lluvia) y S (nieve);
+- la opción de 0.5L en la 3, la 4 y la 5 (Lo ≤ 100 psf, salvo garajes y reunión pública): a propósito;
 - W y E en X y en Y, y la torsión accidental (etapas 7 y 8): aquí cada tipo va en una sola dirección;
 - Ev = 0 cuando SDS ≤ 0.125 (excepción de §12.4.2.2): no se aplica;
 - envolventes y cargas que no actúan (alternancia).
@@ -43,11 +45,12 @@ MUERTA = "D"                     # clave de "Carga muerta (D)"
 # texto "1" y el número 1 se consideran iguales.
 TABLA = (
     ("C1", "1.4D", lambda sds, rho: {"D": 1.4}),
-    ("C2", "1.2D+1.6L", lambda sds, rho: {"D": 1.2, "L": 1.6}),
-    ("C3a", "1.2D+0.8W", lambda sds, rho: {"D": 1.2, "W": 0.8}),
-    ("C3b", "1.2D-0.8W", lambda sds, rho: {"D": 1.2, "W": -0.8}),
-    ("C4a", "1.2D+1.6W+L", lambda sds, rho: {"D": 1.2, "W": 1.6, "L": 1.0}),
-    ("C4b", "1.2D-1.6W+L", lambda sds, rho: {"D": 1.2, "W": -1.6, "L": 1.0}),
+    ("C2", "1.2D+1.6L+0.5Lr", lambda sds, rho: {"D": 1.2, "L": 1.6, "Lr": 0.5}),
+    ("C3", "1.2D+1.6Lr+L", lambda sds, rho: {"D": 1.2, "Lr": 1.6, "L": 1.0}),
+    ("C3a", "1.2D+1.6Lr+0.8W", lambda sds, rho: {"D": 1.2, "Lr": 1.6, "W": 0.8}),
+    ("C3b", "1.2D+1.6Lr-0.8W", lambda sds, rho: {"D": 1.2, "Lr": 1.6, "W": -0.8}),
+    ("C4a", "1.2D+1.6W+L+0.5Lr", lambda sds, rho: {"D": 1.2, "W": 1.6, "L": 1.0, "Lr": 0.5}),
+    ("C4b", "1.2D-1.6W+L+0.5Lr", lambda sds, rho: {"D": 1.2, "W": -1.6, "L": 1.0, "Lr": 0.5}),
     ("C5a", "(1.2+0.2SDS)D+ρE+L", lambda sds, rho: {"D": round(1.2 + 0.2 * sds, 4), "E": rho, "L": 1.0}),
     ("C5b", "(1.2+0.2SDS)D-ρE+L", lambda sds, rho: {"D": round(1.2 + 0.2 * sds, 4), "E": -rho, "L": 1.0}),
     ("C6a", "0.9D+1.6W", lambda sds, rho: {"D": 0.9, "W": 1.6}),
@@ -66,7 +69,7 @@ def numero(clave):
 
 
 def predeterminadas(sds, rho):
-    """{clave: Combinacion}: "Carga muerta (D)" y las 12 de la norma, con los factores ya calculados
+    """{clave: Combinacion}: "Carga muerta (D)" y las 13 de la norma, con los factores ya calculados
     para ese SDS y ese ρ. El nombre lleva los números: "1.3D + 1.3E + L"."""
     combos = {MUERTA: Combinacion("Carga muerta (D)", {"D": 1.0})}
     for clave, _formula, factores in TABLA:

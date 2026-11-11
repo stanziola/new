@@ -5,7 +5,7 @@ No es cálculo. Todo en unidades internas: kN y m (E, G y f'c en kN/m²; A en m�
 peso unitario en kN/m³; cargas en kN, kN/m y kN·m).
 
 Casos de carga. Cada carga pertenece a un caso, y cada caso tiene un tipo (la letra de las
-combinaciones de ASCE 7-05 §2.3.2; por ahora solo D muerta, L viva, W viento y E sismo):
+combinaciones de ASCE 7-05 §2.3.2; por ahora D muerta, L viva, Lr viva de techo, W viento y E sismo):
 - "Peso propio" (D): automático. Sus cargas no se guardan: salen de A·γ de cada barra, por el
   factor `peso_propio` del caso (modelo/analisis.py). Un caso con ese factor distinto de 0 es
   "automático": en la interfaz no recibe cargas a mano.
@@ -96,7 +96,7 @@ class Elemento:
 
 @dataclass
 class Caso:
-    """Caso de carga. tipo es la letra de las combinaciones (D, L, W o E)."""
+    """Caso de carga. tipo es la letra de las combinaciones (D, L, Lr, W o E)."""
     nombre: str
     tipo: str = "D"
     peso_propio: float = 0.0   # multiplicador del peso propio de las barras (0 = no lo incluye)
@@ -108,7 +108,7 @@ class Combinacion:
     factores: dict = field(default_factory=dict)
 
 # Tipos de caso que se pueden crear por ahora: la letra de ASCE 7-05 §2.3.2 y su nombre
-TIPOS_CASO = {"D": "Muerta", "L": "Viva", "W": "Viento", "E": "Sismo"}
+TIPOS_CASO = {"D": "Muerta", "L": "Viva", "Lr": "Viva de techo", "W": "Viento", "E": "Sismo"}
 NOMBRE_PESO_PROPIO = "Peso propio"
 NOMBRE_MUERTA_ADICIONAL = "Carga muerta adicional"
 

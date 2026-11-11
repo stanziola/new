@@ -18,7 +18,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - reacciones y fuerzas en los extremos de cada barra (ejes locales);
   - cargas en los nodos y en las barras (uniforme, puntual y momento), con sus fuerzas de empotramiento, y peso propio;
   - diagramas N, V, M y T y la deformada a lo largo de cada barra.
-- **Casos de carga:** Peso propio (automático: A·γ de cada barra) y Carga muerta adicional, fijos, y los que agregue el usuario (Muerta, Viva, Viento o Sismo). **Combinaciones**: las 12 de ASCE 7-05 ya cargadas (con SDS y ρ a mano) y las propias, por tipo de caso; solo para ver resultados (superposición).
+- **Casos de carga:** Peso propio (automático: A·γ de cada barra) y Carga muerta adicional, fijos, y los que agregue el usuario (Muerta, Viva, Viva de techo, Viento o Sismo). **Combinaciones**: las 12 de ASCE 7-05 ya cargadas (con SDS y ρ a mano) y las propias, por tipo de caso; solo para ver resultados (superposición).
 - **Materiales y secciones de concreto** (`calculo/concreto.py`, `modelo/concreto.py`): E, G, A, I, J y γ, con su refuerzo.
 - **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas) y tres estados: editar, resultados de un caso y resultados de una combinación (deformada, diagramas y reacciones en 3D, y lo mismo para una barra en el panel Diagrama, con un corte que se desliza: los desplazamientos en ejes globales, total o por componente, y las fuerzas internas en los ejes locales, que se dibujan sobre la barra seleccionada). Con la sección real, los nudos se rellenan con un bloque de concreto y el concreto se puede ver transparente, con el acero de columnas y vigas (esquemático).
 - **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`.
@@ -149,8 +149,8 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
 - **Avance (noviembre de 2026), una parte:**
   - **hecho:**
     - el peso propio en su propio caso, automático, y la carga muerta adicional aparte: la muerta total (D) es su suma;
-    - casos que agrega el usuario (Definir → Casos de carga), de tipo Muerta (D), Viva (L), Viento (W) o Sismo (E);
-    - las 12 combinaciones de ASCE 7-05 §2.3.2 y §12.4.2.3 para D, L, W y E, ya cargadas (`modelo/combinaciones.py`), con SDS y ρ como datos del modelo (por ahora escritos a mano) y los dos signos de W y E;
+    - casos que agrega el usuario (Definir → Casos de carga), de tipo Muerta (D), Viva (L), Viva de techo (Lr), Viento (W) o Sismo (E);
+    - las 13 combinaciones de ASCE 7-05 §2.3.2 y §12.4.2.3 para D, L, Lr, W y E (Lr agregada en noviembre de 2026; L siempre completa, sin la opción de 0.5L), ya cargadas (`modelo/combinaciones.py`), con SDS y ρ como datos del modelo (por ahora escritos a mano) y los dos signos de W y E;
     - combinaciones propias, con un factor por tipo de caso (Definir → Combinaciones de carga) y nombre automático ("1.2D + 1.6L");
     - resultados por **superposición** (`modelo/analisis.combinar`), sin volver a resolver;
     - tres estados en la interfaz: editar, resultados de un caso y resultados de una combinación (Σ); con resultados a la vista no se edita;
@@ -161,7 +161,8 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
     - 1.2D + 1.6L y 1.2D − 1.6W + L por superposición (el factor de D en los dos casos tipo D) = un análisis con todas las cargas multiplicadas (U, R y diagramas de todas las barras);
     - peso propio: ΣRz = ΣA·γ·L; y Carga muerta (D) = peso propio + carga muerta adicional;
     - viga simple con D = 10 y L = 5 kN/m y un viento de 10 kN al centro: 1.2D + 1.6L da wL²/8 = 90 kN·m y wL/2 = 60 kN; 1.4D, 63 kN·m y 42 kN; 1.2D + 1.6W + L, 100.5 kN·m y 59 kN.
-  - **falta:** Lr y R (el 0.5Lr de la 2 y la 4 y el 1.6Lr de la 3) y "1.2D + L" de la 3; la opción de 0.5L; W y E en X y en Y, con la torsión accidental; SDS y ρ calculados (etapa 7) en vez de escritos a mano; Ev = 0 si SDS ≤ 0.125; las envolventes y su uso en el diseño. Y decidir si las combinaciones pasan a `calculo/` cuando se usen para diseñar.
+  - **hecho después (noviembre de 2026):** Lr (viva de techo) con el 0.5Lr de la 2 y la 4 y la 3 completa (1.2D + 1.6Lr + L y ±0.8W), verificado a mano en una viga simple. La opción de 0.5L **no se usa**, por decisión del usuario (no reducir cargas).
+  - **falta:** R y S (no aplican en Panamá); W y E en X y en Y, con la torsión accidental; SDS y ρ calculados (etapa 7) en vez de escritos a mano; Ev = 0 si SDS ≤ 0.125; las envolventes y su uso en el diseño. Y decidir si las combinaciones pasan a `calculo/` cuando se usen para diseñar.
 
 ## Etapa 4: Columnas (estribos, cortante, esbeltez)
 

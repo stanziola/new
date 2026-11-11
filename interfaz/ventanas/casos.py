@@ -1,11 +1,11 @@
 """Definir → Casos de carga y Definir → Combinaciones de carga: dos ventanas con una tabla.
 
-- Casos: nombre y tipo (Muerta, Viva, Viento o Sismo). Los dos primeros son fijos (fondo gris, no se
+- Casos: nombre y tipo (Muerta, Viva, Viva de techo, Viento o Sismo). Los dos primeros son fijos (fondo gris, no se
   editan ni se eliminan): "Peso propio", que es automático (A·γ de cada viga y columna), y "Carga
   muerta adicional", donde van las cargas muertas puestas a mano. Las cargas se ponen en el caso
   activo con las herramientas de carga.
 - Combinaciones: arriba, los datos del sismo, SDS y ρ (por ahora escritos a mano). En la tabla, un
-  factor por TIPO de caso: D, L, W y E. Las predeterminadas (modelo/combinaciones.py: ASCE 7-05
+  factor por TIPO de caso: D, L, Lr, W y E. Las predeterminadas (modelo/combinaciones.py: ASCE 7-05
   §2.3.2 y §12.4.2.3) van con fondo gris y no se editan: salen de la norma, con el SDS y el ρ de
   arriba; al pasar el mouse dicen de qué cláusula vienen. Debajo, las propias del usuario.
   Solo sirven para VER resultados (dibujo y diagramas): su resultado es la suma de los casos por sus
