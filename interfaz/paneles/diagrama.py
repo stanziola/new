@@ -30,7 +30,7 @@ from configuracion import colores, formato, unidades
 from configuracion import interfaz as ui
 from interfaz.paneles.comunes import CampoNumero
 from interfaz.vista3d.resultados import DEFORMADAS, DIRECCION
-from modelo.analisis import desplazamientos_globales, fuerzas_en, fuerzas_en_x, geometria
+from modelo.analisis import desplazamientos_globales, envolvente_en_x, fuerzas_en, fuerzas_en_x, geometria
 
 NOMBRE = {"deformada": "Deformada total", "Dx": "Desplazamiento Δx", "Dy": "Desplazamiento Δy",
           "Dz": "Desplazamiento Δz", "N": "Axial N", "Vy": "Cortante Vy", "Vz": "Cortante Vz", "T": "Torsión T",
@@ -105,6 +105,16 @@ class PanelDiagrama(QDockWidget):
         self._vaciar("Selecciona una barra")
 
     # ---------- Qué se muestra ----------
+    def mostrar_envolvente(self, modelo, env, eid, resultado):
+        """La envolvente de la barra eid: la curva de máximos y la de mínimos de la fuerza `resultado`
+        y, en el corte, los dos valores con la combinación que da cada uno. Sin deformada."""
+        if resultado not in EJES:
+            self._vaciar("La envolvente es de fuerzas internas: elige arriba Axial, Cortante, Momento o Torsión")
+        elif eid is None or eid not in env.barras:
+            self._vaciar(f"Selecciona una barra para ver aquí la envolvente de {NOMBRE[resultado]}")
+        else:
+            self._mostrar(modelo, None, eid, resultado, env)
+
     def mostrar(self, modelo, rc, eid, resultado):
         """La barra eid con los resultados rc (de un caso o de una combinación) y el resultado que
         está prendido en la barra de arriba: "deformada", una fuerza ("N", "My"...) o None."""
@@ -115,22 +125,25 @@ class PanelDiagrama(QDockWidget):
         elif eid is None or eid not in modelo.elementos or eid not in rc.res.fuerzas:
             self._vaciar(f"Selecciona una barra para ver aquí: {NOMBRE[resultado]}")
         else:
-            otra = (eid != self._eid)
-            self._modelo, self._rc, self._eid, self._resultado = modelo, rc, eid, resultado
-            self._largo = geometria(modelo, eid)[2]
-            self.x.actualizar_unidades()
-            if otra:
-                self.deslizador.blockSignals(True)
-                self.deslizador.setValue(ui.PASOS_DESLIZADOR // 2)    # el corte empieza al centro
-                self.deslizador.blockSignals(False)
-            for w in (self.deslizador, self.x, self.etiqueta_corte):
-                w.setEnabled(True)
-            self.aviso.hide()
-            self.lienzo.show()
-            self._dibujar()
+            self._mostrar(modelo, rc, eid, resultado, None)
+
+    def _mostrar(self, modelo, rc, eid, resultado, env):
+        otra = (eid != self._eid)
+        self._modelo, self._rc, self._eid, self._resultado, self._env = modelo, rc, eid, resultado, env
+        self._largo = geometria(modelo, eid)[2]
+        self.x.actualizar_unidades()
+        if otra:
+            self.deslizador.blockSignals(True)
+            self.deslizador.setValue(ui.PASOS_DESLIZADOR // 2)    # el corte empieza al centro
+            self.deslizador.blockSignals(False)
+        for w in (self.deslizador, self.x, self.etiqueta_corte):
+            w.setEnabled(True)
+        self.aviso.hide()
+        self.lienzo.show()
+        self._dibujar()
 
     def _vaciar(self, texto):
-        self._modelo = self._rc = self._eid = self._resultado = None
+        self._modelo = self._rc = self._eid = self._resultado = self._env = None
         self.titulo.setText("")
         self.titulo.setToolTip("")
         self.aviso.setText(texto)
@@ -153,7 +166,7 @@ class PanelDiagrama(QDockWidget):
         self.titulo.setText(f"<b>Elemento {eid}</b> — {NOMBRE[resultado]}")
         ejes = "ejes globales" if resultado in DEFORMADAS else EJES[resultado]
         self.titulo.setToolTip(f"{'Columna' if modelo.es_columna(eid) else 'Barra'} del nodo {el.ni} al {el.nj}"
-                               f" · {NOMBRE[resultado]}: {ejes} · {rc.nombre}")
+                               f" · {NOMBRE[resultado]}: {ejes} · {(self._env or rc).nombre}")
         fl = unidades.factor("longitud")
         self.figura.clear()
         ax = self.figura.add_subplot(111)
@@ -168,6 +181,19 @@ class PanelDiagrama(QDockWidget):
                 ax.legend(fontsize=7, loc="best")
             nombre = "desplazamiento" if len(claves) > 1 else SIMBOLO[resultado]
             ax.set_ylabel(f"{nombre} ({unidades.simbolo('desplazamiento')})", fontsize=8)
+        elif self._env is not None:                   # envolvente: la curva de máximos y la de mínimos
+            magnitud = magnitud_de(resultado)
+            d = self._env.barras[eid]
+            maximo, minimo, _imax, _imin = d[resultado]
+            x, f = d["x"] / fl, unidades.factor(magnitud)
+            for y, estilo in ((maximo / f, "-"), (minimo / f, "--")):
+                ax.plot(x, y, color=colores.DIAGRAMA_BORDE, linewidth=1, linestyle=estilo)
+                ax.fill_between(x, y, 0, where=y >= 0, color=colores.DIAGRAMA_POSITIVO, alpha=0.55, interpolate=True)
+                ax.fill_between(x, y, 0, where=y < 0, color=colores.DIAGRAMA_NEGATIVO, alpha=0.55, interpolate=True)
+            if DIRECCION[resultado][1] < 0:
+                ax.invert_yaxis()
+            ax.set_ylabel(f"{resultado} ({unidades.simbolo(magnitud)})", fontsize=8)
+            self.titulo.setText(f"<b>Elemento {eid}</b> — Envolvente de {NOMBRE[resultado]}")
         else:
             magnitud = magnitud_de(resultado)
             d = fuerzas_en(modelo, rc, eid)
@@ -200,13 +226,23 @@ class PanelDiagrama(QDockWidget):
                                                       "desplazamiento")))
             else:
                 filas = [(SIMBOLO[self._resultado], formato.cantidad(valores[self._resultado], "desplazamiento"))]
+        elif self._env is not None:
+            vmax, vmin, cmax, cmin = envolvente_en_x(self._env, self._eid, self._resultado, x)
+            magnitud = magnitud_de(self._resultado)
+            filas = [(f"{self._resultado} máx", formato.cantidad(vmax, magnitud)), ("", cmax),
+                     (f"{self._resultado} mín", formato.cantidad(vmin, magnitud)), ("", cmin)]
         else:
             valor = fuerzas_en_x(self._modelo, self._rc, self._eid, x)[self._resultado]
             filas = [(self._resultado, formato.cantidad(valor, magnitud_de(self._resultado)))]
 
-        self.lectura.setText("<table>" + "".join(
-            f"<tr><td><b>{nombre}</b>&nbsp;&nbsp;</td><td align='right'><b>{valor}</b></td></tr>"
-            for nombre, valor in filas) + "</table>")
+        gris = colores.INTERFAZ_DESHABILITADO
+
+        def fila(nombre, valor):
+            if not nombre:                                   # la combinación que da el valor de arriba
+                return f"<tr><td colspan=2 style='color:{gris}'>{valor}</td></tr>"
+            return f"<tr><td><b>{nombre}</b>&nbsp;&nbsp;</td><td align='right'><b>{valor}</b></td></tr>"
+
+        self.lectura.setText("<table>" + "".join(fila(n, v) for n, v in filas) + "</table>")
         if self._linea is not None:
             corte = x / unidades.factor("longitud")
             self._linea.set_xdata([corte, corte])

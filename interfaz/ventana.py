@@ -53,7 +53,7 @@ from interfaz.vista3d.cargas import dibujar_cargas
 from interfaz.vista3d.dibujo import (ModeloDibujado, Previsualizacion, dibujar_ejes_locales, dibujar_modelo,
                                      dibujar_rejilla)
 from interfaz.vista3d.resultados import (DEFORMADAS, NOMBRE_DEFORMADA, dibujar_deformada, dibujar_diagrama,
-                                         dibujar_reacciones)
+                                         dibujar_envolvente, dibujar_reacciones)
 from interfaz.paneles.diagrama import PanelDiagrama
 from interfaz.paneles.explorador import Explorador
 from interfaz.historial import Historial
@@ -69,9 +69,10 @@ from interfaz.tema import aplicar_tema
 from modelo import Modelo, archivo
 from modelo import combinaciones as comb
 from modelo import concreto as cc
-from modelo.analisis import analizar, combinar
+from modelo.analisis import analizar, combinar, envolvente
 from modelo.apoyos import TIPOS
 
+ENVOLVENTE = "ENV"            # clave de la envolvente en la lista Combinación (y en la caché _combinados)
 TECLAS_A_COMANDOS = set("0123456789.-@")   # escritas sobre la vista, van a la barra de comandos
 HERRAMIENTAS_DE_CARGA = ("carga_nodo", "carga_barra")
 
@@ -233,7 +234,11 @@ class Ventana(QMainWindow):
             return
         elegido = self._en_3d(self.seleccion)
         eid = elegido[1] if elegido and elegido[0] == "barra" else None
-        self.diagrama.mostrar(self.modelo, self._rc(), eid, self.resultado_visible)
+        env = self._env()
+        if env is not None:
+            self.diagrama.mostrar_envolvente(self.modelo, env, eid, self.resultado_visible)
+        else:
+            self.diagrama.mostrar(self.modelo, self._rc(), eid, self.resultado_visible)
 
     def _tipo_apoyo(self, tipo):
         self.herramienta_apoyo.tipo = tipo
@@ -451,6 +456,12 @@ class Ventana(QMainWindow):
             if comb.es_predeterminada(clave):
                 self.selector_combinacion.setItemData(self.selector_combinacion.count() - 1,
                                                       comb.referencia(clave), Qt.ToolTipRole)
+        # La envolvente, al final: máximos y mínimos de las combinaciones de la norma (no las propias)
+        self.selector_combinacion.addItem("Envolvente", ENVOLVENTE)
+        self.selector_combinacion.setItemData(
+            self.selector_combinacion.count() - 1,
+            "Máximo y mínimo de cada fuerza entre las combinaciones de ASCE 7-05 (sin las propias ni la "
+            "carga muerta). Solo fuerzas internas: sin deformada ni reacciones", Qt.ToolTipRole)
         i = self.selector_combinacion.findData(actual)
         self.selector_combinacion.setCurrentIndex(max(i, 0))
         self.selector_combinacion.blockSignals(False)
@@ -462,7 +473,11 @@ class Ventana(QMainWindow):
     def combinacion_activa(self):
         """Clave de la combinación elegida ("D", "C1", "C3a"… o el ID de una propia), o None."""
         clave = self.selector_combinacion.currentData()
-        return clave if clave in comb.todas(self.modelo) else None
+        return clave if clave == ENVOLVENTE or clave in comb.todas(self.modelo) else None
+
+    def viendo_envolvente(self):
+        """True si lo que se ve son los resultados de la envolvente."""
+        return self.modo_combinaciones and self.combinacion_activa() == ENVOLVENTE
 
     def _cambio_caso(self, *_):
         self.redibujar()
@@ -474,11 +489,21 @@ class Ventana(QMainWindow):
 
     def _cambio_combinacion(self, *_):
         if self.modo_combinaciones:
+            self._ajustar_a_envolvente()
+            self._actualizar_modo()
             self._cambio_caso()
+
+    def _ajustar_a_envolvente(self):
+        """La envolvente no tiene deformada: si estaba a la vista (o nada), se pasa al momento My."""
+        if self.viendo_envolvente() and (self.resultado_visible is None or self.resultado_visible in DEFORMADAS):
+            self.resultado_visible = "My"
+            self._ultimo_resultado = "My"
 
     def _cambio_fuente(self, marcado):
         """Σ: se ven los resultados de una combinación (marcado) o los de un caso."""
         self.ver_combinaciones = bool(marcado)
+        self._ajustar_a_envolvente()
+        self._actualizar_modo()
         self.redibujar()
         self._refrescar_paneles()
         self._aviso_deformada("Resultados de la combinación. " if self.modo_combinaciones
@@ -497,7 +522,7 @@ class Ventana(QMainWindow):
             widget.setEnabled(combos)
         self._actualizar_resultados()
         self.accion_cargas.setEnabled(not resultados)        # las cargas se ven al editar
-        self.accion_reacciones.setEnabled(resultados)        # las reacciones, con resultados
+        self.accion_reacciones.setEnabled(resultados and not self.viendo_envolvente())   # sin envolvente
         # Herramientas: con resultados quedan todas en gris, también Seleccionar (el clic sobre un
         # nodo o una barra sigue seleccionando: es la herramienta activa, aunque su botón no se
         # pueda tocar). En el caso de peso propio (automático) no se ponen cargas a mano
@@ -515,12 +540,23 @@ class Ventana(QMainWindow):
             return None
         if self.ver_combinaciones:
             clave = self.combinacion_activa()
-            if clave is None:
+            if clave is None or clave == ENVOLVENTE:
                 return None
             if clave not in self._combinados:
                 self._combinados[clave] = combinar(self.modelo, self.resultados, comb.todas(self.modelo)[clave])
             return self._combinados[clave]
         return self.resultados.get(self.caso_activo())
+
+    def _env(self):
+        """La envolvente (de las combinaciones de la norma) si es lo que se ve; si no, None. Se calcula
+        la primera vez y se guarda con las combinaciones, hasta que cambie el análisis o SDS y ρ."""
+        if not self.modo_resultados or not self.resultados or not self.viendo_envolvente():
+            return None
+        if ENVOLVENTE not in self._combinados:
+            norma = {k: c for k, c in comb.predeterminadas(self.modelo.sds, self.modelo.rho).items()
+                     if k != comb.MUERTA}
+            self._combinados[ENVOLVENTE] = envolvente(self.modelo, self.resultados, norma)
+        return self._combinados[ENVOLVENTE]
 
     def _alternar_resultados(self, marcado):
         """▶: entra a los resultados (analizando si hace falta) o vuelve a editar."""
@@ -606,7 +642,8 @@ class Ventana(QMainWindow):
         grupo = {"N": "N", "Vy": "V", "Vz": "V", "T": "T", "My": "M", "Mz": "M", **dict.fromkeys(DEFORMADAS, "deformada")}
         activo = grupo.get(self.resultado_visible)
         for clave, boton in self.botones_resultado.items():
-            boton.setEnabled(self.modo_resultados)
+            # la envolvente es de fuerzas internas: sin deformada
+            boton.setEnabled(self.modo_resultados and not (clave == "deformada" and self.viendo_envolvente()))
             boton.setChecked(clave == activo)
 
     # ---------- Herramientas (izquierda) ----------
@@ -956,6 +993,9 @@ class Ventana(QMainWindow):
                 self.dibujado.actores.update(dibujar_diagrama(self.vista, self.modelo, rc, self.resultado_visible,
                                                               tamano))
             self.dibujado.actores.update(dibujar_reacciones(self.vista, self.modelo, rc, tamano))
+        elif self._env() is not None and self.resultado_visible and self.resultado_visible not in DEFORMADAS:
+            self.dibujado.actores.update(dibujar_envolvente(self.vista, self.modelo, self._env(),
+                                                            self.resultado_visible, tamano))
         boton = self.botones_resultado["deformada"]
         boton.setToolTip("Deformada: total, Δx, Δy o Δz (ejes globales)"
                          + (f". Ahora, ×{_factor_texto(self.factor_deformada)} el tamaño real"

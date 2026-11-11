@@ -162,7 +162,8 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
     - peso propio: ΣRz = ΣA·γ·L; y Carga muerta (D) = peso propio + carga muerta adicional;
     - viga simple con D = 10 y L = 5 kN/m y un viento de 10 kN al centro: 1.2D + 1.6L da wL²/8 = 90 kN·m y wL/2 = 60 kN; 1.4D, 63 kN·m y 42 kN; 1.2D + 1.6W + L, 100.5 kN·m y 59 kN.
   - **hecho después (noviembre de 2026):** Lr (viva de techo) con el 0.5Lr de la 2 y la 4 y la 3 completa (1.2D + 1.6Lr + L y ±0.8W), verificado a mano en una viga simple. La opción de 0.5L **no se usa**, por decisión del usuario (no reducir cargas).
-  - **falta:** R y S (no aplican en Panamá); W y E en X y en Y, con la torsión accidental; SDS y ρ calculados (etapa 7) en vez de escritos a mano; Ev = 0 si SDS ≤ 0.125; las envolventes y su uso en el diseño. Y decidir si las combinaciones pasan a `calculo/` cuando se usen para diseñar.
+  - **envolventes (noviembre de 2026):** opción "Envolvente" en la lista Combinación: máximo y mínimo de N, V, M y T entre las 13 de la norma, con la combinación que da cada uno; sin deformada ni reacciones. Verificado en la viga simple: máx al centro 109.5 kN·m (1.2D + 1.6W + L + 0.5Lr) y mín 16.5 kN·m (0.9D − 1.6W), a mano; y ninguna combinación se sale de la envolvente en ningún punto.
+  - **falta:** R y S (no aplican en Panamá); W y E en X y en Y, con la torsión accidental; SDS y ρ calculados (etapa 7) en vez de escritos a mano; Ev = 0 si SDS ≤ 0.125; el uso de la envolvente en el diseño (etapas 4 y 5). Y decidir si las combinaciones pasan a `calculo/` cuando se usen para diseñar.
 
 ## Etapa 4: Columnas (estribos, cortante, esbeltez)
 

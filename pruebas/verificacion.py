@@ -7,8 +7,9 @@ import numpy as np
 from configuracion.formato import configurar
 from modelo import Modelo
 from modelo import combinaciones as comb
-from modelo.analisis import (analizar, analizar_caso, combinar, desplazamientos_globales, fuerzas_en, fuerzas_en_x,
-                             geometria, peso_propio_total)
+from calculo.rigidez import diagramas
+from modelo.analisis import (analizar, analizar_caso, combinar, desplazamientos_globales, envolvente, envolvente_en_x,
+                             fuerzas_en, fuerzas_en_x, geometria, peso_propio_total)
 from modelo.estructura import CargaNodal
 from ejemplos.portico import crear_portico
 from salida.consola import mostrar, mostrar_resultados
@@ -258,6 +259,26 @@ def verificar_combinaciones():
         comprobar(f"{pre[clave].nombre}: M centro = {centro['My']:.3f} (a mano {momento:.3f}), "
                   f"V apoyo = {apoyo['Vz']:.3f} (a mano {cortante:.3f})",
                   np.isclose(centro["My"], momento) and np.isclose(apoyo["Vz"], cortante))
+
+    # Envolvente de la misma viga: M al centro = 4.5w + 1.5P en cada combinación de la norma.
+    # El mayor es 1.2D + 1.6W + L + 0.5Lr (w = 19, P = 16): 109.5. El menor, 0.9D − 1.6W (w = 9,
+    # P = −16, el viento hacia arriba): 40.5 − 24 = 16.5. Y la envolvente no queda por debajo de
+    # ninguna combinación en ningún punto, ni por encima en el mínimo.
+    norma = {k: c for k, c in pre.items() if k != comb.MUERTA}
+    env = envolvente(v, resultados, norma)
+    vmax, vmin, cmax, cmin = envolvente_en_x(env, 1, "My", 3.0)
+    comprobar(f"Envolvente al centro: máx {vmax:.3f} ({cmax}), a mano 109.500 (1.2D + 1.6W + L + 0.5Lr)",
+              np.isclose(vmax, 109.5) and cmax == "1.2D + 1.6W + L + 0.5Lr")
+    comprobar(f"Envolvente al centro: mín {vmin:.3f} ({cmin}), a mano 16.500 (0.9D - 1.6W)",
+              np.isclose(vmin, 16.5) and cmin == "0.9D - 1.6W")
+    d = env.barras[1]
+    cubre = True
+    for co in norma.values():
+        rc = combinar(v, resultados, co)
+        valores = diagramas.internas(6.0, rc.res.fuerzas[1], rc.cargas_locales.get(1, []), d["x"], d["lado"])
+        for k in diagramas.NOMBRES:
+            cubre &= bool(np.all(valores[k] <= d[k][0] + 1e-9) and np.all(valores[k] >= d[k][1] - 1e-9))
+    comprobar("Envolvente: ninguna combinación se sale del máximo ni del mínimo, en ningún punto", cubre)
 
 
 if __name__ == "__main__":

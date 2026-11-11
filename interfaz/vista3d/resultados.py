@@ -78,8 +78,28 @@ def dibujar_deformada(vista, modelo, rc, tamano, componente="deformada"):
 
 def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
     """Diagrama de `componente` ("N", "Vy", "Vz", "T", "My" o "Mz") en todas las barras."""
-    datos = {eid: fuerzas_en(modelo, rc, eid) for eid in modelo.elementos}
-    mayor = max((np.abs(d[componente]).max() for d in datos.values()), default=0.0)
+    series = {}
+    for eid in modelo.elementos:
+        d = fuerzas_en(modelo, rc, eid)
+        series[eid] = [(d["x"], d[componente])]
+    return _dibujar_series(vista, modelo, series, componente, tamano, con_valores)
+
+
+def dibujar_envolvente(vista, modelo, env, componente, tamano, con_valores=True):
+    """Envolvente de `componente`: en cada barra, la curva de los máximos y la de los mínimos entre
+    todas las combinaciones, cada una rellena como un diagrama (positivo y negativo con sus colores).
+    Con las etiquetas, el máximo de los máximos y el mínimo de los mínimos de cada barra."""
+    series = {}
+    for eid, d in env.barras.items():
+        maximo, minimo, _imax, _imin = d[componente]
+        series[eid] = [(d["x"], maximo), (d["x"], minimo)]
+    return _dibujar_series(vista, modelo, series, componente, tamano, con_valores)
+
+
+def _dibujar_series(vista, modelo, series, componente, tamano, con_valores):
+    """Dibuja curvas de una fuerza a lo largo de las barras. series: {ID de barra: [(x, valores), ...]}
+    (una curva en un diagrama; dos en una envolvente). Todas con la misma escala."""
+    mayor = max((np.abs(val).max() for curvas in series.values() for _x, val in curvas), default=0.0)
     if mayor <= 1e-12:
         return {}
     escala = ui.FACTOR_DIAGRAMA * ui.FRACCION_DIAGRAMA * tamano / mayor
@@ -93,11 +113,10 @@ def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
         destino["puntos"] += [a, b, c]
         destino["tri"].append((n, n + 1, n + 2))
 
-    for eid, d in datos.items():
+    for eid, x, val in ((eid, x, val) for eid, curvas in series.items() for x, val in curvas):
         el = modelo.elementos[eid]
         r, _t, _l = geometria(modelo, eid)
         pi = np.asarray(modelo.nodos[el.ni].coords, dtype=float)
-        x, val = d["x"], d[componente]
         base = pi + np.outer(x, r[0])
         tope = base + np.outer(val * escala * signo, r[eje])
         for k in range(len(x) - 1):

@@ -175,6 +175,59 @@ def combinar(modelo, resultados, combinacion):
     return ResultadoCaso(None, res, cargas, combinacion.nombre)
 
 
+@dataclass
+class Envolvente:
+    """Máximos y mínimos de las fuerzas internas entre varias combinaciones.
+
+    barras: {ID de barra: {"x": arreglo, "lado": arreglo, "N": (max, min, i_max, i_min), ...}}; i_max e
+    i_min dicen, punto por punto, qué combinación (su posición en `nombres`) da cada valor."""
+    nombres: list
+    barras: dict
+    nombre: str = "Envolvente"
+
+
+def envolvente(modelo, resultados, combinaciones):
+    """Envolvente de las fuerzas internas (N, Vy, Vz, T, My, Mz) de las combinaciones dadas.
+
+    combinaciones: {clave: Combinacion}. No se vuelve a resolver: cada combinación sale por
+    superposición (combinar) y sus diagramas se evalúan en los MISMOS puntos x de cada barra (los de
+    todas las cargas de todos los casos juntas, con los dos lados de cada carga puntual). Luego, en
+    cada punto, el mayor y el menor valor y de qué combinación salen."""
+    combinados = [combinar(modelo, resultados, co) for co in combinaciones.values()]
+    barras = {}
+    for eid in modelo.elementos:
+        _r, _t, largo = geometria(modelo, eid)
+        todas = [c for rc in resultados.values() for c in rc.cargas_locales.get(eid, [])]
+        x, lado = diagramas.secciones(largo, todas)
+        valores = [diagramas.internas(largo, rc.res.fuerzas[eid], rc.cargas_locales.get(eid, []), x, lado)
+                   for rc in combinados]
+        datos = {"x": x, "lado": lado}
+        for k in diagramas.NOMBRES:
+            tabla = np.array([v[k] for v in valores])           # combinación × punto
+            imax, imin = tabla.argmax(axis=0), tabla.argmin(axis=0)
+            columnas = np.arange(len(x))
+            datos[k] = (tabla[imax, columnas], tabla[imin, columnas], imax, imin)
+        barras[eid] = datos
+    return Envolvente([co.nombre for co in combinaciones.values()], barras)
+
+
+def envolvente_en_x(env, eid, componente, x):
+    """(máximo, mínimo, combinación del máximo, combinación del mínimo) de la envolvente en el corte x,
+    interpolando entre los puntos guardados (en un salto, el valor de después, como en los diagramas)."""
+    d = env.barras[eid]
+    xs = d["x"]
+    k = int(np.searchsorted(xs, x, side="right") - 1)
+    k = min(max(k, 0), len(xs) - 1)
+    maximo, minimo, imax, imin = d[componente]
+    if k + 1 < len(xs) and xs[k + 1] > xs[k]:
+        f = (x - xs[k]) / (xs[k + 1] - xs[k])
+        vmax, vmin = maximo[k] + f * (maximo[k + 1] - maximo[k]), minimo[k] + f * (minimo[k + 1] - minimo[k])
+        cerca = k if f < 0.5 else k + 1
+    else:
+        vmax, vmin, cerca = maximo[k], minimo[k], k
+    return float(vmax), float(vmin), env.nombres[imax[cerca]], env.nombres[imin[cerca]]
+
+
 def fuerzas_en(modelo, rc, eid):
     """Diagramas de la barra: {"x", "N", "Vy", "Vz", "T", "My", "Mz"} (ejes locales)."""
     _r, _t, largo = geometria(modelo, eid)
