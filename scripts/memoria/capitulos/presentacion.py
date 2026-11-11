@@ -6,9 +6,9 @@ Las citas se confirmaron en los PDF de docs/codigos/ (REP 2021, páginas 16, 20,
 
 def capitulo(m):
     m.titulo("Presentación")
-    m.parrafo("Esta memoria reúne las **fórmulas** que usa el programa de análisis y diseño estructural 3D, la "
-              "**programación** que las calcula y las **verificaciones** que respaldan sus resultados. Crece con "
-              "el programa: cada etapa que se termina agrega aquí sus fórmulas, su código y sus comprobaciones.")
+    m.parrafo("Esta memoria reúne las **fórmulas** que usa el programa de análisis y diseño estructural 3D y la "
+              "**programación** que las calcula. Crece con el programa: cada etapa que se termina agrega aquí sus "
+              "fórmulas y su código.")
 
     m.titulo("Para qué sirve", 2)
     m.parrafo("El Reglamento Estructural Panameño (REP 2021) pone condiciones al uso de programas de computadora "
@@ -22,7 +22,7 @@ def capitulo(m):
     ])
     m.parrafo("Y la sección 1.8.3 pide que la memoria de cálculos estructurales conste de cálculos manuales, datos "
               "de entrada y salida de los programas, dibujos y esquemas. Este documento es la parte que le toca "
-              "al programa: dice qué fórmula usa, de dónde sale, cómo está programada y cómo se comprobó.")
+              "al programa: dice qué fórmula usa, de dónde sale y cómo está programada.")
     m.parrafo("REP 2021 §1.8.2 y §1.8.3 (PDF p. 20–21).").style = "Cita"
 
     m.titulo("Normas que aplican", 2)
@@ -58,15 +58,10 @@ def capitulo(m):
     ])
 
     m.titulo("Cómo leer este documento", 2)
-    m.parrafo("Cada tema sigue el mismo orden: las **hipótesis**; las **fórmulas**, cada una con su cita (norma, "
-              "cláusula y página) o con la línea del programa que la calcula; la **programación**, que es el "
-              "código vigente del programa, copiado al generar este documento; la **verificación**, donde un "
-              "cálculo a mano, hecho por otro camino, se compara con lo que da el programa; y las "
-              "**limitaciones**.")
-    m.parrafo("El documento **no se edita a mano**: lo genera el propio programa con `python -m scripts.memoria`. "
-              "Así el código que muestra es siempre el que corre y los números de las verificaciones se "
-              "recalculan cada vez. Si una verificación deja de coincidir, sale marcada con ✗ y el generador "
-              "avisa.")
+    m.parrafo("Cada tema: **hipótesis**, **fórmulas** con su cita (norma, cláusula y página) o la función que las "
+              "calcula, el **código** de esas funciones y las **limitaciones**.")
+    m.parrafo("El documento **no se edita a mano**: lo genera el propio programa con `python -m scripts.memoria`, "
+              "así el código que muestra es siempre el que corre (sin docstrings ni comentarios).")
 
     m.titulo("Alcance de esta versión", 2)
     m.parrafo("Esta versión documenta la matriz de rigidez de la barra y su transformación (capítulo 2) y los "

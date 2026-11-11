@@ -9,18 +9,20 @@ pidiendo piezas, en el orden en que deben aparecer:
     m.ecuacion(r"K = T^{\\mathsf{T}} k T", cita="…")     ecuación de Word, con su cita debajo
     m.tabla(["a", "b"], [["1", "2"]])                   tabla
     m.matriz(etiquetas, celdas)                         matriz grande, como tabla de fórmulas
-    m.codigo(funcion)                                   el código vigente de una función o un módulo
+    m.codigo(funcion)                                   el código vigente de una función (sin comentarios)
     m.figura(fig, "pie")                                una figura de matplotlib
-    m.comprobacion([...])                               tabla de verificación: a mano / programa / ✓
-    m.nota("…")                                         aviso (limitaciones, hallazgos pendientes)
+    m.nota("…")                                       aviso (limitaciones, hallazgos pendientes)
 
 Así el contenido se lee de corrido en el capítulo y todo el formato (A4, Arial 11, títulos
 numerados, como el documento de referencia del proyecto) vive aquí, en un solo lugar.
 El documento se arma con python-docx; las ecuaciones, con ecuaciones.py.
 """
+import ast
 import inspect
 import io
 import re
+import textwrap
+import tokenize
 from pathlib import Path
 
 from docx import Document
@@ -103,6 +105,35 @@ def _campo(parrafo, instruccion, texto=""):
     r.append(marca("end"))
 
 
+def _limpiar(fuente):
+    """El código sin docstrings ni comentarios, y sin renglones en blanco seguidos. Los docstrings se
+    encuentran con ast (el árbol del código) y los comentarios con tokenize (sus piezas), así no se
+    confunde un # dentro de un texto con un comentario."""
+    lineas = fuente.splitlines()
+    borrar = set()                                     # renglones que se quitan enteros
+    for nodo in ast.walk(ast.parse(fuente)):
+        cuerpo = getattr(nodo, "body", None)
+        if (isinstance(cuerpo, list) and cuerpo and isinstance(cuerpo[0], ast.Expr)
+                and isinstance(cuerpo[0].value, ast.Constant) and isinstance(cuerpo[0].value.value, str)):
+            borrar.update(range(cuerpo[0].lineno - 1, cuerpo[0].end_lineno))
+    cortes = {}                                        # renglón -> columna donde empieza su comentario
+    for pieza in tokenize.generate_tokens(io.StringIO(fuente).readline):
+        if pieza.type == tokenize.COMMENT:
+            cortes[pieza.start[0] - 1] = pieza.start[1]
+    limpias = []
+    for k, linea in enumerate(lineas):
+        if k in borrar:
+            continue
+        if k in cortes:
+            linea = linea[:cortes[k]].rstrip()
+            if not linea.strip():
+                continue                               # era solo un comentario
+        if not linea.strip() and (not limpias or not limpias[-1].strip()):
+            continue                                   # un solo renglón en blanco seguido
+        limpias.append(linea)
+    return "\n".join(limpias).strip("\n")
+
+
 def numero(valor, cifras=4):
     """Un número para el documento: con `cifras` significativas, el signo menos de imprenta y los
     exponentes como potencias de 10 (1.2·10⁻¹⁶ en vez de 1.2e-16)."""
@@ -118,7 +149,6 @@ def numero(valor, cifras=4):
 class Memoria:
     def __init__(self):
         self.doc = Document()
-        self.fallas = []                   # verificaciones que no coincidieron (el script las avisa)
         self._numeros = [0, 0, 0]          # numeración de los títulos: capítulo, sección, subsección
         self._figuras = 0
         self._pagina()
@@ -323,26 +353,18 @@ class Memoria:
         self._despues_de_tabla()
         return tabla
 
-    def comprobacion(self, filas, encabezados=("Comprobación", "A mano", "Programa", "")):
-        """Tabla de verificación. Cada fila: (qué se comprueba, valor a mano o esperado, valor del
-        programa, coincide). Lo que no coincide queda con ✗ y anotado en self.fallas: el script lo
-        avisa al terminar, para que un documento con un error no pase inadvertido."""
-        contenido = []
-        for que, a_mano, programa, coincide in filas:
-            if not coincide:
-                self.fallas.append(que)
-            contenido.append([que, a_mano, programa, "✓" if coincide else "✗"])
-        return self.tabla(list(encabezados), contenido, anchos_cm=[7.3, 3.9, 3.9, 0.8], centrar=(1, 2, 3))
-
     # ---------- Código y figuras ----------
-    def codigo(self, objeto, origen=None):
+    def codigo(self, objeto, origen=None, limpio=True):
         """El código de una función, una clase o un módulo, tal como está hoy en el programa
         (inspect.getsource lo lee del archivo), con el archivo de donde sale. También acepta un texto.
+        limpio: sin docstrings ni comentarios (la explicación ya está en el texto del documento).
         Si algún renglón es muy largo, la letra se achica lo necesario para que quepa sin partirse."""
         if isinstance(objeto, str):
             fuente = objeto
         else:
-            fuente = inspect.getsource(objeto)
+            fuente = textwrap.dedent(inspect.getsource(objeto))
+            if limpio:
+                fuente = _limpiar(fuente)
             if origen is None:
                 archivo = Path(inspect.getsourcefile(objeto)).resolve().relative_to(RAIZ).as_posix()
                 nombre = getattr(objeto, "__qualname__", None)

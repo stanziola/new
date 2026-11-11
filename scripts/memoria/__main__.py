@@ -56,11 +56,11 @@ def estado_del_calculo():
 
 
 def generar(salida=SALIDA, pdf=False, imprimir=print):
-    """Arma el documento y lo guarda. Devuelve las verificaciones que no coincidieron (vacío = bien)."""
+    """Arma el documento y lo guarda. Devuelve True si lo pudo guardar."""
     hoy = date.today()
     m = Memoria()
     m.portada("Memoria de cálculo",
-              ["Fórmulas, programación y verificaciones", "Programa de análisis y diseño estructural 3D"],
+              ["Fórmulas y programación", "Programa de análisis y diseño estructural 3D"],
               AUTOR,
               ["Normas: REP 2021 · ASCE/SEI 7-05 · ACI 318-19",
                f"Generado el {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year} · versión del programa: {version()}",
@@ -72,7 +72,7 @@ def generar(salida=SALIDA, pdf=False, imprimir=print):
         ruta = m.guardar(salida)
     except PermissionError:
         imprimir(f"No se pudo escribir {salida}: ciérralo en Word y vuelve a generar.")
-        return ["no se pudo guardar el documento"]
+        return False
     imprimir(f"Documento: {ruta}")
     problema = word.actualizar(ruta, pdf=ruta.with_suffix(".pdf") if pdf else None)
     if problema is None:
@@ -80,13 +80,7 @@ def generar(salida=SALIDA, pdf=False, imprimir=print):
     else:
         pedir_actualizacion_al_abrir(ruta)
         imprimir(f"Aviso: {problema}. El índice se actualizará al abrir el documento en Word (di que sí).")
-    if m.fallas:
-        imprimir("VERIFICACIONES QUE NO COINCIDEN (revisar antes de usar el documento):")
-        for falla in m.fallas:
-            imprimir(f"  ✗ {falla}")
-    else:
-        imprimir("Todas las verificaciones del documento coinciden.")
-    return m.fallas
+    return True
 
 
 def main(argv=None):
@@ -94,7 +88,7 @@ def main(argv=None):
     opciones.add_argument("--salida", type=Path, default=SALIDA, help="ruta del .docx")
     opciones.add_argument("--pdf", action="store_true", help="exportar también a PDF (necesita Word)")
     argumentos = opciones.parse_args(argv)
-    return 1 if generar(argumentos.salida, argumentos.pdf) else 0
+    return 0 if generar(argumentos.salida, argumentos.pdf) else 1
 
 
 if __name__ == "__main__":

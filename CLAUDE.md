@@ -45,7 +45,7 @@ Programa en Python para analizar pórticos 3D por el método de rigidez y, por e
 | Integridad del cálculo | Huellas SHA-256 de cada archivo de `calculo/` y resultados de referencia: un pórtico, tres barras con cargas en la barra (biempotrada, simple e inclinada; uniforme, puntual y momento, en ejes globales y locales) y puntos de los tres diagramas de interacción. Dice qué archivo cambió y si cambiaron los números | `pruebas/integridad.py`, `pruebas/referencias/` |
 | Diagramas de interacción (scripts) | Dibujan con matplotlib (el biaxial, en una ventana tkinter) usando `calculo/interaccion/` | `scripts/interaccion_rectangular.py`, `scripts/interaccion_circular.py`, `scripts/interaccion_biaxial.py` |
 | Combinaciones (script) | Imprime las combinaciones predeterminadas, que ahora salen de `modelo/combinaciones.py` | `scripts/combinaciones_asce7.py` |
-| Memoria de cálculo (Word) | Documento con las **fórmulas** del programa, su **programación** y sus **verificaciones** (lo que pide el REP 2021 §1.8.2 y §1.8.3): portada, índice y un capítulo por tema, cada uno con hipótesis, fórmulas como ecuaciones de Word con su cita (norma, cláusula y página del PDF), el código vigente de `calculo/` (leído con `inspect.getsource`), una tabla "a mano / programa / ✓" y sus limitaciones. Lo **genera un script** (no se edita a mano): si una verificación no coincide, sale con ✗ y el script avisa. Capítulos de hoy: Presentación, Matriz de rigidez y transformación, y Diagrama de interacción | `scripts/memoria/` (`__main__`, `documento`, `ecuaciones`, `word`, `capitulos/`), `docs/memoria/Memoria de cálculo.docx` |
+| Memoria de cálculo (Word) | Documento corto con las **fórmulas** del programa y su **programación** (lo que pide el REP 2021 §1.8.2 y §1.8.3): portada, índice y un capítulo por tema, cada uno con hipótesis, fórmulas como ecuaciones de Word con su cita (norma, cláusula y página del PDF), el código de las funciones clave de `calculo/` (leído con `inspect.getsource`, sin docstrings ni comentarios) y sus limitaciones. Sin comparaciones a mano: esas van en `pruebas/`. Lo **genera un script** (no se edita a mano). Capítulos de hoy: Presentación, Matriz de rigidez y transformación, y Diagrama de interacción | `scripts/memoria/` (`__main__`, `documento`, `ecuaciones`, `word`, `capitulos/`), `docs/memoria/Memoria de cálculo.docx` |
 
 ## Cómo ejecutar (desde la raíz)
 
@@ -131,8 +131,8 @@ main.py                   punto de entrada (carga las preferencias, el tema y la
 - **Memoria de cálculo (`scripts/memoria/`):**
   - el `.docx` **no se edita a mano**: se cambia el capítulo (`capitulos/*.py`, una función `capitulo(m)`) y se regenera con `python -m scripts.memoria`. Un tema nuevo es un módulo más y una línea en `CAPITULOS` (`__main__.py`);
   - el formato vive en `documento.Memoria` (A4, Arial 11, títulos numerados, como la referencia del usuario); el texto acepta `$fórmula$` (LaTeX), `**negrita**`, `*cursiva*` y `` `código` ``;
-  - cada fórmula lleva su **cita confirmada en el PDF** (skill `consultar-normas`) o la función que la calcula; el código se muestra con `m.codigo(funcion_o_modulo)`, nunca copiado a mano;
-  - cada capítulo trae su **verificación**: el valor "a mano" se calcula en el propio capítulo, con números sueltos y sin usar `calculo/` (otro camino), y se compara con el programa en `m.comprobacion`. Describe lo que el código hace **hoy**, con sus limitaciones y hallazgos pendientes dichos tal cual;
+  - cada fórmula lleva su **cita confirmada en el PDF** (skill `consultar-normas`) o la función que la calcula; el código se muestra con `m.codigo(funcion)`, solo las **funciones clave** (no módulos enteros ni auxiliares) y sin docstrings ni comentarios, nunca copiado a mano;
+  - **corta**: fórmulas y código, con una o dos líneas de texto por tema y **sin comparaciones a mano vs programa** (pedido del usuario). Describe lo que el código hace **hoy**, con sus limitaciones y hallazgos pendientes en una lista corta;
   - el generador solo lee `calculo/`: no lo cambia. Después de cambiar `calculo/`, se actualiza el capítulo y se regenera.
 - **Configuración:** todo valor ajustable de presentación vive en `configuracion/`. Las tolerancias del cálculo no: están en `calculo/tolerancias.py`.
   - Lo que el usuario puede cambiar se lee en el momento (`colores.ELEMENTO`, `ui.TAMANO_ICONO`), nunca con `from ... import CONSTANTE`; si no, no vería sus cambios. Las constantes fijas (tolerancias, nombres de GDL) sí se pueden importar.
@@ -220,7 +220,7 @@ El detalle (qué estudiar, cómo verificar y cuándo se considera terminada cada
 - Todo cálculo, fórmula o resultado: skill **`verificar-calculos`**. Toda cita de norma: skill **`consultar-normas`**. Nunca citar de memoria sin comprobar.
 - **No escribir ni modificar código sin un pedido explícito.** Frases como "vamos con…" significan conversar. Ante la duda, preguntar.
 - **`calculo/` es sagrado:** no tocarlo sin un pedido explícito que lo nombre (ver Convenciones). Si un cambio de otra parte lo necesita, parar y preguntar.
-- **Memoria de cálculo:** cuando se agregue o cambie una fórmula del programa, proponer su capítulo en `scripts/memoria/capitulos/` (fórmulas con cita, código y verificación a mano) y regenerar el Word.
+- **Memoria de cálculo:** cuando se agregue o cambie una fórmula del programa, proponer su capítulo en `scripts/memoria/capitulos/` (fórmulas con cita y el código de sus funciones clave) y regenerar el Word.
 - **Al agregar botones o funciones**, sugerir:
   - dónde van (organización);
   - si llevan ícono, palabra o ambos;
