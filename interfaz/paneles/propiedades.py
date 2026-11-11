@@ -623,7 +623,8 @@ class PanelPropiedades(QWidget):
             return
         self._fila(g, "Barras de refuerzo", f"{p['nbarras']} #{c.barra}")
         self._fila(g, "As", formato.cantidad(p["As_total"].to("m^2").magnitude, "area"))
-        aviso = puente.aviso_cuantia(p["cuantia"], modelo.portico_especial)
+        aviso = (puente.aviso_cuantia(p["cuantia"], modelo.portico_especial)
+                 if puente.usada_en_columna(modelo, sid) else "")        # la regla es de columnas
         self._fila(g, "Cuantía ρ", f"{p['cuantia']:.2f} %" + (f": {aviso}" if aviso else ""))
         self._fila(g, "β1", f"{p['beta1']:.3f}")
         self._fila(g, "fy", formato.cantidad(p["fy"].to("kN/m^2").magnitude, "esfuerzo"))

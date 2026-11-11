@@ -226,6 +226,9 @@ class FormularioSeccion(QWidget):
         self.material.blockSignals(False)
 
     def cargar(self, sec):
+        # El aviso de cuantía es la regla de columnas: solo si alguna columna usa esta sección
+        sid = next((s for s, x in self.modelo.secciones.items() if x is sec), None)
+        self._en_columna = sid is not None and puente.usada_en_columna(self.modelo, sid)
         self.cargar_concreto(sec.concreto, sec.material)
 
     def cargar_concreto(self, c, material):
@@ -279,7 +282,8 @@ class FormularioSeccion(QWidget):
         error = self.error()
         if error is None:
             p = puente.propiedades(self.concreto())
-            aviso = puente.aviso_cuantia(p["cuantia"], self.modelo.portico_especial)
+            aviso = (puente.aviso_cuantia(p["cuantia"], self.modelo.portico_especial)
+                     if getattr(self, "_en_columna", False) else "")
             extra = (f"ρ = {p['cuantia']:.2f} %  ·  As = "
                      f"{formato.cantidad(p['As_total'].to('m^2').magnitude, 'area')}"
                      + (f"<br><b>ρ {aviso}</b>" if aviso else ""))

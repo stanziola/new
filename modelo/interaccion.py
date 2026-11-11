@@ -26,6 +26,13 @@ def propiedades(concreto):
                                concreto.nx, concreto.ny, fc, concreto.barra, fy)
 
 
+def usada_en_columna(modelo, sid):
+    """True si alguna columna (barra vertical) usa la sección sid. El aviso de cuantía es la regla de
+    columnas (ACI 318-19 §10.6.1.1 y §18.7.4.1): en vigas no aplica (sus límites, de la etapa 5, son
+    otros: §9.6.1.2, §9.3.3.1 y §18.6.3.1)."""
+    return any(el.seccion == sid and modelo.es_columna(eid) for eid, el in modelo.elementos.items())
+
+
 def aviso_cuantia(cuantia, especial):
     """Texto de aviso si la cuantía (%) de una columna se sale de sus límites, o "" si cumple."""
     minima, maxima = limites_cuantia(especial)
