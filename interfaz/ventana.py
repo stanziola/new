@@ -24,6 +24,8 @@ Tres estados (los aplica _actualizar_modo; lo que no se usa en cada uno queda en
 3. Resultados de una combinación (Σ marcado): igual, con la lista de casos en gris.
 De Editar a los resultados se pasa con ▶ (Analizar), que queda marcado; de vuelta, con otro clic en
 ▶. Cualquier cambio del modelo vuelve a Editar y borra el análisis.
+Al entrar a los resultados la Sección real se apaga sola (los diagramas y la deformada se leen mejor
+sobre las barras como líneas); se puede prender a mano y, al volver a Editar, queda como estaba.
 Los desplazamientos (Deformada ▾: total, Δx, Δy o Δz) van en ejes globales; las fuerzas internas (N,
 V, M y T), en los ejes locales de cada barra, que se dibujan sobre la barra seleccionada.
 La lógica de cada herramienta está en herramientas.py; la de la rejilla 3D y el snap, en vista3d/rejilla.py.
@@ -116,6 +118,8 @@ class Ventana(QMainWindow):
         self.opacidad_concreto = 1.0               # de las cajas de la sección real (deslizador de abajo)
         self._transparencia_anterior = 60          # % al que vuelve un clic en el ícono de transparencia
         self._ancho_normal = None                  # ancho de Propiedades antes de ensancharlo (pestaña Interacción)
+        self._seccion_real_antes = None            # cómo estaba Sección real antes de analizar (None: editando)
+        self._cambiando_seccion_real = False       # la está cambiando el programa: no redibujar dos veces
 
         # Tres luces blancas: los grises se ven grises (las de pyvista por defecto los tiñen)
         self.vista = QtInteractor(self, lighting="three lights")
@@ -537,6 +541,11 @@ class Ventana(QMainWindow):
                 self._actualizar_modo()            # ▶ vuelve a quedar sin marcar
                 return
             self._combinados = {}
+        if not self.modo_resultados:
+            # Los resultados se leen mejor sobre las barras como líneas: la sección real se apaga
+            # sola (se puede volver a prender a mano) y al volver a Editar queda como estaba
+            self._seccion_real_antes = self.accion_seccion_real.isChecked()
+            self._poner_seccion_real(False)
         self.modo_resultados = True
         self.resultado_visible = self._ultimo_resultado
         self.redibujar()
@@ -551,6 +560,7 @@ class Ventana(QMainWindow):
         self._ultimo_resultado = self.resultado_visible or self._ultimo_resultado
         self.modo_resultados = False
         self.resultado_visible = None
+        self._restaurar_seccion_real()
         self.redibujar()
         self._refrescar_paneles()
         self.mensaje("Editar. Para ver los resultados otra vez: ▶")
@@ -565,6 +575,7 @@ class Ventana(QMainWindow):
         self._ultimo_resultado = self.resultado_visible or self._ultimo_resultado
         self.modo_resultados = False
         self.resultado_visible = None
+        self._restaurar_seccion_real()
 
     def ver_resultado(self, componente):
         """Muestra la deformada o un diagrama; otro clic sobre el mismo lo apaga."""
@@ -784,7 +795,8 @@ class Ventana(QMainWindow):
             self.etiquetas[nombre] = accion
         self.boton_etiquetas.setMenu(menu)
         self.accion_seccion_real = self._accion("seccion_real", "Sección real",
-                                                "Sección real: barras con sus medidas b × h (o como líneas)",
+                                                "Sección real: barras con sus medidas b × h (o como líneas). Al "
+                                                "analizar se apaga sola (se puede prender) y vuelve al editar",
                                                 activable=True, activa=ui.SECCION_REAL_VISIBLE)
         self.accion_seccion_real.toggled.connect(self._cambio_seccion_real)
         # Transparencia del concreto: ícono (un clic: opaco ↔ transparente) y deslizador, como el del volumen
@@ -856,7 +868,21 @@ class Ventana(QMainWindow):
         """Sección real: las barras como cajas b × h o como líneas. La transparencia es de las cajas."""
         for control in (self.boton_transparencia, self.deslizador_transparencia):
             control.setEnabled(bool(activa))
-        self.redibujar()
+        if not self._cambiando_seccion_real:
+            self.redibujar()
+
+    def _poner_seccion_real(self, activa):
+        """Prende o apaga Sección real desde el programa (al entrar a los resultados y al salir), sin
+        redibujar: lo hace quien llama, una sola vez."""
+        self._cambiando_seccion_real = True
+        self.accion_seccion_real.setChecked(activa)
+        self._cambiando_seccion_real = False
+
+    def _restaurar_seccion_real(self):
+        """Al dejar los resultados, Sección real vuelve a como estaba antes de analizar."""
+        if self._seccion_real_antes is not None:
+            self._poner_seccion_real(self._seccion_real_antes)
+            self._seccion_real_antes = None
 
     def _cambio_transparencia(self, porcentaje):
         """Deslizador: opacidad de las cajas de concreto. Solo se redibuja al pasar de opaco a

@@ -23,6 +23,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
 - **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas) y tres estados: editar, resultados de un caso y resultados de una combinación (deformada, diagramas y reacciones en 3D, y lo mismo para una barra en el panel Diagrama, con un corte que se desliza: los desplazamientos en ejes globales, total o por componente, y las fuerzas internas en los ejes locales, que se dibujan sobre la barra seleccionada). Con la sección real, los nudos se rellenan con un bloque de concreto y el concreto se puede ver transparente, con el acero de columnas y vigas (esquemático).
 - **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`.
 - **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
+- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita, programación vigente y verificaciones a mano. Por ahora, la matriz de rigidez y su transformación y los diagramas de interacción. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
 - Combinaciones predeterminadas en `modelo/combinaciones.py` (`scripts/combinaciones_asce7.py` las imprime).
 
 ## Hoja de ruta (orden acordado)
@@ -296,8 +297,15 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 - detección de estructura inestable;
 - integridad del cálculo: huellas de `calculo/` y resultados de referencia (pórtico, vigas con cargas en la barra y diagramas de interacción).
 
+**En la memoria de cálculo** (se recalculan cada vez que se genera; noviembre de 2026):
+- los 144 términos de la matriz local contra `k_local`, y sus coeficientes a mano (EA/L, GJ/L, 12EI/L³…);
+- ángulos y rotación de una barra inclinada con α = 30°: L, γ, β, R ortogonal y det R = 1; ejes locales de una viga en X, una en Y y una columna;
+- cuerpo rígido de **una barra** en ejes globales: tres traslaciones y **tres giros** (K·u = 0);
+- voladizo acostado y de pie: P·L³/3EI y P·L²/2EI;
+- diagrama de interacción de la columna del ejemplo: propiedades, Po y su techo de diseño, el punto balanceado fila por fila, el punto en que φ llega a 0.90 y la biaxial con θ = 90° igual a la de un eje; columna circular con a = R (medio círculo), Po y su techo.
+
 **Propuestas:**
-1. **Rotación rígida:** u = θ × r en todos los nodos, con φ = θ → K·u = 0. Completa la prueba de cuerpo rígido.
+1. **Rotación rígida:** u = θ × r en todos los nodos, con φ = θ → K·u = 0. Completa la prueba de cuerpo rígido. (Hecha para una barra en la memoria; falta para la K ensamblada de un pórtico, en `pruebas/verificacion.py`.)
 2. **Pórtico plano** contra un ejemplo de libro y contra Ftool.
 3. **Pórtico 3D** contra **PyNite** (Python, gratuito), comparando desplazamientos y reacciones.
 4. **Casos con solución cerrada** de cada etapa (los listados arriba).
@@ -331,6 +339,9 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
    - 8.3 cita los capítulos 3 y 5 del ACI 318-19 (en esa edición corresponde a los caps. 19, 20 y 26);
    - 8.5 dice "anexo 2" para desempeño, cuando es el Anexo 1.
 10. **Diferencia REP–ASCE en tabiques:** el REP los trata como carga muerta (0.75 kPa si L < 4 kPa); ASCE como viva (0.72 kPa si L ≤ 3.83 kPa). Manda el REP.
+11. **`fy` según la barra** (`calculo/interaccion/comun.py`): 40 ksi para la #3 y 60 ksi para las demás. Es un supuesto del programa; el grado del acero debería ser un dato de la sección (ver `docs/normas/etapa1_materiales_secciones.md`).
+12. **Área de la barra:** se calcula como π·db²/4 y no con el área nominal del ACI 318-19, Apéndice B (PDF p. 583). La diferencia es menor de 1 % (#6: 0.4418 contra 0.44 in²).
+13. **Dirección por defecto del diagrama 2D** (interfaz): θ = 0° es compresión hacia +b, es decir, flexión en la dirección de b. La flexión "de un eje" de `rectangular.py` (en la dirección de h) corresponde a θ = 90°. En una sección cuadrada da igual; en una rectangular conviene decidir cuál se muestra primero y decirlo en la pantalla.
 
 ## Preguntas abiertas
 

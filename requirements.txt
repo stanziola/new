@@ -5,3 +5,6 @@ pint
 PySide6
 pyvista
 pyvistaqt
+python-docx
+latex2mathml
+pywin32; sys_platform == "win32"
