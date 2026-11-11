@@ -1,10 +1,11 @@
 """Selección de nodos, apoyos y barras con un clic en la vista 3D.
 
 Se trabaja en coordenadas de pantalla (píxeles): cada nodo se proyecta a la pantalla y se busca
-el más cercano al clic; si no hay ninguno lo bastante cerca, se mira si el clic cae sobre el dibujo
-de un apoyo (el cono o la placa, debajo del nodo); y si tampoco, se busca la barra más cercana
-(distancia del clic al segmento proyectado). Así la tolerancia es la misma sin importar el zoom.
-nodo_cercano también lo usa el snap para pegarse a nodos existentes.
+el más cercano al clic; si no hay ninguno lo bastante cerca, se mira si el clic cae sobre el bloque
+de un nudo (con la sección real, el bloque tapa el punto del nodo y vale como nodo) o sobre el
+dibujo de un apoyo (el cono o la placa, debajo del nodo); y si tampoco, se busca la barra más
+cercana (distancia del clic al segmento proyectado). Así la tolerancia es la misma sin importar el
+zoom. nodo_cercano también lo usa el snap para pegarse a nodos existentes.
 """
 import numpy as np
 
@@ -92,14 +93,25 @@ def apoyo_en(renderer, cajas, x, y):
     return mejor[1] if mejor else None
 
 
-def elemento_en(renderer, modelo, x, y, tol_px, cajas_apoyo=None):
+def nodo_en(renderer, modelo, x, y, tol_px, cajas_nudo=None):
+    """ID del nodo bajo el clic (x, y), o None: el que está a menos de tol_px o, con la sección real
+    a la vista, aquel sobre cuyo bloque de nudo cae el clic (cajas_nudo: las cajas 3D de los
+    bloques, como en apoyo_en). El bloque tapa el punto del nodo: por eso también vale como nodo."""
+    nid = nodo_cercano(renderer, modelo, x, y, tol_px)
+    if nid is None and cajas_nudo:
+        nid = apoyo_en(renderer, cajas_nudo, x, y)
+    return nid
+
+
+def elemento_en(renderer, modelo, x, y, tol_px, cajas_apoyo=None, cajas_nudo=None):
     """Nodo, apoyo o barra bajo el clic (x, y): ("nodo", id), ("apoyo", id del nodo), ("barra", id)
     o None.
 
-    Prioridad: el nodo (si hay uno a menos de tol_px), después el apoyo (si el clic cae sobre su
-    dibujo; cajas_apoyo como en apoyo_en) y por último la barra.
+    Prioridad: el nodo (si hay uno a menos de tol_px, o si el clic cae sobre el bloque de su nudo),
+    después el apoyo (si el clic cae sobre su dibujo; cajas_apoyo como en apoyo_en) y por último la
+    barra.
     """
-    nid = nodo_cercano(renderer, modelo, x, y, tol_px)
+    nid = nodo_en(renderer, modelo, x, y, tol_px, cajas_nudo)
     if nid is not None:
         return ("nodo", nid)
     if cajas_apoyo:

@@ -7,7 +7,8 @@ import numpy as np
 from configuracion.formato import configurar
 from modelo import Modelo
 from modelo import combinaciones as comb
-from modelo.analisis import analizar, analizar_caso, combinar, fuerzas_en, fuerzas_en_x, peso_propio_total
+from modelo.analisis import (analizar, analizar_caso, combinar, desplazamientos_globales, fuerzas_en, fuerzas_en_x,
+                             geometria, peso_propio_total)
 from modelo.estructura import CargaNodal
 from ejemplos.portico import crear_portico
 from salida.consola import mostrar, mostrar_resultados
@@ -103,6 +104,45 @@ def verificar_peso_propio():
     comprobar("Carga muerta (D) = peso propio + carga muerta adicional", np.allclose(muerta.res.U, suma))
 
 
+def verificar_desplazamientos_globales():
+    """Desplazamientos a lo largo de una barra en ejes globales (modelo/analisis.desplazamientos_globales):
+    los locales (u, v, w) girados con Rᵀ. Es lo que muestran la deformada y el panel Diagrama.
+
+    1. Pórtico (vigas en X y en Y, y columnas): en x = 0 y x = L deben ser los desplazamientos de
+       los nodos de la barra, que salen de resolver K·U = F (otro camino).
+    2. Voladizo de 3 m en X con P = 10 kN hacia abajo en la punta: a la mitad,
+       Dz = −P·x²·(3L − x)/(6EI) = −1.7578 mm, y Dx = Dy = 0.
+    3. El mismo voladizo de pie (una columna) con P en +X: a media altura, Dx = +1.7578 mm. Aquí el
+       eje local z es −X global: si se confundieran locales y globales, saldría con otro signo."""
+    print("\n===== DESPLAZAMIENTOS EN EJES GLOBALES =====")
+    m = crear_portico()
+    rc = combinar(m, analizar(m), comb.predeterminadas(m.sds, m.rho)[comb.MUERTA])
+    peor = 0.0
+    for eid, el in m.elementos.items():
+        d = desplazamientos_globales(m, rc, eid, x=[0.0, geometria(m, eid)[2]])
+        for k, nid in enumerate((el.ni, el.nj)):
+            barra = np.array([d["Dx"][k], d["Dy"][k], d["Dz"][k]])
+            peor = max(peor, float(np.abs(barra - np.asarray(rc.res.desplazamientos[nid][:3])).max()))
+    comprobar(f"Pórtico: en los extremos de cada barra = desplazamientos de los nodos (dif. {peor:.1e})",
+              peor < 1e-12)
+
+    teorico = -10 * 1.5 ** 2 * (3 * 3 - 1.5) / (6 * 200e6 * 8e-5)
+    for nombre, punta, carga, clave, esperado in (("Voladizo en X", (3, 0, 0), {"fz": -10}, "Dz", teorico),
+                                                  ("Columna", (0, 0, 3), {"fx": 10}, "Dx", -teorico)):
+        v = Modelo()
+        v.agregar_material("Acero", e=200e6, g=77e6)
+        v.agregar_seccion("Prueba", a=0.01, iy=8e-5, iz=8e-5, j=1.6e-4)
+        v.agregar_nodo(0, 0, 0)
+        v.agregar_nodo(*punta)
+        v.agregar_elemento(1, 2, 1, 1)
+        v.restringir(1)
+        v.cargar(2, **carga)
+        d = desplazamientos_globales(v, analizar_caso(v, v.caso_inicial()), 1, x=[1.5])
+        otros = max(abs(d[k][0]) for k in ("Dx", "Dy", "Dz") if k != clave)
+        comprobar(f"{nombre}: {clave} a la mitad = {d[clave][0]:.6e}  (teórico ∓P·x²(3L − x)/6EI = {esperado:.6e})",
+                  np.isclose(d[clave][0], esperado) and otros < 1e-12)
+
+
 def verificar_combinaciones():
     """Combinaciones por superposición (modelo/analisis.combinar) contra otro método, a mano y
     contra la norma (ASCE 7-05 §2.3.2, PDF p. 34, y §12.4.2.3, PDF p. 156).
@@ -184,6 +224,7 @@ if __name__ == "__main__":
     verificar_voladizo()
     verificar_inestable()
     verificar_peso_propio()
+    verificar_desplazamientos_globales()
     verificar_combinaciones()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()

@@ -8,11 +8,23 @@ de su eje. Sus esquinas son los nodos ± b/2 en el eje local y y ± h/2 en el lo
 calculo.rigidez.barra.rotacion son los ejes locales escritos en globales). Las barras sin sección siguen
 como línea.
 
+Nudos: donde se encuentran dos o más barras con sección, sus cajas (que van de nodo a nodo) dejarían
+un hueco o se encimarían. Por eso en cada nudo va un bloque de concreto y las barras se recortan en
+sus caras (nudos). El bloque usa los ejes de la columna que llega al nudo (o, si no hay, los de la
+barra de mayor sección) y, en cada uno de esos tres ejes, mide lo que la mayor de las secciones de
+las barras que NO van a lo largo de ese eje: en un nudo viga–columna queda la sección de la columna
+por el peralte de la viga, ensanchado si la viga es más ancha. Es parte del nodo: se pinta y se
+selecciona con él. Es solo dibujo: el análisis sigue de nodo a nodo (sin brazos rígidos).
+
 Transparencia y acero: las cajas de la sección real pueden dibujarse transparentes (opacidad < 1).
-Entonces se dibuja también el acero longitudinal de las columnas (las barras verticales con sección
-rectangular y refuerzo): un tubo por barra de refuerzo, con su diámetro real, de nodo a nodo, en
-las posiciones del arreglo Nx × Ny de la sección. Es un dibujo esquemático: sin estribos, traslapes
-ni ganchos. Las vigas todavía no llevan acero dibujado (su armado real llega con el diseño de vigas).
+Entonces se dibuja también el acero longitudinal de las barras con sección rectangular y refuerzo,
+columnas y vigas: un tubo por barra de refuerzo, con su diámetro real, de nodo a nodo, en las
+posiciones del arreglo Nx × Ny de la sección. Es un dibujo esquemático: sin estribos, traslapes ni
+ganchos, y en los nudos las barras de unas y otras se cruzan sin anclarse. En una viga es el arreglo
+de su sección (Nx arriba y abajo), no un armado diseñado: ese llega con el diseño de vigas.
+
+Ejes locales: los x, y, z de la barra seleccionada, como tres flechas con los colores de los ejes
+globales de la esquina (dibujar_ejes_locales). Los diagramas N, V, M y T están en esos ejes.
 
 Colores por elemento: cada barra, nodo y apoyo tiene su color guardado en su malla (un arreglo
 RGB). Para marcar lo seleccionado (gris oscuro) o lo relacionado y lo que está bajo el mouse (un
@@ -31,6 +43,10 @@ from configuracion import interfaz as ui
 from modelo.apoyos import tipo_de
 from modelo.interaccion import diametro_barra, posiciones_barras
 
+PARALELA = 0.999                   # |coseno| desde el cual una barra va "a lo largo" de un eje del nudo
+RECORTE_MAXIMO = 0.45              # el nudo no le quita a una barra más que esta fracción de su largo
+POSICION_EJES_LOCALES = 0.15       # dónde van los ejes locales: fracción del largo, desde el nodo i
+
 
 class ModeloDibujado:
     """Lo dibujado de un modelo: actores, mallas y de qué ID es cada barra, nodo y apoyo."""
@@ -44,12 +60,15 @@ class ModeloDibujado:
         self.indice_apoyo = {}     # ID de nodo -> celdas (inicio, fin) en la malla "apoyos"
         self.cajas_apoyo = {}      # ID de nodo -> caja 3D de su cono o placa (para seleccionarlo)
         self.indice_solido = {}    # ID de barra -> celdas (inicio, fin) en la malla "solidos"
+        self.indice_nudo = {}      # ID de nodo -> celdas (inicio, fin) de su bloque en la malla "solidos"
+        self.cajas_nudo = {}       # ID de nodo -> caja 3D de su bloque (un clic sobre él elige el nodo)
 
     def _lugares(self, item):
         """Dónde está pintado un ("nodo", id), ("apoyo", id) o ("barra", id): lista de (malla, índice).
 
-        Un nodo es solo su punto y un apoyo solo su cono o su placa: el apoyo de un nodo seleccionado
-        se pinta aparte, como relacionado (lo decide la ventana)."""
+        Un nodo es su punto y, con la sección real, el bloque de su nudo. Un apoyo es solo su cono o
+        su placa: el apoyo de un nodo seleccionado se pinta aparte, como relacionado (lo decide la
+        ventana)."""
         if item is None:
             return []
         tipo, ident = item
@@ -62,8 +81,13 @@ class ModeloDibujado:
             if ident in self.indice_solido:
                 lugares.append(("solidos", slice(*self.indice_solido[ident])))
             return lugares
-        if tipo == "nodo" and ident in self.indice_nodo:
-            return [("nodos", self.indice_nodo[ident])]
+        if tipo == "nodo":
+            lugares = []
+            if ident in self.indice_nodo:
+                lugares.append(("nodos", self.indice_nodo[ident]))
+            if ident in self.indice_nudo:
+                lugares.append(("solidos", slice(*self.indice_nudo[ident])))
+            return lugares
         return []
 
     def pintar(self, resaltado=None, seleccion=None, enlazados=()):
@@ -122,15 +146,73 @@ def _forma_apoyo(punto, apoyo, tamano):
     return pv.Box(bounds=(x - lado, x + lado, y - lado, y + lado, z - grueso, z))
 
 
-def caja_barra(pi, pj, alfa_grados, b, h):
-    """Caja de b × h entre los puntos pi y pj (b en el eje local y, h en el local z)."""
-    pi, pj = np.asarray(pi, float), np.asarray(pj, float)
-    beta, gamma, _ = angulos(pi, pj)
-    r = rotacion(np.radians(alfa_grados), beta, gamma)
-    ey, ez = r[1] * b / 2, r[2] * h / 2
+def _caja(pi, pj, ey, ez):
+    """Caja entre los puntos pi y pj. ey y ez son vectores: la media dimensión en cada lado."""
     esquinas = [p + sy * ey + sz * ez for p in (pi, pj) for sy, sz in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     caras = [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0]]
     return pv.PolyData(np.array(esquinas), np.hstack([[4] + c for c in caras]))
+
+
+def _ejes_barra(modelo, el):
+    """(pi, pj, R, largo) de una barra: sus extremos y sus ejes locales (las filas de R)."""
+    pi = np.asarray(modelo.nodos[el.ni].coords, dtype=float)
+    pj = np.asarray(modelo.nodos[el.nj].coords, dtype=float)
+    beta, gamma, largo = angulos(pi, pj)
+    return pi, pj, rotacion(np.radians(el.alfa), beta, gamma), largo
+
+
+def caja_barra(pi, pj, alfa_grados, b, h, recorte_i=0.0, recorte_j=0.0):
+    """Caja de b × h entre los puntos pi y pj (b en el eje local y, h en el local z). Los recortes
+    la acortan en cada extremo: es lo que ocupa el bloque del nudo."""
+    pi, pj = np.asarray(pi, float), np.asarray(pj, float)
+    beta, gamma, _ = angulos(pi, pj)
+    r = rotacion(np.radians(alfa_grados), beta, gamma)
+    return _caja(pi + r[0] * recorte_i, pj - r[0] * recorte_j, r[1] * b / 2, r[2] * h / 2)
+
+
+def nudos(modelo, con_caja):
+    """Bloque de concreto de cada nudo y lo que se recorta cada barra que llega a él.
+
+    con_caja: {ID de barra: Concreto} de las barras que se dibujan con su sección. Devuelve
+    (bloques, recortes):
+    - bloques: {ID de nodo: (centro, ejes, medias)}. Una caja centrada en el nodo; `ejes` son los
+      tres ejes del nudo (filas) y `medias`, su media dimensión en cada uno;
+    - recortes: {(ID de barra, ID de nodo): distancia} que se acorta la caja de la barra en ese
+      extremo, para terminar en la cara del bloque.
+
+    Ejes del nudo: los locales de la columna que llega (si hay) o de la barra de mayor sección.
+    Media dimensión en un eje `a`: la mayor, entre las barras que no van a lo largo de `a`, de lo
+    que mide su sección en esa dirección, |a·y|·b/2 + |a·z|·h/2 (y, z: sus ejes locales). Ejemplo:
+    columna de 40×40 y vigas de 30×50 en X y en Y → bloque de 40×40×50.
+    Si alguna media da 0 (dos barras en línea, sin nada que las cruce) no hay bloque. Solo se
+    recortan las barras que van a lo largo de un eje del nudo; una inclinada llega hasta el nodo."""
+    datos = {eid: _ejes_barra(modelo, modelo.elementos[eid]) for eid in con_caja}
+    llegan = {}                                        # ID de nodo -> barras con caja que llegan a él
+    for eid in con_caja:
+        el = modelo.elementos[eid]
+        for nid in (el.ni, el.nj):
+            llegan.setdefault(nid, []).append(eid)
+    bloques, recortes = {}, {}
+    for nid, barras in llegan.items():
+        if len(barras) < 2:
+            continue
+        principal = max(barras, key=lambda e: (modelo.es_columna(e), con_caja[e].b * con_caja[e].h))
+        ejes = datos[principal][2]
+        medias = np.zeros(3)
+        for k, a in enumerate(ejes):
+            for eid in barras:
+                r, c = datos[eid][2], con_caja[eid]
+                if abs(a @ r[0]) < PARALELA:           # esta barra cruza el eje: su sección cuenta
+                    medias[k] = max(medias[k], abs(a @ r[1]) * c.b / 2 + abs(a @ r[2]) * c.h / 2)
+        if medias.min() <= 1e-9:
+            continue
+        bloques[nid] = (np.asarray(modelo.nodos[nid].coords, dtype=float), ejes, medias)
+        for eid in barras:
+            r, largo = datos[eid][2], datos[eid][3]
+            for k, a in enumerate(ejes):
+                if abs(a @ r[0]) >= PARALELA:
+                    recortes[(eid, nid)] = min(medias[k], RECORTE_MAXIMO * largo)
+    return bloques, recortes
 
 
 def _unir(mallas):
@@ -149,21 +231,19 @@ def seccion_rectangular(modelo, el):
     return c if c is not None and c.forma == "rectangular" and c.b > 0 and c.h > 0 else None
 
 
-def acero_columnas(modelo, barras):
-    """Malla con el acero longitudinal de las columnas, o None si no hay ninguna con refuerzo.
+def acero_longitudinal(modelo, barras):
+    """Malla con el acero longitudinal de las barras (columnas y vigas), o None si ninguna tiene
+    refuerzo.
 
-    barras: {ID de barra: Concreto} de las barras que se dibujan con su sección. De ellas, solo las
-    columnas (verticales). Cada barra de refuerzo es un tubo de su diámetro real, de nodo a nodo, a
-    (y − b/2) en el eje local y y (z − h/2) en el local z del centro, como las cajas de caja_barra."""
+    barras: {ID de barra: Concreto} de las barras que se dibujan con su sección. Cada barra de
+    refuerzo es un tubo de su diámetro real, de nodo a nodo, a (y − b/2) en el eje local y y
+    (z − h/2) en el local z del centro, como las cajas de caja_barra. Es el arreglo Nx × Ny de la
+    sección: en los nudos, el acero de unas barras y otras se cruza sin anclarse."""
     por_radio = {}                                   # radio -> (puntos, líneas): un filtro tube por diámetro
     for eid, c in barras.items():
-        if not modelo.es_columna(eid) or c.nx < 2 or c.ny < 2 or not 0 < c.d < min(c.b, c.h) / 2:
+        if c.nx < 2 or c.ny < 2 or not 0 < c.d < min(c.b, c.h) / 2:
             continue
-        el = modelo.elementos[eid]
-        pi = np.asarray(modelo.nodos[el.ni].coords, dtype=float)
-        pj = np.asarray(modelo.nodos[el.nj].coords, dtype=float)
-        beta, gamma, _ = angulos(pi, pj)
-        r = rotacion(np.radians(el.alfa), beta, gamma)
+        pi, pj, r, _largo = _ejes_barra(modelo, modelo.elementos[eid])
         puntos, lineas = por_radio.setdefault(diametro_barra(c.barra) / 2, ([], []))
         for y, z in posiciones_barras(c):
             desplazado = r[1] * (y - c.b / 2) + r[2] * (z - c.h / 2)
@@ -180,8 +260,9 @@ def acero_columnas(modelo, barras):
 def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
     """Dibuja barras, nodos, apoyos y números de nodo. Devuelve un ModeloDibujado.
 
-    Con seccion_real, las barras con sección rectangular se dibujan como cajas de b × h, con la
-    opacidad dada (1 = opaco). Con opacidad < 1 se dibuja también el acero de las columnas."""
+    Con seccion_real, las barras con sección rectangular se dibujan como cajas de b × h, con un
+    bloque en cada nudo, y con la opacidad dada (1 = opaco). Con opacidad < 1 se dibuja también el
+    acero longitudinal."""
     d = ModeloDibujado()
     if not modelo.nodos:
         return d
@@ -190,24 +271,34 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
     ids = list(idx)
     puntos = np.array([modelo.nodos[nid].coords for nid in ids], dtype=float)
 
-    # Barras con sección real: una caja por barra, todas en una malla
+    # Barras con sección real: una caja por barra (recortada en sus nudos) y un bloque por nudo,
+    # todo en una malla
     con_caja = {eid: c for eid, el in modelo.elementos.items()
                 if seccion_real and (c := seccion_rectangular(modelo, el)) is not None}
     if con_caja:
+        bloques, recortes = nudos(modelo, con_caja)
         cajas, inicio = [], 0
         for eid, c in con_caja.items():
             el = modelo.elementos[eid]
-            caja = caja_barra(modelo.nodos[el.ni].coords, modelo.nodos[el.nj].coords, el.alfa, c.b, c.h)
+            caja = caja_barra(modelo.nodos[el.ni].coords, modelo.nodos[el.nj].coords, el.alfa, c.b, c.h,
+                              recortes.get((eid, el.ni), 0.0), recortes.get((eid, el.nj), 0.0))
             d.indice_solido[eid] = (inicio, inicio + caja.n_cells)
             inicio += caja.n_cells
             cajas.append(caja)
+        for nid, (centro, ejes, medias) in bloques.items():
+            bloque = _caja(centro - ejes[0] * medias[0], centro + ejes[0] * medias[0],
+                           ejes[1] * medias[1], ejes[2] * medias[2])
+            d.indice_nudo[nid] = (inicio, inicio + bloque.n_cells)
+            d.cajas_nudo[nid] = tuple(float(v) for v in bloque.bounds)
+            inicio += bloque.n_cells
+            cajas.append(bloque)
         malla = _unir(cajas)
         d.base["solidos"] = _rgb(colores.ELEMENTO, malla.n_cells)
         malla.cell_data["color"] = d.base["solidos"].copy()
         d.mallas["solidos"] = malla
         d.actores["solidos"] = _agregar(vista, "solidos", malla, por_celda=True)
         d.actores["solidos"].GetProperty().SetOpacity(opacidad)
-        acero = acero_columnas(modelo, con_caja) if opacidad < 1 else None
+        acero = acero_longitudinal(modelo, con_caja) if opacidad < 1 else None
         if acero is not None:                         # se ve a través del concreto transparente
             d.actores["acero"] = vista.add_mesh(acero, color=colores.ACERO, pickable=False,
                                                 reset_camera=False, name="acero", render=False)
@@ -268,6 +359,37 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
             text_color=colores.ETIQUETA, shape=None, show_points=False, always_visible=True,
             name="numeros_barras", reset_camera=False)
     return d
+
+
+def dibujar_ejes_locales(vista, modelo, eid, tamano, seccion_real=False):
+    """Ejes locales x, y, z de la barra eid: tres flechas con los colores de los ejes globales de la
+    esquina (x rojo, y verde, z azul) y su letra. Devuelve {"ejes_locales": actor,
+    "letras_ejes_locales": actor}.
+
+    Van cerca del nodo i (el origen de x), a POSICION_EJES_LOCALES del largo. Con la sección real,
+    salen de la arista +y, +z de la caja y no del eje: si no, el concreto taparía la flecha de x.
+    Las fuerzas internas N, V, M y T de la barra están en estos ejes: N a lo largo de x; My, Vz, N y
+    T se dibujan en el plano x–z y Mz y Vy en el x–y."""
+    el = modelo.elementos[eid]
+    pi, _pj, r, largo = _ejes_barra(modelo, el)
+    origen = pi + r[0] * POSICION_EJES_LOCALES * largo
+    c = seccion_rectangular(modelo, el) if seccion_real else None
+    if c is not None:
+        origen = origen + r[1] * c.b / 2 + r[2] * c.h / 2
+    lado = min(ui.TAMANO_CARGA * tamano, 0.5 * largo)
+    flechas = []
+    for eje, color in zip(r, (colores.EJE_X, colores.EJE_Y, colores.EJE_Z)):
+        flecha = pv.Arrow(start=origen, direction=eje, scale=lado, tip_length=0.28, tip_radius=0.09,
+                          shaft_radius=0.03)
+        flecha.cell_data["color"] = _rgb(color, flecha.n_cells)
+        flechas.append(flecha)
+    actores = {"ejes_locales": _agregar(vista, "ejes_locales", _unir(flechas), por_celda=True)}
+    actores["ejes_locales"].SetUseBounds(False)
+    actores["letras_ejes_locales"] = vista.add_point_labels(
+        np.array([origen + eje * lado * 1.12 for eje in r]), ["x", "y", "z"], font_size=ui.TAMANO_LETRA,
+        text_color=colores.ETIQUETA, shape=None, show_points=False, always_visible=True,
+        name="letras_ejes_locales", reset_camera=False)
+    return actores
 
 
 def dibujar_rejilla(vista, rejilla, cuenta_para_camara=False):

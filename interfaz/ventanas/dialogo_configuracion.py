@@ -12,13 +12,13 @@
 """
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QFormLayout, QGridLayout,
+from PySide6.QtWidgets import (QCheckBox, QColorDialog, QDialog, QFormLayout, QGridLayout,
                                QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QTabWidget,
                                QVBoxLayout, QWidget)
 
 from configuracion import preferencias, unidades
 from configuracion import interfaz as ui
-from interfaz.paneles.comunes import CampoNumero
+from interfaz.paneles.comunes import CampoNumero, Lista
 
 GRUPOS = ["Unidades", "Rejilla", "Vista", "Interfaz", "Colores"]
 
@@ -119,7 +119,7 @@ class DialogoConfiguracion(QDialog):
             control = QCheckBox()
             control.toggled.connect(lambda *_, p=p: self._cambio(p))
         elif p.tipo == "opcion":
-            control = QComboBox()
+            control = Lista()
             control.addItems(list(p.opciones))
             control.currentTextChanged.connect(lambda *_, p=p: self._cambio(p))
         elif p.tipo == "color":

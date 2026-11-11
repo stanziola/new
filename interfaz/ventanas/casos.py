@@ -18,11 +18,11 @@ import copy
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
-from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
+from PySide6.QtWidgets import (QDialog, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
                                QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from configuracion import colores
-from interfaz.paneles.comunes import CampoNumero
+from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import combinaciones as comb
 from modelo.estructura import TIPOS_CASO
 
@@ -173,7 +173,7 @@ class DialogoCasos(_DialogoTabla):
         celda.setData(ID, cid)
         celda.setToolTip("Vacío: el nombre de su tipo (Viva, Viento…)")
         self.tabla.setItem(fila, 0, celda)
-        lista = QComboBox()
+        lista = Lista(estirar=True)                 # llena su celda de la tabla
         for t in self.ventana.modelo.tipos_de_caso():
             lista.addItem(_nombre_tipo(t), t)
         lista.setCurrentIndex(max(0, lista.findData(tipo)))
@@ -234,7 +234,7 @@ class DialogoCombinaciones(_DialogoTabla):
         self.sds.setToolTip("SDS: aceleración espectral de diseño para periodos cortos (ASCE 7-05 §11.4.4).\n"
                             "Entra en las combinaciones 5 y 7: (1.2 + 0.2·SDS)D y (0.9 − 0.2·SDS)D (§12.4.2.3).\n"
                             "Por ahora se escribe a mano; saldrá de la etapa de sismo.")
-        self.rho = QComboBox()
+        self.rho = Lista()
         self.rho.addItem("1.3", 1.3)
         self.rho.addItem("1.0", 1.0)
         self.rho.setCurrentIndex(max(0, self.rho.findData(modelo.rho)))

@@ -185,6 +185,30 @@ def _carga_barra(p, color):
     _mas(p, (20.5, 4.5), 2.5)
 
 
+def _carga_uniforme(p, color):
+    """Tipo de carga en barra: uniforme (una fila de flechas, unidas arriba, sobre toda la barra)."""
+    p.drawLine(QPointF(3, 19), QPointF(21, 19))
+    p.drawLine(QPointF(4, 7), QPointF(20, 7))
+    for x in (4, 9.3, 14.7, 20):
+        p.drawLine(QPointF(x, 7), QPointF(x, 16))
+        _punta(p, x, 16, 0, 1, 2.4)
+
+
+def _carga_puntual(p, color):
+    """Tipo de carga en barra: una fuerza puntual."""
+    p.drawLine(QPointF(3, 19), QPointF(21, 19))
+    p.drawLine(QPointF(12, 4), QPointF(12, 16))
+    _punta(p, 12, 16, 0, 1, 3.4)
+
+
+def _carga_momento(p, color):
+    """Tipo de carga en barra: un momento concentrado (una flecha que gira sobre un punto de la barra)."""
+    p.drawLine(QPointF(3, 19), QPointF(21, 19))
+    _punto(p, color, (12, 19), 1.4)
+    p.drawArc(QRectF(5.5, 6.5, 13, 13), -20 * 16, 220 * 16)       # de la derecha, por arriba, a la izquierda
+    _punta(p, 5.9, 15.2, 0.35, 1, 3.0)
+
+
 def _cargas(p, color):
     """Cargas visibles: flechas que bajan sobre una barra (sin "+": solo muestra u oculta)."""
     p.drawLine(QPointF(3, 19), QPointF(21, 19))
@@ -341,6 +365,9 @@ _DIBUJOS = {
     "cerrar": _cerrar,
     "carga_nodo": _carga_nodo,
     "carga_barra": _carga_barra,
+    "carga_uniforme": _carga_uniforme,
+    "carga_puntual": _carga_puntual,
+    "carga_momento": _carga_momento,
     "analizar": _analizar,
     "deformada": _deformada,
     "axial": _axial,

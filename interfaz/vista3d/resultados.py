@@ -3,6 +3,9 @@
 - Deformada: cada barra deformada (curva) y los nodos desplazados, en colores.DEFORMADA. El factor
   multiplica los desplazamientos reales (1 = tamaño real): ui.FACTOR_DEFORMADA o, con la escala
   automática, el que hace que el desplazamiento mayor mida ui.FRACCION_DEFORMADA × tamaño del modelo.
+  Se puede ver completa ("deformada") o solo con una componente global ("Dx", "Dy" o "Dz": las
+  otras dos se dejan en cero), para separar, por ejemplo, el desplazamiento lateral del vertical.
+  Los desplazamientos van en ejes GLOBALES; las fuerzas internas, en los locales de cada barra.
 - Diagramas: el valor a lo largo de cada barra, dibujado en un plano local. Con escala 1
   (ui.FACTOR_DIAGRAMA), el valor mayor de todo el modelo mide ui.FRACCION_DIAGRAMA × tamaño del
   modelo; con 2, el doble:
@@ -27,6 +30,10 @@ from interfaz.vista3d.cargas import flechas_en_nodo
 from modelo.analisis import deformada_de, fuerzas_en, geometria
 
 DIRECCION = {"My": (2, -1.0), "Mz": (1, -1.0), "Vy": (1, 1.0), "Vz": (2, 1.0), "N": (2, 1.0), "T": (2, 1.0)}
+# Lo que se puede ver de la deformada: completa o una sola componente global (su columna en Dx, Dy, Dz)
+DEFORMADAS = {"deformada": None, "Dx": 0, "Dy": 1, "Dz": 2}
+NOMBRE_DEFORMADA = {"deformada": "total", "Dx": "Δx", "Dy": "Δy", "Dz": "Δz"}
+RUIDO = 1e-9                           # una componente menor que esto × el desplazamiento mayor es cero
 
 
 def _malla(puntos, triangulos):
@@ -43,12 +50,22 @@ def factor_deformada(mayor, tamano):
     return ui.FACTOR_DEFORMADA
 
 
-def dibujar_deformada(vista, modelo, rc, tamano):
+def dibujar_deformada(vista, modelo, rc, tamano, componente="deformada"):
     """Barras deformadas y nodos desplazados. Devuelve ({"deformada": actor}, factor usado);
-    sin desplazamientos, ({}, None)."""
+    sin desplazamientos, ({}, None).
+
+    componente: "deformada" (completa) o "Dx", "Dy", "Dz": solo esa componente global. Si esa
+    componente es cero (frente al desplazamiento mayor del modelo) no se dibuja nada: la escala
+    automática amplificaría el ruido numérico hasta que pareciera una deformada."""
     curvas = [deformada_de(modelo, rc, eid) for eid in modelo.elementos]
+    total = max((np.abs(u).max() for _p, u in curvas), default=0.0)
+    columna = DEFORMADAS[componente]
+    if columna is not None:
+        solo = np.zeros(3)
+        solo[columna] = 1.0
+        curvas = [(p, u * solo) for p, u in curvas]
     mayor = max((np.abs(u).max() for _p, u in curvas), default=0.0)
-    if mayor <= 0:
+    if mayor <= RUIDO * total:
         return {}, None
     escala = factor_deformada(mayor, tamano)
     lineas = [pv.lines_from_points(p + u * escala) for p, u in curvas]

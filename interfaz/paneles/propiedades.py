@@ -23,10 +23,10 @@ PanelPropiedades a su derecha.
 """
 import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDockWidget, QGridLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QDockWidget, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton, QRadioButton,
-                               QScrollArea, QSizePolicy, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                               QWidget)
+                               QScrollArea, QSizePolicy, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
+                               QVBoxLayout, QWidget)
 
 from calculo.rigidez.barra import angulos
 from configuracion import colores, formato
@@ -34,7 +34,7 @@ from configuracion import interfaz as ui
 from configuracion.formato import FUERZAS, GDL_PANTALLA
 from interfaz import textos
 from interfaz.iconos import icono
-from interfaz.paneles.comunes import CampoNumero
+from interfaz.paneles.comunes import CampoNumero, Lista, a_la_izquierda
 from interfaz.paneles.formularios import (BARRAS, FORMULARIOS, VistaSeccion, campo, campo_barras,
                                           campo_seccion)
 from interfaz.textos import DIRECCION, UNIDAD_CARGA, donde, texto_carga
@@ -111,9 +111,9 @@ class PanelAsignar(QWidget):
                             "(se asigna también su material):")
         indicacion.setWordWrap(True)
         diseno.addWidget(indicacion)
-        self.lista = QComboBox()
+        self.lista = Lista()
         self.lista.currentIndexChanged.connect(self._elegida)
-        diseno.addWidget(self.lista)
+        diseno.addWidget(self.lista, 0, Qt.AlignLeft)
         self.dibujo = VistaSeccion()
         self.dibujo.setFixedHeight(210)
         diseno.addWidget(self.dibujo)
@@ -191,36 +191,60 @@ class PanelCargaNodo(QWidget):
 
 
 class PanelCargaBarra(QWidget):
-    """Valores de la carga en barra: tipo, valor, dirección, distancia a y sumar o reemplazar."""
+    """Valores de la carga en barra: tipo, valor, dirección, distancia a y sumar o reemplazar.
+
+    El tipo se elige con tres botones a la vista (uniforme, puntual y momento concentrado), no con
+    una lista: así se ve de entrada qué cargas hay. El activo queda sombreado."""
+
+    TIPOS = (("uniforme", "Uniforme", "Carga uniforme, en toda la barra"),
+             ("puntual", "Puntual", "Fuerza puntual, a una distancia a del nodo i"),
+             ("momento", "Momento", "Momento concentrado, a una distancia a del nodo i"))
+    NOTAS = {"uniforme": "El signo da el sentido: Z global negativo es hacia abajo.",
+             "puntual": "El signo da el sentido: Z global negativo es hacia abajo.",
+             "momento": "Dirección: el eje alrededor del que gira el momento. El signo sigue la regla de "
+                        "la mano derecha (el pulgar, hacia el lado positivo del eje)."}
 
     def __init__(self, parent=None):
         super().__init__(parent)
         diseno = QVBoxLayout(self)
         diseno.setContentsMargins(0, 0, 0, 0)
         diseno.addWidget(QLabel("Clic sobre una barra para cargarla:"))
+        fila_tipo = QHBoxLayout()
+        grupo = QButtonGroup(self)                 # uno activo a la vez
+        self.botones_tipo = {}
+        for tipo, nombre, ayuda in self.TIPOS:
+            boton = QToolButton()
+            boton.setIcon(icono(f"carga_{tipo}"))
+            boton.setIconSize(QSize(ui.TAMANO_ICONO, ui.TAMANO_ICONO))
+            boton.setText(nombre)
+            boton.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            boton.setCheckable(True)
+            boton.setToolTip(ayuda)
+            boton.clicked.connect(lambda *_, t=tipo: self._cambio_tipo(t))
+            grupo.addButton(boton)
+            fila_tipo.addWidget(boton)
+            self.botones_tipo[tipo] = boton
+        fila_tipo.addStretch(1)
+        diseno.addLayout(fila_tipo)
         rejilla = QGridLayout()
-        self.tipo = QComboBox()
-        for tipo, texto in (("uniforme", "Uniforme (en toda la barra)"), ("puntual", "Fuerza puntual"),
-                            ("momento", "Momento concentrado")):
-            self.tipo.addItem(texto, tipo)
-        self.direccion = QComboBox()
+        self.direccion = Lista()
         for d in ("Z", "X", "Y", "x", "y", "z"):
             self.direccion.addItem(DIRECCION[d], d)
         self.a = campo("longitud", 0.0, 1e4)
         self.a.poner(0.0)
-        self._valor_fila = QLabel("Valor")
         self.valores_por_tipo = {}
         self.valor = None
-        rejilla.addWidget(QLabel("Tipo"), 0, 0)
-        rejilla.addWidget(self.tipo, 0, 1)
-        rejilla.addWidget(self._valor_fila, 1, 0)
-        rejilla.addWidget(QLabel("Dirección"), 2, 0)
-        rejilla.addWidget(self.direccion, 2, 1)
-        rejilla.addWidget(QLabel("a (desde el nodo i)"), 3, 0)
-        rejilla.addWidget(self.a, 3, 1)
+        self._tipo_actual = None
+        rejilla.addWidget(QLabel("Valor"), 0, 0)
+        rejilla.addWidget(QLabel("Dirección"), 1, 0)
+        rejilla.addWidget(self.direccion, 1, 1, Qt.AlignLeft)
+        rejilla.addWidget(QLabel("a (desde el nodo i)"), 2, 0)
+        rejilla.addWidget(self.a, 2, 1)
         self._rejilla = rejilla
         diseno.addLayout(rejilla)
-        diseno.addWidget(QLabel("El signo da el sentido: Z global negativo es hacia abajo."))
+        self.nota = QLabel()
+        self.nota.setWordWrap(True)
+        diseno.addWidget(self.nota)
         self.sumar = QRadioButton("Sumar a las que ya tiene")
         self.reemplazar = QRadioButton("Reemplazar las que tiene")
         self.sumar.setChecked(True)
@@ -229,25 +253,32 @@ class PanelCargaBarra(QWidget):
         self.caso = QLabel()
         diseno.addWidget(self.caso)
         diseno.addStretch(1)
-        self.tipo.currentIndexChanged.connect(self._cambio_tipo)
-        self._cambio_tipo()
+        self._cambio_tipo("uniforme")
 
-    def _cambio_tipo(self, *_):
-        """El campo del valor cambia de unidad con el tipo (kN/m, kN o kN·m)."""
-        tipo = self.tipo.currentData()
+    def _cambio_tipo(self, tipo):
+        """Otro tipo de carga: el campo del valor cambia de unidad (kN/m, kN o kN·m) y recuerda lo
+        que se había escrito para cada tipo."""
+        self.botones_tipo[tipo].setChecked(True)
+        if tipo == self._tipo_actual:
+            return
         if self.valor is not None:
             self.valores_por_tipo[self._tipo_actual] = self.valor.valor()
             self._rejilla.removeWidget(self.valor)
             self.valor.deleteLater()
         self.valor = campo(UNIDAD_CARGA[tipo], -1e9, 1e9)
         self.valor.poner(self.valores_por_tipo.get(tipo, -10.0))
-        self._rejilla.addWidget(self.valor, 1, 1)
+        self._rejilla.addWidget(self.valor, 0, 1)
         self._tipo_actual = tipo
         self.a.setEnabled(tipo != "uniforme")
+        self.nota.setText(self.NOTAS[tipo])
+
+    def tipo(self):
+        """El tipo elegido: "uniforme", "puntual" o "momento"."""
+        return self._tipo_actual
 
     def valores(self):
         """(tipo, valor, dirección, a) en unidades internas."""
-        return self.tipo.currentData(), self.valor.valor(), self.direccion.currentData(), self.a.valor()
+        return self._tipo_actual, self.valor.valor(), self.direccion.currentData(), self.a.valor()
 
 
 class PanelPropiedades(QWidget):
@@ -356,8 +387,11 @@ class PanelPropiedades(QWidget):
         item.setToolTip(1, valor)               # el texto completo, si no cabe
 
     def _fila_control(self, padre, nombre, control):
+        """Una fila con un control en la columna Valor. Qt le da al control todo el ancho de la
+        celda: una lista iría creciendo con el panel, así que va con un espacio estirable al lado
+        (un CampoNumero ya lo trae)."""
         item = QTreeWidgetItem(padre, [nombre, ""])
-        self.arbol.setItemWidget(item, 1, control)
+        self.arbol.setItemWidget(item, 1, a_la_izquierda(control) if isinstance(control, Lista) else control)
         return control
 
     @staticmethod
@@ -487,7 +521,7 @@ class PanelPropiedades(QWidget):
             self._fila(g, "E", formato.cantidad(mat.e, "esfuerzo"))
             self._fila(g, "G", formato.cantidad(mat.g, "esfuerzo"))
         g = self._grupo("Sección")
-        lista = QComboBox()
+        lista = Lista()
         lista.addItem("sin asignar", None)
         for sid, sec in modelo.secciones.items():
             lista.addItem(textos.nombre(sec, modelo), sid)
@@ -514,7 +548,7 @@ class PanelPropiedades(QWidget):
         b, h = campo_seccion(), campo_seccion()
         b.poner(c.b)
         h.poner(c.h)
-        barra = QComboBox()
+        barra = Lista()
         for n in BARRAS:
             barra.addItem(f"#{n}", n)
         barra.setCurrentIndex(max(0, barra.findData(c.barra)))
@@ -663,7 +697,12 @@ class PanelPropiedades(QWidget):
 class Propiedades(QDockWidget):
     """El panel acoplable de la derecha: un PanelPropiedades y, solo cuando aplica, la pestaña
     Interacción con el diagrama de interacción de la columna elegida (barra vertical de concreto con
-    refuerzo), que se calcula al abrir la pestaña. Si no aplica, no hay pestañas a la vista."""
+    refuerzo), que se calcula al abrir la pestaña. Si no aplica, no hay pestañas a la vista.
+
+    Con la pestaña Interacción a la vista el panel necesita más ancho para que el diagrama se
+    aprecie: avisa con `interaccion_a_la_vista` y la ventana lo ensancha, y lo devuelve a su ancho al
+    volver a Propiedades (o al dejar de tener una columna elegida)."""
+    interaccion_a_la_vista = Signal(bool)      # True: se abrió la pestaña Interacción; False: se dejó
 
     def __init__(self, parent=None):
         super().__init__("Propiedades", parent)
@@ -680,9 +719,10 @@ class Propiedades(QDockWidget):
                                        "columna elegida. Solo para columnas de concreto con refuerzo")
         self.pestanas.setTabVisible(1, False)
         self.pestanas.tabBar().hide()              # una sola pestaña: no hace falta mostrarla
-        self.pestanas.currentChanged.connect(lambda *_: self._ver_interaccion())
+        self.pestanas.currentChanged.connect(self._cambio_pestana)
         self.setWidget(self.pestanas)
         self._columna = None                       # sección de la columna elegida, o None
+        self._con_interaccion = False              # la pestaña Interacción está a la vista
         # Atajos al contenido (la ventana los usa como si fueran del panel acoplable)
         p = self.panel
         self.ver_diagrama, self.asignar_seccion, self.editar_seccion = p.ver_diagrama, p.asignar_seccion, p.editar_seccion
@@ -735,6 +775,15 @@ class Propiedades(QDockWidget):
         self.pestanas.tabBar().setVisible(hay)
         if hay:
             self._ver_interaccion()
+
+    def _cambio_pestana(self, *_):
+        """Otra pestaña: primero se avisa (la ventana ensancha o devuelve el panel) y después se
+        calcula el diagrama, que así se dibuja ya con su tamaño."""
+        visible = self.pestanas.currentIndex() == 1
+        if visible != self._con_interaccion:
+            self._con_interaccion = visible
+            self.interaccion_a_la_vista.emit(visible)
+        self._ver_interaccion()
 
     def _ver_interaccion(self):
         """Calcula (si hace falta) el diagrama, solo con la pestaña Interacción a la vista."""

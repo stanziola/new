@@ -14,7 +14,7 @@ from configuracion import unidades
 from calculo.tolerancias import TOL_LONGITUD
 from interfaz import textos
 from modelo.apoyos import NOMBRES, TIPOS
-from interfaz.vista3d.seleccion import barra_cercana, elemento_en, nodo_cercano
+from interfaz.vista3d.seleccion import barra_cercana, elemento_en, nodo_en
 
 
 AVISO_AUTOMATICO = "El peso propio es automático: elige otro caso (Carga muerta adicional…) para poner cargas"
@@ -68,7 +68,7 @@ class Seleccionar(Herramienta):
     def clic(self, x, y, cand):
         v = self.ventana
         v.seleccionar(elemento_en(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX,
-                                  v.dibujado.cajas_apoyo))
+                                  v.dibujado.cajas_apoyo, v.dibujado.cajas_nudo))
 
 
 class AgregarNodo(Herramienta):
@@ -231,7 +231,7 @@ class AgregarApoyo(Herramienta):
 
     def clic(self, x, y, cand):
         v = self.ventana
-        nid = nodo_cercano(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        nid = nodo_en(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX, v.dibujado.cajas_nudo)
         if nid is None:
             v.mensaje("Haz clic sobre un nodo")
             return
@@ -256,7 +256,7 @@ class AgregarCargaNodo(Herramienta):
 
     def clic(self, x, y, cand):
         v = self.ventana
-        nid = nodo_cercano(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        nid = nodo_en(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX, v.dibujado.cajas_nudo)
         if nid is None:
             v.mensaje("Haz clic sobre un nodo")
             return

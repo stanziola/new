@@ -204,12 +204,21 @@ def desplazamientos_locales(modelo, rc, eid, x=None):
                                mat.e, mat.g, sec.a, sec.iy, sec.iz, sec.j, x=x)
 
 
+def desplazamientos_globales(modelo, rc, eid, x=None):
+    """Desplazamientos de la barra en ejes GLOBALES: {"x", "Dx", "Dy", "Dz"} (x sigue siendo la
+    distancia desde el nodo i, a lo largo de la barra). Son los locales (u, v, w) girados: las
+    filas de R son los ejes locales escritos en globales, así que global = Rᵀ · local."""
+    r, _t, _largo = geometria(modelo, eid)
+    d = desplazamientos_locales(modelo, rc, eid, x)
+    g = np.column_stack([d["u"], d["v"], d["w"]]) @ r                    # cada fila: Rᵀ · (u, v, w)
+    return {"x": d["x"], "Dx": g[:, 0], "Dy": g[:, 1], "Dz": g[:, 2]}
+
+
 def deformada_de(modelo, rc, eid):
     """Deformada de la barra: (puntos originales, desplazamientos globales) a lo largo de x."""
     el = modelo.elementos[eid]
     r, _t, _largo = geometria(modelo, eid)
-    d = desplazamientos_locales(modelo, rc, eid)
+    d = desplazamientos_globales(modelo, rc, eid)
     pi = np.asarray(modelo.nodos[el.ni].coords, dtype=float)
     puntos = pi + np.outer(d["x"], r[0])
-    desplazamientos = np.column_stack([d["u"], d["v"], d["w"]]) @ r      # locales -> globales (Rᵀ)
-    return puntos, desplazamientos
+    return puntos, np.column_stack([d["Dx"], d["Dy"], d["Dz"]])

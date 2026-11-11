@@ -15,11 +15,11 @@ from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registra la proyección 3D)
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from configuracion import colores, unidades
 from interfaz import textos
-from interfaz.paneles.comunes import CampoNumero
+from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import interaccion as concreto
 
 
@@ -35,7 +35,9 @@ class DiagramaInteraccion(QWidget):
         self.modo = "2D"
         self._datos = None                      # lo calculado, en unidades internas
         self._clave = None                      # (datos de la sección, modo, θ) de lo calculado
-        self.figura = Figure(figsize=(7, 6))
+        # layout="tight": los márgenes se recalculan en cada dibujo, también cuando el panel cambia
+        # de ancho (con la pestaña Interacción, Propiedades se ensancha)
+        self.figura = Figure(figsize=(7, 6), layout="tight")
         self.lienzo = FigureCanvasQTAgg(self.figura)
         diseno = QVBoxLayout(self)
         diseno.setContentsMargins(0, 0, 0, 0)
@@ -44,7 +46,7 @@ class DiagramaInteraccion(QWidget):
         fila = QHBoxLayout()
         self.selector_modo = None
         if con_modo:
-            self.selector_modo = QComboBox()
+            self.selector_modo = Lista()
             self.selector_modo.addItem("2D (P–M)", "2D")
             self.selector_modo.addItem("3D (superficie)", "3D")
             self.selector_modo.currentIndexChanged.connect(self._cambio_modo)
@@ -167,7 +169,6 @@ class DiagramaInteraccion(QWidget):
             ax.set_ylabel(f"φMx ({sm})")
             ax.set_zlabel(f"φPn ({sf})")
             ax.set_title("Superficie de interacción de diseño", fontsize=10)
-        self.figura.tight_layout()
         self.lienzo.draw_idle()
 
 

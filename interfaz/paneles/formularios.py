@@ -11,11 +11,11 @@ Las medidas de la sección (b, h, d) usan la magnitud "seccion" (cm por defecto)
 """
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
-from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from configuracion import colores, formato
 from interfaz import textos
-from interfaz.paneles.comunes import CampoNumero
+from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import interaccion as puente
 from modelo import concreto as cc
 from modelo.estructura import Concreto
@@ -178,9 +178,9 @@ class FormularioSeccion(QWidget):
     def __init__(self, modelo, parent=None):
         super().__init__(parent)
         self.modelo = modelo
-        self.material = QComboBox()
+        self.material = Lista()
         self.b, self.h, self.d = campo_seccion(), campo_seccion(), campo_seccion(0.005, 1.0)
-        self.barra = QComboBox()
+        self.barra = Lista()
         for n in BARRAS:
             self.barra.addItem(f"#{n}", n)
         self.nx, self.ny = campo_barras(), campo_barras()
@@ -294,7 +294,7 @@ class FormularioOtraSeccion(QWidget):
         self.iy, self.iz, self.j = (campo("inercia", 1e-14, 1e3) for _ in range(3))
         for caja, valor in ((self.a, 0.04), (self.iy, 1.333e-4), (self.iz, 1.333e-4), (self.j, 2.25e-4)):
             caja.poner(valor)
-        self.material = QComboBox()
+        self.material = Lista()
         self.material.addItem("sin material", None)
         for mid, m in modelo.materiales.items():
             self.material.addItem(textos.nombre(m), mid)

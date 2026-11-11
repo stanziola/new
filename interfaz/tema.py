@@ -6,6 +6,10 @@ paleta de colores de la aplicación: basta con dársela en grises. La hoja de es
 sombreado de los botones (al pasar el mouse, activo y presionado) y el aspecto de los menús.
 Los árboles (explorador y Propiedades) usan cuadritos "+" y "−" unidos por líneas punteadas, en vez
 de flechas: los dibuja EstiloArbol, una capa sobre Fusion que solo cambia ese dibujo.
+Pestañas: la elegida va en blanco, más alta y con una línea oscura arriba; las demás, en un gris
+más oscuro y más bajas. Así se distingue en cuál se está, también sobre un fondo blanco.
+Listas desplegables: "combobox-popup: 0" hace que se abran debajo de su caja (Fusion las abre
+encima, con la opción vigente sobre la caja, y pueden salir hacia arriba).
 Se puede volver a llamar después de cambiar colores en Configuración.
 """
 from PySide6.QtCore import QPoint, QRect, Qt
@@ -91,11 +95,14 @@ def _hoja_de_estilo():
         QTreeWidget {{ border: none; }}
         QTreeView::item {{ padding: 1px 0px; }}
         QTreeView::item:selected {{ background: {c.INTERFAZ_SELECCION}; color: {c.INTERFAZ_TEXTO}; }}
-        QTabWidget::pane {{ border: none; border-top: 1px solid {c.INTERFAZ_BORDE}; top: -1px; }}
-        QTabBar::tab {{ background: {c.INTERFAZ_PESTANA_INACTIVA}; border: 1px solid transparent;
-                        padding: 4px 12px; margin: 0px; color: {c.INTERFAZ_TEXTO}; }}
-        QTabBar::tab:!selected:hover {{ background: {c.INTERFAZ_HOVER}; }}
-        QTabBar::tab:selected {{ background: {c.INTERFAZ_FONDO}; border-color: {c.INTERFAZ_BORDE};
+        QComboBox {{ combobox-popup: 0; }}
+        QTabWidget::pane {{ border: none; border-top: 1px solid {c.INTERFAZ_ACTIVO_BORDE}; top: -1px; }}
+        QTabBar::tab {{ background: {c.INTERFAZ_PESTANA_INACTIVA}; border: 1px solid {c.INTERFAZ_ACTIVO_BORDE};
+                        border-top: 2px solid {c.INTERFAZ_PESTANA_INACTIVA}; padding: 4px 12px;
+                        margin-top: 3px; margin-right: -1px; color: {c.INTERFAZ_TEXTO}; }}
+        QTabBar::tab:!selected:hover {{ background: {c.INTERFAZ_HOVER}; border-top-color: {c.INTERFAZ_HOVER}; }}
+        QTabBar::tab:selected {{ background: {c.INTERFAZ_FONDO}; margin-top: 0px;
+                                 border-top: 2px solid {c.INTERFAZ_TEXTO};
                                  border-bottom-color: {c.INTERFAZ_FONDO}; }}
         QMainWindow::separator {{ background: {c.INTERFAZ_ACTIVO_BORDE};
                                   width: {ui.ANCHO_SEPARADOR}px; height: {ui.ANCHO_SEPARADOR}px; }}

@@ -12,14 +12,20 @@
   deselecciona (señal `vaciado`), y las carpetas no se eligen: un clic las abre o las cierra.
 - CampoNumero: un número con su unidad al lado (como en Ftool), sin flechas y de ancho fijo. Es una
   caja de texto: deja escribir libremente y revisa el número al terminar.
+- Lista: la lista desplegable de toda la interfaz. Se abre hacia abajo, la opción vigente va
+  sombreada y no se puede elegir, y no se estira con el panel.
+- a_la_izquierda: mete un control en una fila con un espacio que se estira a su derecha, para que
+  dentro de una celda (un árbol, una rejilla) conserve su ancho.
 """
 import math
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton, QTreeWidget, QWidget
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QMenu, QSizePolicy, QToolButton,
+                               QTreeWidget, QWidget)
 
 from configuracion import colores, formato, unidades
+from configuracion import interfaz as ui
 from interfaz.iconos import icono
 
 TAMANO_X = 12                          # la x de cerrar, en píxeles
@@ -138,6 +144,67 @@ class ArbolLimpio(QTreeWidget):
             evento.accept()
             return
         super().mouseReleaseEvent(evento)
+
+
+# ---------------------------------------------------------------- Listas desplegables
+class Lista(QComboBox):
+    """Lista desplegable, igual en toda la interfaz.
+
+    - Se abre siempre hacia abajo, debajo de su caja. (Fusion la abriría encima, con la opción
+      vigente sobre la caja; lo cambia una línea de la hoja de estilo, en tema.py.)
+    - Desplegada, la opción vigente va sombreada y no se puede elegir: ya está elegida. Solo mientras
+      está abierta: cerrada, la rueda y las flechas del teclado siguen pasando por todas.
+    - No se estira con el panel: mide lo que su texto más largo, con tope
+      (ui.ANCHO_MAXIMO_LISTA_PX), y se encoge si no cabe. Desplegada sí muestra los nombres
+      completos. Con estirar=True llena el espacio que le den (las celdas de una tabla).
+    """
+    ANCHO_MINIMO_PX = 56
+
+    def __init__(self, parent=None, estirar=False):
+        super().__init__(parent)
+        self.setMaxVisibleItems(30)
+        if not estirar:
+            self.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            self.setMinimumWidth(self.ANCHO_MINIMO_PX)
+            self.setMaximumWidth(ui.ANCHO_MAXIMO_LISTA_PX)
+
+    def _marcar_vigente(self, desplegada):
+        """Sombrea y deshabilita la opción vigente (desplegada) o deja todas como estaban."""
+        modelo = self.model()
+        if not hasattr(modelo, "item"):
+            return
+        elegible = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        for i in range(self.count()):
+            item = modelo.item(i)
+            if desplegada and i == self.currentIndex():
+                item.setFlags(item.flags() & ~elegible)
+                item.setData(QColor(colores.INTERFAZ_SELECCION), Qt.BackgroundRole)
+                item.setData(QColor(colores.INTERFAZ_TEXTO), Qt.ForegroundRole)   # deshabilitada, pero legible
+            else:
+                item.setFlags(item.flags() | elegible)
+                item.setData(None, Qt.BackgroundRole)
+                item.setData(None, Qt.ForegroundRole)
+
+    def showPopup(self):                         # noqa: N802 (nombre de Qt)
+        self._marcar_vigente(True)
+        self.view().setMinimumWidth(self.view().sizeHintForColumn(0) + 28)   # los nombres completos
+        super().showPopup()
+
+    def hidePopup(self):                         # noqa: N802
+        super().hidePopup()
+        self._marcar_vigente(False)
+
+
+def a_la_izquierda(control):
+    """El control con un espacio que se estira a su derecha. Dentro de una celda de un árbol, Qt le
+    da al control todo el ancho de la celda; así el que crece es el espacio y el control no."""
+    caja = QWidget()
+    fila = QHBoxLayout(caja)
+    fila.setContentsMargins(0, 0, 0, 0)
+    fila.addWidget(control)
+    fila.addStretch(1)
+    return caja
 
 
 # ---------------------------------------------------------------- Campos numéricos

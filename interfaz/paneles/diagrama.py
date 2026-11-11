@@ -1,18 +1,20 @@
-"""Panel Diagrama (abajo del dibujo): lo que se ve arriba, para UNA barra y en sus ejes locales.
+"""Panel Diagrama (abajo del dibujo): lo que se ve arriba, para UNA barra.
 
 Sigue a la barra de arriba: muestra el resultado que está prendido ahí (Deformada, Axial, Cortante,
 Momento o Torsión), del caso o la combinación activos, para la barra seleccionada. No tiene listas
 propias: lo que cambia lo que se ve es siempre la barra de arriba.
-- x local en el eje horizontal, de 0 (nodo i) a L (nodo j). Así una columna también se ve acostada
-  y cabe en un panel ancho.
+- En el eje horizontal, la distancia x desde el nodo i, de 0 a L (el eje x local). Así una columna
+  también se ve acostada y cabe en un panel ancho.
 - Con un diagrama (N, Vy, Vz, T, My o Mz): el valor en el eje vertical, del mismo lado que en 3D
   (vista3d/resultados.DIRECCION): los momentos del lado de la tracción (positivo hacia abajo); N, V
-  y T positivos hacia arriba. A la derecha, las seis fuerzas en el corte.
-- Con Deformada: los desplazamientos de la barra en sus ejes locales, v (en y) y w (en z), sin
-  amplificar. A la derecha, u, v, w y el giro φx en el corte.
+  y T positivos hacia arriba. Las fuerzas internas van siempre en los ejes LOCALES de la barra (no
+  existen en globales: N es "a lo largo de la barra"); el título dice en qué plano.
+- Con Deformada: los desplazamientos de la barra en ejes GLOBALES, sin amplificar: Δx, Δy y Δz
+  juntos (Total) o solo el elegido arriba.
+- A la derecha, solo los valores de lo que se está viendo: en el corte, y su máximo y su mínimo.
 - Un deslizador (o el campo x) mueve el corte a lo largo de la barra. En una carga puntual justo en
   el corte, el valor es el de después de la carga.
-Los números salen de modelo/analisis.py (fuerzas_en, fuerzas_en_x y desplazamientos_locales), que
+Los números salen de modelo/analisis.py (fuerzas_en, fuerzas_en_x y desplazamientos_globales), que
 usa las fórmulas de calculo/rigidez/diagramas.py: aquí no hay fórmulas.
 """
 import numpy as np
@@ -24,17 +26,27 @@ from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QSlider, QVBoxLa
 from configuracion import colores, formato, unidades
 from configuracion import interfaz as ui
 from interfaz.paneles.comunes import CampoNumero
-from interfaz.vista3d.resultados import DIRECCION
-from modelo.analisis import desplazamientos_locales, fuerzas_en, fuerzas_en_x, geometria
+from interfaz.vista3d.resultados import DEFORMADAS, DIRECCION
+from modelo.analisis import desplazamientos_globales, fuerzas_en, fuerzas_en_x, geometria
 
-FUERZAS = ("N", "Vy", "Vz", "T", "My", "Mz")
-NOMBRE = {"deformada": "Deformada", "N": "Axial N", "Vy": "Cortante Vy", "Vz": "Cortante Vz", "T": "Torsión T",
+NOMBRE = {"deformada": "Deformada total", "Dx": "Desplazamiento Δx", "Dy": "Desplazamiento Δy",
+          "Dz": "Desplazamiento Δz", "N": "Axial N", "Vy": "Cortante Vy", "Vz": "Cortante Vz", "T": "Torsión T",
           "My": "Momento My", "Mz": "Momento Mz"}
-DESPLAZAMIENTOS = (("u", "u (en x)"), ("v", "v (en y)"), ("w", "w (en z)"))
+# En qué ejes está cada resultado: va en el título, porque es lo que más se presta a confusión
+EJES = {"N": "a lo largo de x local; tracción +", "Vy": "en y local", "Vz": "en z local",
+        "T": "alrededor de x local", "My": "flexión en el plano x–z local",
+        "Mz": "flexión en el plano x–y local"}
+GLOBALES = (("Dx", "Δx"), ("Dy", "Δy"), ("Dz", "Δz"))
+SIMBOLO = dict(GLOBALES)
 
 
 def magnitud_de(componente):
     return "fuerza" if componente in ("N", "Vy", "Vz") else "momento"
+
+
+def _color_global(clave):
+    """Δx, Δy y Δz, con los colores de los ejes X, Y y Z de la esquina del dibujo."""
+    return {"Dx": colores.EJE_X, "Dy": colores.EJE_Y, "Dz": colores.EJE_Z}[clave]
 
 
 class _Contenido(QWidget):
@@ -87,7 +99,7 @@ class PanelDiagrama(QDockWidget):
         self._modelo = self._rc = self._eid = self._resultado = None
         self._largo = 0.0
         self._linea = None
-        self._extremos = ""
+        self._extremos = []                        # filas (nombre, valor) con el máximo y el mínimo
         self._vaciar("Selecciona una barra")
 
     # ---------- Qué se muestra ----------
@@ -135,20 +147,27 @@ class PanelDiagrama(QDockWidget):
         modelo, rc, eid, resultado = self._modelo, self._rc, self._eid, self._resultado
         el = modelo.elementos[eid]
         tipo = "Columna" if modelo.es_columna(eid) else "Elemento"
-        self.titulo.setText(f"<b>{tipo} {eid}</b> (nodo {el.ni} → {el.nj}, ejes locales) — "
-                            f"<b>{NOMBRE[resultado]}</b> — {rc.nombre}")
+        ejes = "ejes globales" if resultado in DEFORMADAS else EJES[resultado]
+        self.titulo.setText(f"<b>{tipo} {eid}</b> (nodo {el.ni} → {el.nj}) — "
+                            f"<b>{NOMBRE[resultado]}</b> ({ejes}) — {rc.nombre}")
         fl = unidades.factor("longitud")
         self.figura.clear()
         ax = self.figura.add_subplot(111)
-        if resultado == "deformada":
-            d = desplazamientos_locales(modelo, rc, eid)
+        if resultado in DEFORMADAS:
+            d = desplazamientos_globales(modelo, rc, eid)
             fd = unidades.factor("desplazamiento")
-            ax.plot(d["x"] / fl, d["w"] / fd, color=colores.DEFORMADA, linewidth=1.4, label="w (en z local)")
-            ax.plot(d["x"] / fl, d["v"] / fd, color=colores.DEFORMADA, linewidth=1.0, linestyle="--",
-                    label="v (en y local)")
-            ax.legend(fontsize=7, loc="best")
-            ax.set_ylabel(f"desplazamiento ({unidades.simbolo('desplazamiento')})", fontsize=8)
-            self._extremos = ""
+            claves = [c for c, _ in GLOBALES] if resultado == "deformada" else [resultado]
+            for clave in claves:
+                ax.plot(d["x"] / fl, d[clave] / fd, color=_color_global(clave), linewidth=1.4,
+                        label=f"{SIMBOLO[clave]} (global)")
+            if len(claves) > 1:
+                ax.legend(fontsize=7, loc="best")
+                total = np.sqrt(d["Dx"] ** 2 + d["Dy"] ** 2 + d["Dz"] ** 2)
+                self._extremos = [("|Δ| máx", formato.cantidad(float(total.max()), "desplazamiento"))]
+            else:
+                self._extremos = self._maximos(SIMBOLO[resultado], d[resultado], "desplazamiento")
+            nombre = "desplazamiento" if len(claves) > 1 else SIMBOLO[resultado]
+            ax.set_ylabel(f"{nombre} ({unidades.simbolo('desplazamiento')})", fontsize=8)
         else:
             magnitud = magnitud_de(resultado)
             d = fuerzas_en(modelo, rc, eid)
@@ -159,35 +178,46 @@ class PanelDiagrama(QDockWidget):
             if DIRECCION[resultado][1] < 0:           # momentos: del lado de la tracción (positivo abajo)
                 ax.invert_yaxis()
             ax.set_ylabel(f"{resultado} ({unidades.simbolo(magnitud)})", fontsize=8)
-            self._extremos = (f"<tr><td colspan=2><br>{resultado} máx: {formato.cantidad(float(np.max(d[resultado])), magnitud)}"
-                              f"<br>{resultado} mín: {formato.cantidad(float(np.min(d[resultado])), magnitud)}</td></tr>")
+            self._extremos = self._maximos(resultado, d[resultado], magnitud)
         ax.axhline(0, color=colores.INTERFAZ_DESHABILITADO, linewidth=0.8)
         ax.set_xlim(0, self._largo / fl)
-        ax.set_xlabel(f"x local ({unidades.simbolo('longitud')})", fontsize=8)
+        ax.set_xlabel(f"x: distancia desde el nodo {el.ni} ({unidades.simbolo('longitud')})", fontsize=8)
         ax.tick_params(labelsize=7)
         self._linea = ax.axvline(self._x_actual() / fl, color=colores.SELECCIONADO, linewidth=1)
         self.lienzo.draw_idle()
         self._leer(self._x_actual())
 
+    @staticmethod
+    def _maximos(nombre, valores, magnitud):
+        """Filas con el máximo y el mínimo de lo que se ve, a lo largo de la barra."""
+        return [(f"{nombre} máx", formato.cantidad(float(np.max(valores)), magnitud)),
+                (f"{nombre} mín", formato.cantidad(float(np.min(valores)), magnitud))]
+
     def _leer(self, x):
-        """Los valores en el corte x (m) y la línea del corte en el gráfico."""
+        """Los valores en el corte x (m), solo de lo que se está viendo, y la línea del corte."""
         if self._eid is None:
             return
         self.x.poner(x)
-        filas = []
-        if self._resultado == "deformada":
-            d = desplazamientos_locales(self._modelo, self._rc, self._eid, x=[x])
-            for clave, nombre in DESPLAZAMIENTOS:
-                filas.append((nombre, formato.cantidad(float(d[clave][0]), "desplazamiento"), False))
-            filas.append(("φx (giro)", f"{formato.numero(float(d['phi'][0]), 6)} rad", False))
+        if self._resultado in DEFORMADAS:
+            d = desplazamientos_globales(self._modelo, self._rc, self._eid, x=[x])
+            valores = {clave: float(d[clave][0]) for clave, _ in GLOBALES}
+            if self._resultado == "deformada":
+                filas = [(simbolo, formato.cantidad(valores[clave], "desplazamiento")) for clave, simbolo in GLOBALES]
+                filas.append(("|Δ|", formato.cantidad(float(np.linalg.norm(list(valores.values()))),
+                                                      "desplazamiento")))
+            else:
+                filas = [(SIMBOLO[self._resultado], formato.cantidad(valores[self._resultado], "desplazamiento"))]
         else:
-            valores = fuerzas_en_x(self._modelo, self._rc, self._eid, x)
-            for comp in FUERZAS:
-                filas.append((comp, formato.cantidad(valores[comp], magnitud_de(comp)), comp == self._resultado))
-        cuerpo = "".join(f"<tr><td>{'<b>' if activo else ''}{nombre}{'</b>' if activo else ''}&nbsp;&nbsp;</td>"
-                         f"<td align='right'>{'<b>' if activo else ''}{valor}{'</b>' if activo else ''}</td></tr>"
-                         for nombre, valor, activo in filas)
-        self.lectura.setText(f"<b>En el corte</b><table>{cuerpo}{self._extremos}</table>")
+            valor = fuerzas_en_x(self._modelo, self._rc, self._eid, x)[self._resultado]
+            filas = [(self._resultado, formato.cantidad(valor, magnitud_de(self._resultado)))]
+
+        def tabla(lista, negrita):
+            marca, cierre = ("<b>", "</b>") if negrita else ("", "")
+            return "".join(f"<tr><td>{marca}{nombre}{cierre}&nbsp;&nbsp;</td>"
+                           f"<td align='right'>{marca}{valor}{cierre}</td></tr>" for nombre, valor in lista)
+
+        self.lectura.setText(f"<b>En el corte</b><table>{tabla(filas, True)}</table>"
+                             f"<br>A lo largo de la barra<table>{tabla(self._extremos, False)}</table>")
         if self._linea is not None:
             corte = x / unidades.factor("longitud")
             self._linea.set_xdata([corte, corte])

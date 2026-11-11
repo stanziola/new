@@ -76,6 +76,8 @@ PARAMETROS = [
     P(interfaz, "EJES_TAMANO", "Tamaño de los ejes (fracción del alto de la vista)", "real", "Interfaz", 0.06, 0.4),
     P(interfaz, "ANIM_CAMARA_DURACION_MS", "Duración del giro de la cámara (ms)", "entero", "Interfaz", 0, 3000),
     P(interfaz, "HISTORIAL_MAXIMO", "Pasos para deshacer", "entero", "Interfaz", 1, 500),
+    P(interfaz, "ANCHO_PANEL_INTERACCION", "Ancho de Propiedades con la pestaña Interacción (píxeles)", "entero",
+      "Interfaz", 300, 2000),
     # ---------- Colores del dibujo ----------
     P(colores, "ELEMENTO", "Nodos, elementos y apoyos", "color", "Colores"),
     P(colores, "RESALTADO", "Relacionado con lo seleccionado y bajo el mouse", "color", "Colores"),

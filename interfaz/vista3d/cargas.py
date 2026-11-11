@@ -7,9 +7,11 @@
 - Peso propio: en el caso que lo lleva, cada barra muestra su uniforme A·γ hacia −Z global. No es
   una carga guardada: sale de modelo/analisis.cargas_de_peso_propio y se dibuja como las demás.
 - Una uniforme paralela a la barra (el peso propio de una columna) no se puede dibujar con flechas
-  que "llegan" a la barra: va al costado, en una línea paralela con las flechas a lo largo.
-- Con la sección real a la vista, las flechas de las cargas en barra llegan a la cara de la sección
-  y no al eje: si no, quedarían metidas dentro del concreto.
+  que "llegan" a la barra: va sobre el eje de la barra, con las flechas a lo largo. Con la sección
+  real opaca queda dentro del concreto: se ve con las barras como líneas o con transparencia.
+- Con la sección real a la vista, las flechas de las cargas transversales en barra llegan a la cara
+  de la sección y no al eje, y las de las cargas en nodo, a la cara del nudo: si no, quedarían
+  metidas dentro del concreto.
 Todas del mismo largo (ui.TAMANO_CARGA × tamaño del modelo) y del color colores.CARGA: el valor se
 lee en las etiquetas (Etiquetas → Valores de las cargas).
 flecha, flecha_doble y flechas_en_nodo las usa también el dibujo de las reacciones (resultados.py).
@@ -27,7 +29,6 @@ from modelo.estructura import CargaBarra, CargaNodal
 GLOBALES = {"X": 0, "Y": 1, "Z": 2}
 LOCALES = {"x": 0, "y": 1, "z": 2}
 PARALELA = 0.999                       # |coseno| entre la carga y la barra a partir del cual es paralela
-HACIA_LA_VISTA = np.array([1.0, 1.0, 0.3]) / np.linalg.norm([1.0, 1.0, 0.3])   # hacia la cámara isométrica
 
 
 def flecha(punta, u, largo):
@@ -47,22 +48,30 @@ def flecha_doble(origen, u, largo):
 
 def flechas_en_nodo(piezas, p, fuerzas, largo, separacion=0.0, minimo_fuerza=0.0, minimo_momento=0.0):
     """Agrega a `piezas` la flecha de la fuerza resultante de [Fx, Fy, Fz, Mx, My, Mz] y la flecha
-    doble del momento resultante, en el punto p. La flecha de la fuerza termina a `separacion` de p
-    (0 = llega al punto). Lo que no pase de su mínimo no se dibuja.
+    doble del momento resultante, en el punto p. Lo que no pase de su mínimo no se dibuja.
+
+    separacion: a qué distancia de p termina la flecha de la fuerza y empieza la del momento
+    (0 = en el punto). Es un número o una función de la dirección u (lo que hay del nodo a la cara
+    del concreto en esa dirección).
     Devuelve dónde va la etiqueta (junto a la fuerza; si no hay, junto al momento) o None."""
     fuerza, momento = np.asarray(fuerzas[:3], dtype=float), np.asarray(fuerzas[3:], dtype=float)
     nf, nm = np.linalg.norm(fuerza), np.linalg.norm(momento)
+
+    def hasta(u):
+        return separacion(u) if callable(separacion) else separacion
+
     lugar = None
     if nf > minimo_fuerza:
         u = fuerza / nf
-        punta = p - u * separacion
+        punta = p - u * hasta(u)
         piezas.append(flecha(punta, u, largo))
         lugar = punta - u * largo * 1.05
     if nm > minimo_momento:
         u = momento / nm
-        piezas.append(flecha_doble(p, u, largo))
+        origen = p + u * hasta(u) if callable(separacion) else p
+        piezas.append(flecha_doble(origen, u, largo))
         if lugar is None:
-            lugar = p + u * largo * 1.05
+            lugar = origen + u * largo * 1.05
     return lugar
 
 
@@ -98,17 +107,15 @@ def _uniforme(piezas, modelo, eid, pi, pj, eje, u, largo, seccion_real):
         colas = np.array([q - u * largo * 0.8 for q in puntos])
         piezas.append(pv.lines_from_points(colas))
         return colas[len(colas) // 2] - u * largo * 0.15
-    # Paralela a la barra: al costado, con las flechas a lo largo. El costado es el que mira hacia la
-    # vista isométrica (HACIA_LA_VISTA), para que la barra no la tape al abrir el modelo.
-    lado = HACIA_LA_VISTA - (HACIA_LA_VISTA @ eje) * eje
-    lado = lado / np.linalg.norm(lado) if np.linalg.norm(lado) > 1e-6 else geometria(modelo, eid)[0][2]
-    separado = lado * (_media_seccion(modelo, eid, lado, seccion_real) + largo * 0.45)
-    puntos = [pi + (pj - pi) * t + separado for t in tramos]
+    # Paralela a la barra (el peso propio de una columna): sobre el eje, con las flechas a lo largo.
+    # La propia barra hace de línea que las une. Con la sección real opaca quedan dentro del
+    # concreto: se ven con las barras como líneas o con transparencia.
+    puntos = [pi + (pj - pi) * t for t in tramos]
     cada = min(largo * 0.8, 0.85 * float(np.linalg.norm(puntos[1] - puntos[0])))
     for q in (puntos[1:] if u @ eje > 0 else puntos[:-1]):     # cada flecha queda dentro de su tramo
         piezas.append(flecha(q, u, cada))
-    piezas.append(pv.lines_from_points(np.array([puntos[0], puntos[-1]])))
-    return puntos[len(puntos) // 2] + lado * largo * 0.2
+    lado = geometria(modelo, eid)[0][2]                        # la etiqueta, al costado (z local)
+    return puntos[len(puntos) // 2] + lado * (_media_seccion(modelo, eid, lado, seccion_real) + largo * 0.2)
 
 
 def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True, seccion_real=False):
@@ -123,7 +130,13 @@ def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True, seccion_real
     for c in cargas:
         if isinstance(c, CargaNodal):
             p = np.asarray(modelo.nodos[c.nodo].coords, dtype=float)
-            lugar = flechas_en_nodo(piezas, p, c.fuerzas, largo)
+            barras = modelo.elementos_conectados(c.nodo) if seccion_real else []
+
+            def cara(u, barras=barras):
+                """Del nodo a la cara del concreto (el nudo o la sección de sus barras) hacia u."""
+                return max((_media_seccion(modelo, eid, u, True) for eid in barras), default=0.0)
+
+            lugar = flechas_en_nodo(piezas, p, c.fuerzas, largo, cara)
             if lugar is not None:
                 etiquetas.append(texto_carga(c))
                 posiciones.append(lugar)

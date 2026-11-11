@@ -75,7 +75,9 @@ CARGAS_VISIBLES = True                # cargas del caso activo dibujadas al abri
 REACCIONES_VISIBLES = False           # reacciones en los apoyos, con resultados a la vista (botón Reacciones)
 OPACIDAD_MINIMA = 0.1                 # concreto con la transparencia al máximo: no llega a desaparecer
 ANCHO_DESLIZADOR_PX = 90              # deslizador de transparencia de la barra inferior
-ANCHO_MAXIMO_LISTA_PX = 240           # listas Caso y Combinación de la barra de arriba
+ANCHO_MAXIMO_LISTA_PX = 240           # tope del ancho de las listas desplegables (paneles/comunes.Lista)
+ANCHO_PANEL_INTERACCION = 560         # personalización base: ancho de Propiedades con la pestaña Interacción
+EJES_LOCALES_VISIBLES = True          # ejes x, y, z locales de la barra seleccionada (menú Etiquetas)
 
 # ---------- Panel Diagrama ----------
 PASOS_DESLIZADOR = 400                # posiciones del deslizador a lo largo de la barra
