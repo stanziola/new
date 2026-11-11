@@ -18,7 +18,6 @@ RAIZ = Path(__file__).resolve().parents[2]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from pruebas.integridad import revisar_huellas                              # noqa: E402
 from scripts.memoria import word                                            # noqa: E402
 from scripts.memoria.capitulos import interaccion, presentacion, rigidez    # noqa: E402
 from scripts.memoria.documento import Memoria, pedir_actualizacion_al_abrir  # noqa: E402
@@ -47,14 +46,6 @@ def version():
     return f"commit {commit}" + (" más cambios sin confirmar" if _git("status", "--porcelain") else "")
 
 
-def estado_del_calculo():
-    """Si el cálculo documentado es el aprobado (huellas de calculo/, pruebas/integridad.py)."""
-    diferencias = revisar_huellas()
-    if not diferencias:
-        return "Cálculo documentado: el aprobado (las huellas de calculo/ coinciden)"
-    return "ATENCIÓN: calculo/ difiere de lo aprobado (" + "; ".join(diferencias) + ")"
-
-
 def generar(salida=SALIDA, pdf=False, imprimir=print):
     """Arma el documento y lo guarda. Devuelve True si lo pudo guardar."""
     hoy = date.today()
@@ -63,8 +54,7 @@ def generar(salida=SALIDA, pdf=False, imprimir=print):
               ["Fórmulas y programación", "Programa de análisis y diseño estructural 3D"],
               AUTOR,
               ["Normas: REP 2021 · ASCE/SEI 7-05 · ACI 318-19",
-               f"Generado el {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year} · versión del programa: {version()}",
-               estado_del_calculo()])
+               f"Generado el {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year} · versión del programa: {version()}"])
     m.indice()
     for capitulo in CAPITULOS:
         capitulo(m)
