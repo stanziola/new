@@ -1,6 +1,7 @@
 """Diagramas de interacción (2D y 3D) dentro de Qt.
 
-- DiagramaInteraccion: el dibujo con sus controles (2D o 3D, θ y, si hay, la tabla de puntos Pu–Mu).
+- DiagramaInteraccion: el dibujo con sus controles (2D o 3D, θ y, en la pestaña de una columna, las
+  medidas de su sección, editables).
   Lo usan la ventana aparte (Ver 2D y Ver 3D de una sección) y la pestaña Interacción de Propiedades
   (columnas).
 - VentanaDiagrama: una ventana con un DiagramaInteraccion.
@@ -13,13 +14,19 @@ unidades internas: si cambian las unidades solo se vuelve a dibujar, y lo ya cal
 sección no se recalcula.
 
 Puntos Pu–Mu (solo en la pestaña de una columna, con resultados a la vista): uno por combinación y
-por extremo de la columna (modelo/analisis.demandas_columna), listados en una tabla. Una columna de
-un pórtico 3D tiene momento en sus dos ejes a la vez, así que cada punto se compara con el corte de
-la superficie en la dirección de SU momento:
-- 2D: P contra el momento resultante √(My² + Mz²), con la curva de la dirección del punto elegido
-  en la tabla. Los puntos con esa misma dirección van rellenos; los demás, huecos (su curva es otra);
+por extremo de la columna (modelo/analisis.demandas_columna). Los dos de la combinación que se ve
+arriba (Σ y la lista Combinación) van en rojo; con un caso o la envolvente, ninguno. Una columna de un
+pórtico 3D tiene momento en sus dos ejes a la vez, así que cada punto se compara con el corte de la
+superficie en la dirección de SU momento:
+- 2D: P contra el momento resultante √(My² + Mz²), con la curva de la dirección del punto rojo de mayor
+  momento (sin combinación a la vista, la del punto de mayor momento). Los puntos con esa misma
+  dirección van rellenos; los demás, huecos (su curva es otra);
 - 3D: todos los puntos en su lugar, (Mz, My, P), frente a la superficie.
 Sin puntos, el 2D es el de siempre: la curva con la fibra más comprimida hacia θ.
+
+Sección editable (la pestaña de una columna rectangular): b, h, barra, Nx y Ny debajo del dibujo, con
+la cuantía. Al terminar un cambio se emite `seccion_editada` y la ventana pone otra sección solo en esa
+columna (y, si había resultados, vuelve a analizar): así se ajusta la sección mirando los puntos.
 """
 import math
 from dataclasses import astuple
@@ -27,16 +34,15 @@ from dataclasses import astuple
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 import numpy as np
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout, QHeaderView, QLabel, QStackedWidget,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QApplication, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from configuracion import colores, formato, unidades
 from interfaz import textos
 from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import interaccion as concreto
 
-MARCADOR = "o"                  # todos los puntos Pu–Mu, círculos (el extremo se lee en la tabla)
+MARCADOR = "o"                  # todos los puntos Pu–Mu, círculos
 MISMA_DIRECCION = math.radians(1.0)     # hasta aquí, dos momentos "van en la misma dirección"
 AYUDA_THETA = ("θ: dirección de la fibra más comprimida, en el plano de la sección (0° = hacia b, 90° = hacia h). "
                "No es la dirección del momento resultante, salvo en 0°, 90°, 180° y 270°")
@@ -52,14 +58,18 @@ class DiagramaInteraccion(QWidget):
     """El diagrama de interacción de una sección de concreto con refuerzo.
 
     con_modo: agrega la lista 2D / 3D (la pestaña); sin ella, el modo lo da quien lo usa (la ventana).
-    con_barra: la barra de matplotlib (zoom, mover, guardar), solo en 2D."""
+    con_barra: la barra de matplotlib (zoom, mover, guardar), solo en 2D.
+    con_edicion: las medidas de la sección, editables (la pestaña de una columna)."""
 
-    def __init__(self, parent=None, con_modo=False, con_barra=True):
+    seccion_editada = Signal(object)            # (material, b, h, d, barra, nx, ny, fy): medidas nuevas
+
+    def __init__(self, parent=None, con_modo=False, con_barra=True, con_edicion=False):
         super().__init__(parent)
         self.seccion = None
         self.modo = "2D"
         self.puntos = []                        # Demanda de cada combinación y extremo (vacío: sin puntos)
-        self.elegido = None                     # índice del punto elegido en la tabla
+        self.rojos = []                         # índices de los puntos de la combinación a la vista
+        self._pista = ""                        # qué decir bajo el gráfico si no hay puntos
         self._calculado = {}                    # (qué, parámetro) -> datos en unidades internas, de _de_seccion
         self._de_seccion = None                 # los datos de la sección de lo calculado
         self.vista3d = None                     # VistaSuperficie: se crea la primera vez que se pide 3D
@@ -97,33 +107,93 @@ class DiagramaInteraccion(QWidget):
         self.paginas = QStackedWidget()         # página 0: el 2D (matplotlib); página 1: el 3D (VTK)
         self.paginas.addWidget(self.lienzo)
         diseno.addWidget(self.paginas, 3)
-        # Puntos Pu–Mu: la tabla, o una línea que dice cómo verlos
+        # Debajo: la combinación en rojo (o cómo ver los puntos) y la sección editable
         self.pista = QLabel()
         self.pista.setWordWrap(True)
-        self.pista.setStyleSheet(f"color: {colores.INTERFAZ_DESHABILITADO};")
+        self.pista.setTextFormat(Qt.RichText)
         self.pista.hide()
         diseno.addWidget(self.pista)
-        self.tabla = QTableWidget(0, 5)
-        self.tabla.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.tabla.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.tabla.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.tabla.verticalHeader().hide()
-        self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        for columna in range(1, 5):
-            self.tabla.horizontalHeader().setSectionResizeMode(columna, QHeaderView.ResizeToContents)
-        self.tabla.setToolTip("Fuerzas de cada combinación en los extremos de la columna (primer orden, sin "
-                              "esbeltez). Pu > 0 es compresión. Elige una fila para ver su punto")
-        self.tabla.itemSelectionChanged.connect(self._fila_elegida)
-        self.tabla.hide()
-        diseno.addWidget(self.tabla, 2)
+        self.grupo_seccion = None
+        if con_edicion:
+            self._crear_edicion(diseno)
+
+    # ---------- Sección editable ----------
+    def _crear_edicion(self, diseno):
+        from interfaz.paneles.formularios import BARRAS, campo_barras, campo_seccion   # aquí: evita un ciclo
+        self.grupo_seccion = QGroupBox("Sección de esta columna")
+        self.grupo_seccion.setToolTip("Cambiar una medida pone otra sección solo en esta columna (Deshacer la "
+                                      "devuelve). Con resultados a la vista, se vuelve a analizar solo")
+        forma = QFormLayout(self.grupo_seccion)
+        self.campo_b, self.campo_h = campo_seccion(), campo_seccion()
+        self.campo_barra = Lista()
+        for n in BARRAS:
+            self.campo_barra.addItem(f"#{n}", n)
+        self.campo_nx, self.campo_ny = campo_barras(), campo_barras()
+        fila = QHBoxLayout()
+        for texto, campo in (("b", self.campo_b), ("h", self.campo_h)):
+            fila.addWidget(QLabel(texto))
+            fila.addWidget(campo)
+        fila.addStretch(1)
+        forma.addRow(fila)
+        fila = QHBoxLayout()
+        for texto, campo in (("Barra", self.campo_barra), ("Nx", self.campo_nx), ("Ny", self.campo_ny)):
+            fila.addWidget(QLabel(texto))
+            fila.addWidget(campo)
+        fila.addStretch(1)
+        forma.addRow(fila)
+        self.cuantia = QLabel()
+        self.cuantia.setWordWrap(True)
+        forma.addRow(self.cuantia)
+        for campo in (self.campo_b, self.campo_h, self.campo_nx, self.campo_ny):
+            campo.terminado.connect(self._medidas_cambiadas)
+        self.campo_barra.currentIndexChanged.connect(self._medidas_cambiadas)
+        self.grupo_seccion.hide()
+        diseno.addWidget(self.grupo_seccion)
+
+    def _llenar_edicion(self, especial=True):
+        """Pone las medidas de la sección a la vista (solo rectangular de concreto) y su cuantía."""
+        if self.grupo_seccion is None:
+            return
+        c = self.seccion.concreto if self.seccion is not None else None
+        hay = c is not None and c.forma == "rectangular"
+        self.grupo_seccion.setVisible(hay)
+        if not hay:
+            return
+        self.campo_barra.blockSignals(True)
+        self.campo_b.poner(c.b)
+        self.campo_h.poner(c.h)
+        self.campo_nx.poner(c.nx)
+        self.campo_ny.poner(c.ny)
+        self.campo_barra.setCurrentIndex(max(0, self.campo_barra.findData(c.barra)))
+        self.campo_barra.blockSignals(False)
+        try:
+            p = concreto.propiedades(c)
+            aviso = concreto.aviso_cuantia(p["cuantia"], especial)
+            self.cuantia.setText(f"{p['nbarras']} #{c.barra}  ·  ρ = {p['cuantia']:.2f} %" + (f" — {aviso}" if aviso else ""))
+        except ValueError as e:
+            self.cuantia.setText(str(e))
+
+    def _medidas_cambiadas(self, *_):
+        c = self.seccion.concreto if self.seccion is not None else None
+        if c is None:
+            return
+        nuevas = (self.campo_b.valor(), self.campo_h.valor(), self.campo_barra.currentData(),
+                  int(self.campo_nx.valor()), int(self.campo_ny.valor()))
+        actuales = (c.b, c.h, c.barra, c.nx, c.ny)
+        if all((abs(x - y) < 1e-9) if isinstance(x, float) else x == y for x, y in zip(nuevas, actuales)):
+            return
+        b, h, barra, nx, ny = nuevas
+        self.seccion_editada.emit((self.seccion.material, b, h, c.d, barra, nx, ny, c.fy))
 
     # ---------- Qué se muestra ----------
-    def mostrar(self, seccion, modo=None, puntos=None, pista=""):
+    def mostrar(self, seccion, modo=None, puntos=None, pista="", activa=None, especial=True):
         """Muestra el diagrama de la sección; lo calcula si hace falta. ValueError si los datos no
         sirven (por ejemplo, un refuerzo imposible).
 
         puntos: lista de Demanda (los puntos Pu–Mu de una columna), o None o vacía si no hay.
-        pista: texto bajo el gráfico cuando no hay puntos (por ejemplo, que falta analizar)."""
+        pista: texto bajo el gráfico cuando no hay puntos (por ejemplo, que falta analizar).
+        activa: clave de la combinación que se ve arriba: sus puntos van en rojo (None: ninguno).
+        especial: pórtico especial (para el aviso de cuantía de la sección editable)."""
         self.seccion = seccion
         if modo is not None:
             self.modo = modo
@@ -131,15 +201,23 @@ class DiagramaInteraccion(QWidget):
                 self.selector_modo.blockSignals(True)
                 self.selector_modo.setCurrentIndex(self.selector_modo.findData(modo))
                 self.selector_modo.blockSignals(False)
-        anteriores = [(p.clave, p.lugar) for p in self.puntos]
         self.puntos = list(puntos or [])
-        if [(p.clave, p.lugar) for p in self.puntos] != anteriores or self.elegido is None:
-            # Otros puntos: empieza elegido el de mayor momento
-            self.elegido = max(range(len(self.puntos)), key=lambda i: self.puntos[i].m) if self.puntos else None
-        self.pista.setText(pista)
-        self.pista.setVisible(bool(pista) and not self.puntos)
-        self._llenar_tabla()
+        self.rojos = [i for i, p in enumerate(self.puntos) if activa is not None and p.clave == activa]
+        self._pista = pista
+        self._llenar_edicion(especial)
         self.refrescar()
+
+    def _texto_bajo(self):
+        """La línea bajo el gráfico: la combinación en rojo con sus puntos, o la pista."""
+        if not self.puntos:
+            return f"<span style='color:{colores.INTERFAZ_DESHABILITADO}'>{self._pista}</span>" if self._pista else ""
+        if not self.rojos:
+            return (f"<span style='color:{colores.INTERFAZ_DESHABILITADO}'>{len(self.puntos)} puntos Pu–Mu. Para ver "
+                    "uno en rojo, elige una combinación arriba (Σ)</span>")
+        partes = [f"{p.lugar}: Pu {formato.cantidad(p.p, 'fuerza')}, M {formato.cantidad(p.m, 'momento')}"
+                  for p in (self.puntos[i] for i in self.rojos)]
+        return (f"<b style='color:{colores.INTERACCION_ELEGIDO}'>{self.puntos[self.rojos[0]].combinacion}</b> — "
+                + " · ".join(partes))
 
     def mostrar_error(self, texto):
         self.aviso.setText(texto)
@@ -162,35 +240,11 @@ class DiagramaInteraccion(QWidget):
         except ValueError as e:
             self.mostrar_error(f"No se pudo calcular: {e}")
 
-    # ---------- Tabla de puntos ----------
-    def _llenar_tabla(self):
-        self.tabla.blockSignals(True)
-        self.tabla.setRowCount(len(self.puntos))
-        sf, sm = unidades.simbolo("fuerza"), unidades.simbolo("momento")
-        self.tabla.setHorizontalHeaderLabels(["Combinación", "Extremo", f"Pu ({sf})", f"My ({sm})", f"Mz ({sm})"])
-        for fila, p in enumerate(self.puntos):
-            celdas = [p.combinacion, p.lugar, formato.cantidad(p.p, "fuerza", False),
-                      formato.cantidad(p.my, "momento", False), formato.cantidad(p.mz, "momento", False)]
-            for columna, texto in enumerate(celdas):
-                item = QTableWidgetItem(texto)
-                if columna >= 2:
-                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.tabla.setItem(fila, columna, item)
-        if self.elegido is not None:
-            self.tabla.selectRow(self.elegido)
-        self.tabla.blockSignals(False)
-        self.tabla.setVisible(bool(self.puntos))
-
-    def _fila_elegida(self):
-        filas = self.tabla.selectionModel().selectedRows()
-        if filas and filas[0].row() != self.elegido:
-            self.elegido = filas[0].row()
-            self._probar(self.refrescar)
-
-    def elegir(self, indice):
-        """Elige el punto de ese índice (por ejemplo, con un clic sobre él en el 3D)."""
-        if 0 <= indice < len(self.puntos):
-            self.tabla.selectRow(indice)
+    def _referencia(self):
+        """El punto que define la dirección del corte 2D: el rojo de mayor momento o, sin rojos, el de
+        mayor momento de todos. None si no hay puntos."""
+        indices = self.rojos or list(range(len(self.puntos)))
+        return self.puntos[max(indices, key=lambda i: self.puntos[i].m)] if indices else None
 
     # ---------- Cálculo (solo lo que falte) ----------
     def _datos(self, que, parametro=0.0):
@@ -229,8 +283,8 @@ class DiagramaInteraccion(QWidget):
         self.theta.setVisible(self._con_theta())
         if self.barra is not None:
             self.barra.setVisible(self.modo == "2D")
-        if self.tabla.isVisible():
-            self._llenar_tabla()                # los valores, en las unidades vigentes
+        self.pista.setText(self._texto_bajo())  # en las unidades vigentes
+        self.pista.setVisible(bool(self.pista.text()))
         if self.modo == "2D":
             self._dibujar_2d()
             self.paginas.setCurrentIndex(0)
@@ -244,11 +298,11 @@ class DiagramaInteraccion(QWidget):
         sf, sm = unidades.simbolo("fuerza"), unidades.simbolo("momento")
         titulo = "Diagrama de interacción"
         circular = self.seccion.concreto.forma == "circular"
-        elegido = self.puntos[self.elegido] if self.puntos and self.elegido is not None else None
+        elegido = self._referencia()
         if elegido is not None:
             direccion = _plegada(concreto.direccion_momento(elegido.my, elegido.mz)) if elegido.m > 1e-9 else 0.0
             Pn, Mn, PhiPn, PhiMn = self._datos("direccion", direccion)
-            titulo = f"{elegido.combinacion}, {elegido.lugar}"
+            titulo = f"{elegido.combinacion}, {elegido.lugar}" if self.rojos else "Puntos Pu–Mu de las combinaciones"
             if not circular:
                 titulo += f" — momento a {math.degrees(direccion):.1f}°"
         elif self._con_theta():
@@ -263,9 +317,10 @@ class DiagramaInteraccion(QWidget):
         for i, p in enumerate(self.puntos):
             igual = (circular or p.m < 1e-9 or elegido.m < 1e-9
                      or abs(_plegada(concreto.direccion_momento(p.my, p.mz)) - direccion) <= MISMA_DIRECCION)
-            color = colores.INTERACCION_ELEGIDO if i == self.elegido else colores.INTERACCION_PUNTO
-            ax.plot(p.m / mu, p.p / fu, MARCADOR, color=color, markersize=9 if i == self.elegido else 6,
-                    markerfacecolor=color if igual else "none", zorder=4 if i == self.elegido else 3)
+            rojo = i in self.rojos
+            color = colores.INTERACCION_ELEGIDO if rojo else colores.INTERACCION_PUNTO
+            ax.plot(p.m / mu, p.p / fu, MARCADOR, color=color, markersize=9 if rojo else 6,
+                    markerfacecolor=color if igual else "none", zorder=4 if rojo else 3)
         if self.puntos:
             ax.plot([], [], MARCADOR, color=colores.INTERACCION_PUNTO, markersize=6, linestyle="none",
                     label="Pu–Mu (combinaciones)")
@@ -287,9 +342,8 @@ class DiagramaInteraccion(QWidget):
         if self.vista3d is None:
             from interfaz.vista3d.superficie import VistaSuperficie     # aquí: crea una ventana 3D
             self.vista3d = VistaSuperficie(self)
-            self.vista3d.punto_elegido.connect(self.elegir)
             self.paginas.addWidget(self.vista3d)
-        self.vista3d.mostrar(X, Y, Z, [(p.mz, p.my, p.p) for p in self.puntos], self.elegido)
+        self.vista3d.mostrar(X, Y, Z, [(p.mz, p.my, p.p) for p in self.puntos], self.rojos)
 
     def cerrar(self):
         """Libera la vista 3D, si se llegó a crear (antes de cerrar la ventana que contiene al diagrama)."""

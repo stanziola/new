@@ -198,6 +198,7 @@ class Ventana(QMainWindow):
         self.propiedades.asignar_seccion.connect(self._asignar_seccion)
         self.propiedades.editar_seccion.connect(self._editar_seccion)
         self.propiedades.interaccion_a_la_vista.connect(self._ancho_propiedades)
+        self.propiedades.seccion_columna_editada.connect(self._editar_seccion_columna)
         # Materiales y secciones desde el Explorador: se muestran y se editan en Propiedades
         self.destino = Destino(self, self.propiedades.panel, self._ver_en_propiedades)
         self.propiedades.cancelar_definicion.connect(lambda: self._mostrar_propiedades(self._en_propiedades))
@@ -227,15 +228,28 @@ class Ventana(QMainWindow):
             caso = None if self.modo_combinaciones else self.caso_activo()
             self.propiedades.mostrar(self.modelo, item, caso=caso, rc=self._rc(),
                                      editable=not self.modo_resultados,
-                                     puntos=self._puntos_columna if self.modo_resultados and self.resultados else None)
+                                     puntos=self._puntos_columna if self.modo_resultados and self.resultados else None,
+                                     activa=self._combinacion_a_la_vista())
         self._refrescar_diagrama()
+
+    def _combinacion_a_la_vista(self):
+        """Clave de la combinación que se ve (Σ y la lista Combinación), o None con un caso o la envolvente."""
+        if not self.modo_combinaciones or self.viendo_envolvente():
+            return None
+        return self.combinacion_activa()
 
     def _puntos_columna(self, eid):
         """Puntos Pu–Mu de la columna eid para el diagrama de interacción: los dos extremos, en cada
-        combinación de la norma que aplica al modelo (comb.aplicables). Las combinaciones se suman
-        una vez y se guardan con las demás (hasta que cambie el análisis, SDS o ρ)."""
+        combinación de la norma que aplica al modelo (comb.aplicables) y en la que está a la vista, si
+        no es una de esas (una propia, o una de la norma sin su carga principal), para que siempre se
+        pueda ver en rojo. Las combinaciones se suman una vez y se guardan con las demás (hasta que
+        cambie el análisis, SDS o ρ)."""
+        lista = dict(comb.aplicables(self.modelo))
+        activa = self._combinacion_a_la_vista()
+        if activa is not None and activa not in lista:
+            lista[activa] = comb.todas(self.modelo)[activa]
         combinados = {}
-        for clave, co in comb.aplicables(self.modelo).items():
+        for clave, co in lista.items():
             if clave not in self._combinados:
                 self._combinados[clave] = combinar(self.modelo, self.resultados, co)
             combinados[clave] = self._combinados[clave]
@@ -1190,6 +1204,25 @@ class Ventana(QMainWindow):
         self.modelo.asignar_seccion(eid, sid)
         nombre = textos.nombre(self.modelo.secciones[sid], self.modelo) if sid is not None else "sin sección"
         self.modelo_cambiado(f"Elemento {eid}: {nombre}")
+
+    def _editar_seccion_columna(self, eid, valores):
+        """Medidas nuevas desde la pestaña Interacción: otra sección solo para esa columna. Si había
+        resultados a la vista, se vuelve a analizar solo y se queda en el mismo estado (caso o
+        combinación, resultado y pestaña): es la única excepción a "un cambio vuelve a Editar", porque
+        la pestaña sirve para ajustar la sección mirando sus puntos Pu–Mu."""
+        estado = (self.modo_resultados, self.ver_combinaciones, self.resultado_visible or self._ultimo_resultado,
+                  self.accion_seccion_real.isChecked())
+        self._editar_seccion(eid, valores)
+        if not estado[0] or self.modo_resultados:
+            return
+        self._ultimo_resultado = estado[2]
+        self.ver_combinaciones = estado[1]
+        self.analizar()
+        if self.modo_resultados:
+            self._poner_seccion_real(estado[3])       # como estaba (analizar la apaga)
+            self._actualizar_modo()
+            self.redibujar()
+            self._refrescar_paneles()
 
     def _editar_seccion(self, eid, valores):
         """Medidas nuevas para la sección de una barra: se usa (o crea) otra sección solo para ella."""

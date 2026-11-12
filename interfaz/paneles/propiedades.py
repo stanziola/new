@@ -719,12 +719,16 @@ class Propiedades(QDockWidget):
     aprecie: avisa con `interaccion_a_la_vista` y la ventana lo ensancha, y lo devuelve a su ancho al
     volver a Propiedades (o al dejar de tener una columna elegida)."""
     interaccion_a_la_vista = Signal(bool)      # True: se abrió la pestaña Interacción; False: se dejó
+    seccion_columna_editada = Signal(int, object)   # (ID de la columna, medidas nuevas) desde la pestaña
 
     def __init__(self, parent=None):
         super().__init__("Propiedades", parent)
         self.setObjectName("propiedades")
         self.panel = PanelPropiedades()
-        self.interaccion = DiagramaInteraccion(con_modo=True, con_barra=False)
+        self.interaccion = DiagramaInteraccion(con_modo=True, con_barra=False, con_edicion=True)
+        self.interaccion.seccion_editada.connect(
+            lambda valores: self._barra is not None and self.seccion_columna_editada.emit(self._barra, valores))
+        self._activa, self._especial = None, True
         # Que la pestaña no ensanche el panel al aparecer: toma el ancho que haya
         self.interaccion.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.pestanas = QTabWidget()
@@ -749,11 +753,12 @@ class Propiedades(QDockWidget):
         p.formulario_abierto.connect(lambda: self._poner_columna(None))
 
     # ---------- Lo que se muestra (siempre en la pestaña Propiedades, salvo una columna) ----------
-    def mostrar(self, modelo, item, caso=None, rc=None, editable=True, puntos=None):
+    def mostrar(self, modelo, item, caso=None, rc=None, editable=True, puntos=None, activa=None):
         """puntos: función que da los puntos Pu–Mu de una columna (ID de barra -> lista de Demanda),
-        o None si no hay resultados a la vista. Se llama solo con la pestaña Interacción abierta."""
+        o None si no hay resultados a la vista. Se llama solo con la pestaña Interacción abierta.
+        activa: clave de la combinación que se ve arriba (sus puntos van en rojo), o None."""
         self.panel.mostrar(modelo, item, caso, rc, editable)
-        self._puntos = puntos
+        self._puntos, self._activa, self._especial = puntos, activa, modelo.portico_especial
         seccion = self._seccion_columna(modelo, item)
         self._barra = item[1] if seccion is not None else None
         self._poner_columna(seccion)
@@ -819,6 +824,7 @@ class Propiedades(QDockWidget):
             else:
                 puntos = self._puntos(self._barra)
                 pista = "" if puntos else "Ninguna combinación de la norma tiene cargas de su tipo principal"
-            self.interaccion.mostrar(self._columna, puntos=puntos, pista=pista)
+            self.interaccion.mostrar(self._columna, puntos=puntos, pista=pista, activa=self._activa,
+                                     especial=self._especial)
         except ValueError as e:
             self.interaccion.mostrar_error(f"No se pudo calcular el diagrama: {e}")

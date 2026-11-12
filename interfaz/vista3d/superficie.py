@@ -13,8 +13,8 @@ entre los ejes. El momento mayor mide 1 y la carga mayor, ALTO: un diagrama un p
 ancho, como el 2D.
 
 Los puntos Pu–Mu (uno por combinación y por extremo de la columna) van en su lugar, (Mz, My, P): los
-que quedan dentro de la superficie cumplen. El elegido se resalta y lleva una línea desde el eje P,
-que muestra la dirección de su momento.
+que quedan dentro de la superficie cumplen. Los de la combinación a la vista se resaltan en rojo y
+llevan una línea desde el eje P, que muestra la dirección de su momento.
 """
 import math
 
@@ -74,7 +74,7 @@ class VistaSuperficie(QWidget):
             pass
         self.animador = AnimadorCamara(self.vista)
         self.cubo = CuboVistas(self.vista, self.animador)
-        self._datos = None                      # (X, Y, Z, puntos, elegido), en unidades internas
+        self._datos = None                      # (X, Y, Z, puntos, elegidos), en unidades internas
         self._en_escena = np.zeros((0, 3))      # los puntos, en coordenadas del dibujo (para elegirlos)
         self._encuadrada = False
         self._presion = None
@@ -88,11 +88,11 @@ class VistaSuperficie(QWidget):
             iren.add_observer(evento, lambda *_: self.animador.detener())
 
     # ---------- Qué se muestra ----------
-    def mostrar(self, X, Y, Z, puntos=(), elegido=None):
+    def mostrar(self, X, Y, Z, puntos=(), elegidos=()):
         """La superficie: X = φMz, Y = φMy (kN·m) y Z = φPn (kN), arreglos de (ángulos × puntos).
-        puntos: [(Mz, My, P), …] en kN·m y kN; elegido: el índice del que se resalta, o None."""
+        puntos: [(Mz, My, P), …] en kN·m y kN; elegidos: los índices de los que se resaltan."""
         self._datos = (np.asarray(X, dtype=float), np.asarray(Y, dtype=float), np.asarray(Z, dtype=float),
-                       [tuple(float(v) for v in p) for p in puntos], elegido)
+                       [tuple(float(v) for v in p) for p in puntos], list(elegidos))
         self.refrescar()
 
     def refrescar(self):
@@ -100,7 +100,7 @@ class VistaSuperficie(QWidget):
         primera vez, que encuadra)."""
         if self._datos is None or self._cerrada:
             return
-        X, Y, Z, puntos, elegido = self._datos
+        X, Y, Z, puntos, elegidos = self._datos
         fm, fp = unidades.factor("momento"), unidades.factor("fuerza")
         nube = np.array(puntos, dtype=float).reshape(-1, 3)
         # En unidades de pantalla: el momento mayor y los extremos de P (de la superficie y de los puntos)
@@ -139,18 +139,19 @@ class VistaSuperficie(QWidget):
         self._en_escena = escena(nube[:, 0], nube[:, 1], nube[:, 2]) if len(nube) else np.zeros((0, 3))
         for nombre in ("puntos", "elegido", "radio"):
             vista.remove_actor(nombre, render=False)
-        otros = [i for i in range(len(nube)) if i != elegido]
+        elegidos = [i for i in elegidos if 0 <= i < len(nube)]
+        otros = [i for i in range(len(nube)) if i not in elegidos]
         if otros:
             vista.add_mesh(pv.PolyData(self._en_escena[otros]), color=colores.INTERACCION_PUNTO, point_size=9,
                            render_points_as_spheres=True, lighting=False, pickable=False, reset_camera=False,
                            name="puntos", render=False)
-        if elegido is not None and 0 <= elegido < len(nube):
-            p = self._en_escena[elegido]
-            vista.add_mesh(pv.PolyData(p.reshape(1, 3)), color=colores.INTERACCION_ELEGIDO, point_size=14,
+        if elegidos:
+            p = self._en_escena[elegidos]
+            vista.add_mesh(pv.PolyData(p), color=colores.INTERACCION_ELEGIDO, point_size=14,
                            render_points_as_spheres=True, lighting=False, pickable=False, reset_camera=False,
                            name="elegido", render=False)
-            vista.add_mesh(_segmentos([((0.0, 0.0, p[2]), p)]), color=colores.INTERACCION_ELEGIDO, line_width=2,
-                           lighting=False, pickable=False, reset_camera=False, name="radio", render=False)
+            vista.add_mesh(_segmentos([((0.0, 0.0, q[2]), q) for q in p]), color=colores.INTERACCION_ELEGIDO,
+                           line_width=2, lighting=False, pickable=False, reset_camera=False, name="radio", render=False)
         if not self._encuadrada:
             self.encuadrar()
         vista.renderer.ResetCameraClippingRange()
