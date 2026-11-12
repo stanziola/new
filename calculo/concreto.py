@@ -8,8 +8,8 @@ operaciones sobre el modelo, que no son fórmulas de ingeniería).
   Ec ≈ 4733·√f'c (el 4700 del ACI 318M es la misma fórmula redondeada).
 - ν: el ACI 318-19 no lo da (remite a ensayos ASTM C469). Se usa ν = 0.2, el valor usual, y
   G = E / (2·(1 + ν)), que es mecánica de materiales.
-- Sección rectangular con su inercia bruta (sin los modificadores de agrietamiento del ACI).
-  Convención: b va en el eje local y de la barra y h en el local z. En una viga con α = 0, z local
+- Sección rectangular con su inercia bruta Ig. Los factores de agrietamiento no se aplican aquí sino
+  en el análisis (modelo/analisis.py), con factor_inercia. Convención: b va en el eje local y de la barra y h en el local z. En una viga con α = 0, z local
   es el vertical global, así que h queda vertical.
     Iy = b·h³/12 (flexión alrededor de y, la que pandea hacia z)
     Iz = h·b³/12
@@ -17,6 +17,11 @@ operaciones sobre el modelo, que no son fórmulas de ingeniería).
        J = a·t³·[1/3 − 0.21·(t/a)·(1 − t⁴/(12·a⁴))]
 - Peso unitario del concreto reforzado (para el peso propio): ASCE 7-05, Tabla C3-2 (PDF p. 295),
   "Concrete, reinforced — Stone (including gravel)": 150 lb/ft³. Convertido: 23.56 kN/m³.
+- Inercia para el análisis elástico con cargas mayoradas: ACI 318-19 §6.6.3.1.1, Tabla 6.6.3.1.1(a)
+  (PDF p. 78): columnas 0.70·Ig y vigas 0.35·Ig. El área queda 1.0·Ag (misma tabla). J no está en la
+  tabla y no se cambia. Si hay cargas laterales sostenidas, la I de las columnas se divide además
+  entre (1 + βds): no se aplica (el programa no tiene cargas laterales sostenidas). Son valores
+  fijos de la norma, no de presentación.
 Todo en unidades internas: m, kN/m² y kN/m³.
 """
 import math
@@ -25,6 +30,8 @@ PSI = 6.894757293168361      # kN/m² por psi
 POISSON = 0.2                # ν del concreto (valor usual; el ACI no lo da)
 LB_FT3 = 0.157087463844      # kN/m³ por lb/ft³ (4.4482216152605 N / 0.3048³ m³)
 GAMMA_CONCRETO = 150 * LB_FT3    # concreto reforzado, ASCE 7-05 Tabla C3-2: 23.56 kN/m³
+INERCIA_COLUMNA = 0.70       # I = 0.70·Ig en columnas, ACI 318-19 Tabla 6.6.3.1.1(a)
+INERCIA_VIGA = 0.35          # I = 0.35·Ig en vigas, misma tabla
 
 
 def modulos(fc):
@@ -42,3 +49,9 @@ def propiedades_rectangulo(b, h):
     a, t = max(b, h), min(b, h)
     j = a * t ** 3 * (1 / 3 - 0.21 * (t / a) * (1 - t ** 4 / (12 * a ** 4)))
     return b * h, b * h ** 3 / 12, h * b ** 3 / 12, j
+
+
+def factor_inercia(es_columna):
+    """Factor que multiplica Iy e Iz brutas de una barra de concreto en el análisis con cargas
+    mayoradas (ACI 318-19 Tabla 6.6.3.1.1(a), PDF p. 78): 0.70 en columnas y 0.35 en vigas."""
+    return INERCIA_COLUMNA if es_columna else INERCIA_VIGA

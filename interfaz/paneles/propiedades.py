@@ -447,9 +447,11 @@ class PanelPropiedades(QWidget):
         barras = modelo.elementos_conectados(nid)
         self._fila(self._grupo("Conexiones"), "Barras", ", ".join(map(str, barras)) or "ninguna")
         rc = self._rc
-        if rc is not None and nid in rc.res.desplazamientos:
+        if rc is not None and nid in rc.deformacion.desplazamientos:
             g = self._grupo(f"Desplazamientos ({rc.nombre})")
-            for k, (nombre, valor) in enumerate(zip(GDL_PANTALLA, rc.res.desplazamientos[nid])):
+            g.setToolTip(0, "Del análisis con la inercia bruta Ig; las fuerzas y reacciones, del de resistencia "
+                            "(0.70·Ig en columnas y 0.35·Ig en vigas de concreto)")
+            for k, (nombre, valor) in enumerate(zip(GDL_PANTALLA, rc.deformacion.desplazamientos[nid])):
                 self._fila(g, nombre, formato.cantidad(valor, "desplazamiento") if k < 3
                            else f"{formato.numero(valor, 6)} rad")
             self._reaccion(nid)

@@ -675,7 +675,7 @@ class Ventana(QMainWindow):
             else:
                 tipo = "automática" if ui.DEFORMADA_AUTOMATICA else "fija"
                 self.mensaje(f"{antes}Deformada {cual} ×{_factor_texto(self.factor_deformada)} "
-                             f"({tipo}; 1 = tamaño real)")
+                             f"({tipo}; 1 = tamaño real), con la inercia bruta Ig")
         elif antes:
             self.mensaje(antes.strip())
 
@@ -1039,7 +1039,8 @@ class Ventana(QMainWindow):
             self.dibujado.actores.update(dibujar_envolvente(self.vista, self.modelo, self._env(),
                                                             self.resultado_visible, tamano))
         boton = self.botones_resultado["deformada"]
-        boton.setToolTip("Deformada: total, Δx, Δy o Δz (ejes globales)"
+        boton.setToolTip("Deformada: total, Δx, Δy o Δz (ejes globales), con la inercia bruta Ig. Las fuerzas "
+                         "internas y las reacciones van con la agrietada del concreto (0.70·Ig columnas, 0.35·Ig vigas)"
                          + (f". Ahora, ×{_factor_texto(self.factor_deformada)} el tamaño real"
                             if self.factor_deformada is not None else ""))
         self.seleccion, self.resaltado = self._vigente(self.seleccion), self._vigente(self.resaltado)

@@ -110,7 +110,8 @@ def verificar_desplazamientos_globales():
     los locales (u, v, w) girados con Rᵀ. Es lo que muestran la deformada y el panel Diagrama.
 
     1. Pórtico (vigas en X y en Y, y columnas): en x = 0 y x = L deben ser los desplazamientos de
-       los nodos de la barra, que salen de resolver K·U = F (otro camino).
+       los nodos de la barra, que salen de resolver K·U = F (otro camino). Los dos del análisis con
+       la inercia bruta (rc.deformacion), que es de donde sale la deformada.
     2. Voladizo de 3 m en X con P = 10 kN hacia abajo en la punta: a la mitad,
        Dz = −P·x²·(3L − x)/(6EI) = −1.7578 mm, y Dx = Dy = 0.
     3. El mismo voladizo de pie (una columna) con P en +X: a media altura, Dx = +1.7578 mm. Aquí el
@@ -123,7 +124,7 @@ def verificar_desplazamientos_globales():
         d = desplazamientos_globales(m, rc, eid, x=[0.0, geometria(m, eid)[2]])
         for k, nid in enumerate((el.ni, el.nj)):
             barra = np.array([d["Dx"][k], d["Dy"][k], d["Dz"][k]])
-            peor = max(peor, float(np.abs(barra - np.asarray(rc.res.desplazamientos[nid][:3])).max()))
+            peor = max(peor, float(np.abs(barra - np.asarray(rc.deformacion.desplazamientos[nid][:3])).max()))
     comprobar(f"Pórtico: en los extremos de cada barra = desplazamientos de los nodos (dif. {peor:.1e})",
               peor < 1e-12)
 
@@ -142,6 +143,88 @@ def verificar_desplazamientos_globales():
         otros = max(abs(d[k][0]) for k in ("Dx", "Dy", "Dz") if k != clave)
         comprobar(f"{nombre}: {clave} a la mitad = {d[clave][0]:.6e}  (teórico ∓P·x²(3L − x)/6EI = {esperado:.6e})",
                   np.isclose(d[clave][0], esperado) and otros < 1e-12)
+
+
+def verificar_inercia_agrietada():
+    """Dos análisis (modelo/analisis.analizar_caso): el de resistencia con la inercia agrietada de las
+    barras de concreto (ACI 318-19 Tabla 6.6.3.1.1(a), PDF p. 78: 0.70·Ig columnas, 0.35·Ig vigas) y
+    otro con la bruta Ig, del que sale la deformada.
+
+    1. Los factores: 0.70 y 0.35 (calculo/concreto.factor_inercia).
+    2. Columna de concreto en voladizo, 3 m, H = 10 kN en la punta, I = 2.1333e-3 m⁴, E = 25e6 kN/m².
+       A mano: con Ig, Δ = H·L³/(3·E·Ig) = 1.6875 mm; con la agrietada, Δ/0.70 = 2.4108 mm. Es
+       isostática: el momento en la base es H·L = 30 kN·m en los dos.
+    3. Pórtico de concreto (dos columnas de 3 m y una viga de 5 m, empotrado): el de resistencia
+       debe ser igual a otro modelo armado a mano con las inercias ya multiplicadas (y sin f'c, para
+       que no se vuelvan a reducir), y el de Ig igual al modelo sin reducir. Es hiperestático: los
+       momentos cambian con la rigidez de cada barra.
+    4. Sin concreto (acero) se resuelve una sola vez (bruta = None).
+    5. Una combinación lleva también su análisis con Ig, por superposición."""
+    from calculo.concreto import factor_inercia
+
+    print("\n===== INERCIA AGRIETADA (ACI 318-19 Tabla 6.6.3.1.1(a)) =====")
+    comprobar(f"Factores: columna {factor_inercia(True)}, viga {factor_inercia(False)}",
+              factor_inercia(True) == 0.70 and factor_inercia(False) == 0.35)
+
+    e, g, ig = 25e6, 10e6, 2.1333e-3
+    v = Modelo()
+    v.agregar_material("Concreto", e=e, g=g, fc=27.6e3)
+    v.agregar_seccion("Col 40x40", a=0.16, iy=ig, iz=ig, j=3.6e-3)
+    v.agregar_nodo(0, 0, 0)
+    v.agregar_nodo(0, 0, 3)
+    v.agregar_elemento(1, 2, 1, 1)
+    v.restringir(1)
+    v.cargar(2, fx=10)
+    rc = analizar_caso(v, v.caso_inicial())
+    bruta, agrietada = rc.deformacion.desplazamientos[2][0], rc.res.desplazamientos[2][0]
+    a_mano = 10 * 3 ** 3 / (3 * e * ig)
+    comprobar(f"Voladizo: Δ con Ig = {bruta * 1000:.4f} mm (a mano {a_mano * 1000:.4f}); con 0.70·Ig = "
+              f"{agrietada * 1000:.4f} mm (a mano {a_mano / 0.70 * 1000:.4f})",
+              np.isclose(bruta, a_mano) and np.isclose(agrietada, a_mano / 0.70))
+    m_res, m_bruta = rc.res.fuerzas[1][4], rc.bruta.fuerzas[1][4]
+    comprobar(f"Voladizo: momento en la base igual en los dos (|My| {abs(m_res):.3f} y {abs(m_bruta):.3f}; "
+              f"a mano 30)", np.isclose(abs(m_res), 30) and np.isclose(abs(m_bruta), 30))
+
+    def portico(con_fc, factor_col=1.0, factor_viga=1.0):
+        p = Modelo()
+        p.agregar_material("Concreto", e=e, g=g, fc=27.6e3 if con_fc else None)
+        col = p.agregar_seccion("Col", a=0.16, iy=ig * factor_col, iz=ig * factor_col, j=3.6e-3)
+        viga = p.agregar_seccion("Viga", a=0.15, iy=3.125e-3 * factor_viga, iz=1.125e-3 * factor_viga, j=2.8e-3)
+        for punto in ((0, 0, 0), (0, 0, 3), (5, 0, 3), (5, 0, 0)):
+            p.agregar_nodo(*punto)
+        p.agregar_elemento(1, 2, 1, col)
+        b = p.agregar_elemento(2, 3, 1, viga)
+        p.agregar_elemento(4, 3, 1, col)
+        p.restringir(1)
+        p.restringir(4)
+        p.cargar(2, fx=10)
+        p.agregar_carga_barra(b, "uniforme", -20, "Z")
+        return p
+
+    real = portico(True)
+    rc = analizar_caso(real, real.caso_inicial())
+    def caso_inicial(p):
+        return analizar_caso(p, p.caso_inicial()).res
+
+    a_mano = caso_inicial(portico(False, 0.70, 0.35))
+    sin_reducir = caso_inicial(portico(False))
+    iguales = (np.allclose(rc.res.U, a_mano.U, atol=1e-14) and np.allclose(rc.res.R, a_mano.R, atol=1e-9)
+               and all(np.allclose(rc.res.fuerzas[k], a_mano.fuerzas[k], atol=1e-9) for k in a_mano.fuerzas))
+    comprobar("Pórtico, resistencia = modelo a mano con 0.70·Ig en columnas y 0.35·Ig en la viga (U, R y fuerzas)",
+              iguales)
+    comprobar("Pórtico, análisis con Ig = modelo sin reducir (U)", np.allclose(rc.bruta.U, sin_reducir.U, atol=1e-14))
+    comprobar(f"Pórtico hiperestático: el momento en la base izquierda cambia con la rigidez (|My| con la "
+              f"agrietada {abs(rc.res.fuerzas[1][4]):.3f} y con Ig {abs(rc.bruta.fuerzas[1][4]):.3f} kN·m)",
+              not np.isclose(rc.res.fuerzas[1][4], rc.bruta.fuerzas[1][4]))
+
+    acero = portico(False)
+    comprobar("Sin concreto: un solo análisis (bruta = None)",
+              analizar_caso(acero, acero.caso_inicial()).bruta is None)
+
+    resultados = analizar(real)
+    rcomb = combinar(real, resultados, comb.predeterminadas(real.sds, real.rho)["C1"])     # 1.4D
+    comprobar("Combinación 1.4D: su análisis con Ig = 1.4 × el del caso (U)",
+              np.allclose(rcomb.deformacion.U, 1.4 * resultados[real.caso_inicial()].bruta.U, atol=1e-14))
 
 
 def verificar_interaccion():
@@ -561,6 +644,7 @@ if __name__ == "__main__":
     verificar_inestable()
     verificar_peso_propio()
     verificar_desplazamientos_globales()
+    verificar_inercia_agrietada()
     verificar_interaccion()
     verificar_combinaciones()
     verificar_demandas()

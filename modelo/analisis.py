@@ -16,11 +16,21 @@ propio"), cada barra con material y sección recibe una uniforme de A·γ·facto
 Combinaciones: no se resuelven otra vez. Como el análisis es lineal (primer orden), el resultado de
 1.2D + 1.6L es 1.2 × (resultados de los casos tipo D) + 1.6 × (resultados de los tipo L):
 superposición (combinar). Los factores van por tipo de caso.
+
+Dos análisis por caso (decisión del usuario):
+- de RESISTENCIA: las barras de concreto (material con f'c) con su inercia agrietada, 0.70·Ig en
+  columnas y 0.35·Ig en vigas (calculo/concreto.factor_inercia, ACI 318-19 Tabla 6.6.3.1.1(a)). De
+  él salen las fuerzas internas, las reacciones y los puntos Pu–Mu (ResultadoCaso.res);
+- con la inercia BRUTA Ig: de él salen los desplazamientos y la deformada (ResultadoCaso.bruta, que
+  da ResultadoCaso.deformacion). Es una simplificación: para servicio el ACI pide 1.4 × la inercia
+  agrietada en los desplazamientos laterales (§6.6.3.2.2) e Ie en las flechas de vigas (§24.2).
+Si ninguna barra es de concreto, los dos coinciden y se resuelve una sola vez (bruta = None).
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
+from calculo.concreto import factor_inercia
 from calculo.rigidez import diagramas
 from calculo.rigidez.barra import angulos, rotacion, transformacion
 from calculo.rigidez.empotramiento import empotramiento
@@ -37,9 +47,43 @@ LOCALES = {"x": 0, "y": 1, "z": 2}
 class ResultadoCaso:
     """Resultados de un caso o de una combinación (caso = None)."""
     caso: int
-    res: object                                   # calculo.rigidez.resultados.Resultados
+    res: object                                   # Resultados del análisis de resistencia (inercia agrietada)
     cargas_locales: dict = field(default_factory=dict)   # ID de barra -> cargas en ejes locales
     nombre: str = ""                              # el del caso o la combinación (para mostrar)
+    bruta: object = None                          # Resultados con la inercia bruta Ig (None: igual a res)
+
+    @property
+    def deformacion(self):
+        """Los Resultados de los que salen los desplazamientos y la deformada: los del análisis con
+        la inercia bruta (o res, si no hay barras de concreto y los dos son el mismo)."""
+        return self.bruta if self.bruta is not None else self.res
+
+
+class ModeloAgrietado:
+    """El modelo visto con la inercia del análisis con cargas mayoradas: cada barra de concreto
+    (material con f'c) lleva su propia copia de la sección, con Iy e Iz por factor_inercia (0.70 si
+    es columna, 0.35 si no). A y J no cambian. El cálculo lo lee como a un modelo cualquiera (nodos,
+    elementos, materiales, secciones); todo lo demás se toma del modelo original, que no se toca.
+
+    Que una barra sea columna lo decide Modelo.es_columna (vertical); las demás, también las
+    inclinadas, van como vigas."""
+
+    def __init__(self, modelo):
+        self._modelo = modelo
+        self.elementos, self.secciones = dict(modelo.elementos), dict(modelo.secciones)
+        self.cambia = False                       # True si alguna barra cambió (hay concreto)
+        for eid, el in modelo.elementos.items():
+            mat, sec = modelo.materiales.get(el.material), modelo.secciones.get(el.seccion)
+            if mat is None or sec is None or mat.fc is None:
+                continue
+            f = factor_inercia(modelo.es_columna(eid))
+            clave = ("agrietada", eid)            # una sección por barra: la misma puede ser viga y columna
+            self.secciones[clave] = replace(sec, iy=sec.iy * f, iz=sec.iz * f)
+            self.elementos[eid] = replace(el, seccion=clave)
+            self.cambia = True
+
+    def __getattr__(self, nombre):
+        return getattr(self._modelo, nombre)
 
 
 def geometria(modelo, eid):
@@ -110,7 +154,9 @@ def peso_propio_total(modelo, caso):
 
 
 def analizar_caso(modelo, caso):
-    """Resuelve un caso de carga. ValueError si falta algo (sección, apoyos) o es inestable."""
+    """Resuelve un caso de carga dos veces, con las mismas cargas: con la inercia agrietada de las
+    barras de concreto (res: fuerzas y reacciones) y con la bruta (bruta: desplazamientos). Sin
+    concreto se resuelve una vez. ValueError si falta algo (sección, apoyos) o es inestable."""
     if caso not in modelo.casos:
         raise KeyError(f"El caso {caso} no existe")
     faltan = modelo.sin_asignar()
@@ -130,7 +176,11 @@ def analizar_caso(modelo, caso):
         fef[eid] = empotramiento(largo, lista)
         F[gdl_barra(idx[el.ni], idx[el.nj])] += t.T @ (-fef[eid])
         locales[eid] = lista
-    return ResultadoCaso(caso, resolver(modelo, F, fef), locales, modelo.casos[caso].nombre)
+    agrietado = ModeloAgrietado(modelo)
+    if not agrietado.cambia:
+        return ResultadoCaso(caso, resolver(modelo, F, fef), locales, modelo.casos[caso].nombre)
+    return ResultadoCaso(caso, resolver(agrietado, F, fef), locales, modelo.casos[caso].nombre,
+                         bruta=resolver(modelo, F, fef))
 
 
 def analizar(modelo):
@@ -152,27 +202,34 @@ def combinar(modelo, resultados, combinacion):
       el efecto de cada carga por separado (son lineales)."""
     partes = [(combinacion.factores[modelo.casos[cid].tipo], rc) for cid, rc in resultados.items()
               if modelo.casos[cid].tipo in combinacion.factores]
-    base = next(iter(resultados.values())).res      # K y las formas de los arreglos: iguales en todos
+    primero = next(iter(resultados.values()))     # K y las formas de los arreglos: iguales en todos
+    res = _superponer([(f, rc.res) for f, rc in partes], primero.res)
+    bruta = None
+    if primero.bruta is not None:                 # el análisis con la inercia bruta, igual
+        bruta = _superponer([(f, rc.bruta) for f, rc in partes], primero.bruta)
+    cargas = {}
+    for f, rc in partes:
+        for eid, lista in rc.cargas_locales.items():
+            cargas.setdefault(eid, []).extend((tipo, f * np.asarray(v, dtype=float), a) for tipo, v, a in lista)
+    return ResultadoCaso(None, res, cargas, combinacion.nombre, bruta)
+
+
+def _superponer(partes, base):
+    """Σ factor × Resultados: partes [(factor, Resultados)]; base da K y la forma de cada arreglo."""
 
     def cero(valor):
         return np.zeros_like(np.asarray(valor, dtype=float))
 
     def suma(nombre):
-        return sum((f * np.asarray(getattr(rc.res, nombre), dtype=float) for f, rc in partes),
-                   cero(getattr(base, nombre)))
+        return sum((f * np.asarray(getattr(r, nombre), dtype=float) for f, r in partes), cero(getattr(base, nombre)))
 
     def suma_por_id(nombre):
-        return {k: sum((f * np.asarray(getattr(rc.res, nombre)[k], dtype=float) for f, rc in partes), cero(v))
+        return {k: sum((f * np.asarray(getattr(r, nombre)[k], dtype=float) for f, r in partes), cero(v))
                 for k, v in getattr(base, nombre).items()}
 
-    res = Resultados(ids=list(base.ids), K=base.K, F=suma("F"), U=suma("U"), R=suma("R"),
-                     desplazamientos=suma_por_id("desplazamientos"), reacciones=suma_por_id("reacciones"),
-                     fuerzas=suma_por_id("fuerzas"))
-    cargas = {}
-    for f, rc in partes:
-        for eid, lista in rc.cargas_locales.items():
-            cargas.setdefault(eid, []).extend((tipo, f * np.asarray(v, dtype=float), a) for tipo, v, a in lista)
-    return ResultadoCaso(None, res, cargas, combinacion.nombre)
+    return Resultados(ids=list(base.ids), K=base.K, F=suma("F"), U=suma("U"), R=suma("R"),
+                      desplazamientos=suma_por_id("desplazamientos"), reacciones=suma_por_id("reacciones"),
+                      fuerzas=suma_por_id("fuerzas"))
 
 
 @dataclass
@@ -291,13 +348,17 @@ def fuerzas_en_x(modelo, rc, eid, x):
 def desplazamientos_locales(modelo, rc, eid, x=None):
     """Desplazamientos de la barra en sus ejes locales: {"x", "u", "v", "w", "phi"} (u a lo largo
     del eje, v en y local, w en z local y phi el giro alrededor de x). x: los puntos donde se piden
-    (m desde el nodo i); sin x, los mismos de los diagramas."""
+    (m desde el nodo i); sin x, los mismos de los diagramas.
+
+    Salen del análisis con la inercia bruta (rc.deformacion): sus desplazamientos de los nodos, sus
+    fuerzas y la sección del modelo (Ig), todo del mismo análisis para que la curva sea coherente."""
     el = modelo.elementos[eid]
     _r, t, largo = geometria(modelo, eid)
     mat, sec = modelo.materiales[el.material], modelo.secciones[el.seccion]
     idx = indices_nodos(modelo)
-    u_local = t @ rc.res.U[gdl_barra(idx[el.ni], idx[el.nj])]
-    return diagramas.deformada(largo, rc.res.fuerzas[eid], rc.cargas_locales.get(eid, []), u_local,
+    d = rc.deformacion
+    u_local = t @ d.U[gdl_barra(idx[el.ni], idx[el.nj])]
+    return diagramas.deformada(largo, d.fuerzas[eid], rc.cargas_locales.get(eid, []), u_local,
                                mat.e, mat.g, sec.a, sec.iy, sec.iz, sec.j, x=x)
 
 

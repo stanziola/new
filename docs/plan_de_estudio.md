@@ -71,14 +71,25 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - J de 30×50 = 2.82e-3 m⁴;
   - I agrietada de una viga = 0.35Ig, y comprobar que el análisis la usa.
 - **Listo cuando:** se pueden crear, editar y borrar materiales y secciones desde la interfaz, el análisis usa las propiedades modificadas y hay pruebas automáticas para lo anterior.
-- **Pendiente (noviembre de 2026):** la inercia agrietada, en un paso aparte (decisión del usuario). Alcance acordado:
+- **Hecho (noviembre de 2026): inercia agrietada.**
+  - `calculo/concreto.factor_inercia`: 0.70 en columnas y 0.35 en vigas, fijos (Tabla 6.6.3.1.1(a), confirmada en la imagen de la PDF p. 78).
+  - `modelo/analisis.py` resuelve cada caso dos veces:
+    - el de **resistencia**, con esos factores en las barras de concreto, da las fuerzas, las reacciones y los puntos Pu–Mu;
+    - el de **Ig** da la deformada y los desplazamientos. Ig para la deformada es decisión del usuario, por ahora.
+  - Verificado en `pruebas/verificacion.py`:
+    - voladizo a mano (Δ/0.70 y el mismo momento);
+    - pórtico igual a un modelo armado a mano con las inercias ya reducidas;
+    - el momento de un pórtico hiperestático cambia (5.47 contra 7.30 kN·m en la base);
+    - sin concreto, un solo análisis.
+  - Falta: la rigidez de servicio (1.4×, para la deriva por viento) e Ie (etapa 5).
+
+  Alcance, como se acordó:
   - la Tabla 6.6.3.1.1(a) (PDF p. 78) es para el análisis con **cargas mayoradas**, es decir, para obtener las fuerzas de diseño;
   - las deformaciones no salen de esa tabla:
     - las laterales inmediatas de servicio (la deriva por viento del REP 4.3) usan **1.4 × esas inercias, sin pasar de Ig** (§6.6.3.2.2, PDF p. 80);
     - la flecha de vigas por gravedad usa **Ie** (§24.2, etapa 5);
     - la deriva sísmica usa secciones agrietadas (ASCE 7-05 §12.7.3(a)) y luego δx = Cd·δxe/I (etapa 7);
-  - por eso el programa necesitará dos rigideces, una de resistencia y otra de servicio;
-  - falta decidir dónde vive la tabla. Propuesta: en `calculo/concreto.py` (es dato de la norma y queda protegido) y aplicada en `modelo/analisis.py`.
+  - por eso el programa necesitará dos rigideces, una de resistencia y otra de servicio. Hoy la segunda es Ig.
 
 ## Etapa 2: Cargas en barras y diagramas
 
@@ -337,7 +348,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
    - ~~solo cargas nodales~~: ya hay cargas en barras y peso propio; faltan las parciales y trapezoidales;
    - sin liberaciones (articulaciones) en los extremos de barra;
    - sin brazos rígidos;
-   - sin modificadores de inercia agrietada (paso aparte; ver el pendiente de la etapa 1);
+   - ~~sin modificadores de inercia agrietada~~: hechos en el análisis de resistencia (ver la etapa 1); la deformada sigue con Ig;
    - la detección de inestabilidad usa cond(K) > 1e12, que depende de las unidades.
 9. **Inconsistencias del propio REP 2021:**
    - 5.7 y 5.8 citan una sección 1.11 que no existe;
