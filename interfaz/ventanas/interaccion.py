@@ -1,7 +1,7 @@
 """Diagramas de interacción (2D y 3D) dentro de Qt.
 
-- DiagramaInteraccion: el dibujo con sus controles (2D o 3D, θ y, en la pestaña de una columna, las
-  medidas de su sección, editables).
+- DiagramaInteraccion: el dibujo con sus controles (2D o 3D, el deslizador de la dirección del momento
+  y, en la pestaña de una columna, las medidas de su sección, editables).
   Lo usan la ventana aparte (Ver 2D y Ver 3D de una sección) y la pestaña Interacción de Propiedades
   (columnas).
 - VentanaDiagrama: una ventana con un DiagramaInteraccion.
@@ -13,16 +13,26 @@ Se calcula solo cuando se pide (Ver 2D, Ver 3D o al abrir la pestaña) y lo calc
 unidades internas: si cambian las unidades solo se vuelve a dibujar, y lo ya calculado de la misma
 sección no se recalcula.
 
-Puntos Pu–Mu (solo en la pestaña de una columna, con resultados a la vista): uno por combinación y
-por extremo de la columna (modelo/analisis.demandas_columna). Los dos de la combinación que se ve
-arriba (Σ y la lista Combinación) van en rojo; con un caso o la envolvente, ninguno. Una columna de un
-pórtico 3D tiene momento en sus dos ejes a la vez, así que cada punto se compara con el corte de la
-superficie en la dirección de SU momento:
-- 2D: P contra el momento resultante √(My² + Mz²), con la curva de la dirección del punto rojo de mayor
-  momento (sin combinación a la vista, la del punto de mayor momento). Los puntos con esa misma
-  dirección van rellenos; los demás, huecos (su curva es otra);
+El 2D es siempre el corte de la superficie de interacción en una dirección λ del MOMENTO resultante
+(modelo/interaccion.curva_direccion), que se elige con un deslizador de 0° (flexión hacia b, solo Mz)
+a 90° (flexión hacia h, solo My); abre en 90°. Con la doble simetría de la sección basta ese cuadrante.
+No se usa la curva con la fibra más comprimida hacia θ (biaxial.curva): con θ intermedio no es la
+resistencia en esa dirección y da de más (en una 30×60 a 45°, un 34 a 40 %). Cada dirección tarda unos
+0.2 s: se calcula al soltar el deslizador (o al dejarlo quieto un momento) y se guarda, a 1°.
+
+Puntos Pu–Mu (solo en la pestaña de una columna, con resultados a la vista): uno por combinación de la
+norma (las 13) y por extremo de la columna (modelo/analisis.demandas_columna). Los dos de la
+combinación que se ve arriba (Σ y la lista Combinación) van en rojo; con un caso o la envolvente,
+ninguno. Una columna de un pórtico 3D tiene momento en sus dos ejes a la vez, así que cada punto se
+compara con el corte de la superficie en la dirección de SU momento:
+- 2D: P contra el momento resultante √(My² + Mz²). Al llegar los puntos, el deslizador se pone en la
+  dirección del punto rojo de mayor momento (sin combinación a la vista, la del punto de mayor
+  momento), y se puede mover. Los puntos con la dirección del deslizador van rellenos; los demás,
+  huecos (su curva es otra);
 - 3D: todos los puntos en su lugar, (Mz, My, P), frente a la superficie.
-Sin puntos, el 2D es el de siempre: la curva con la fibra más comprimida hacia θ.
+En los dos, un aviso en rojo dice qué puntos quedan fuera del diagrama de diseño, cada uno revisado
+contra la curva de su propia dirección (modelo/interaccion.dentro_del_diagrama). Es un aviso, no la
+relación demanda/capacidad del diseño (etapa 4).
 
 Sección editable (la pestaña de una columna rectangular): b, h, barra, Nx y Ny debajo del dibujo, con
 la cuantía. Al terminar un cambio se emite `seccion_editada` y la ventana pone otra sección solo en esa
@@ -33,19 +43,23 @@ from dataclasses import astuple
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
-import numpy as np
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QApplication, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (QApplication, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QSlider, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 from configuracion import colores, formato, unidades
 from interfaz import textos
-from interfaz.paneles.comunes import CampoNumero, Lista
+from interfaz.paneles.comunes import Lista
 from modelo import interaccion as concreto
 
 MARCADOR = "o"                  # todos los puntos Pu–Mu, círculos
 MISMA_DIRECCION = math.radians(1.0)     # hasta aquí, dos momentos "van en la misma dirección"
-AYUDA_THETA = ("θ: dirección de la fibra más comprimida, en el plano de la sección (0° = hacia b, 90° = hacia h). "
-               "No es la dirección del momento resultante, salvo en 0°, 90°, 180° y 270°")
+DIRECCION_INICIAL = 90          # grados: flexión hacia h (solo My), el eje fuerte si h > b
+ESPERA_DESLIZADOR_MS = 150      # quieto este tiempo mientras se arrastra, se calcula esa dirección
+MAXIMO_EN_AVISO = 4             # puntos fuera que se nombran en el aviso (los demás, "y N más")
+AYUDA_DIRECCION = ("Dirección del momento resultante en el plano de la sección: 0° = flexión hacia b (solo Mz) y "
+                   "90° = flexión hacia h (solo My). El diagrama es el corte de la superficie de interacción en esa "
+                   "dirección. Por la simetría de la sección, basta de 0° a 90°")
 
 
 def _plegada(direccion):
@@ -90,20 +104,42 @@ class DiagramaInteraccion(QWidget):
             self.selector_modo.addItem("3D (superficie)", "3D")
             self.selector_modo.currentIndexChanged.connect(self._cambio_modo)
             fila.addWidget(self.selector_modo)
-        self.etiqueta_theta = QLabel("θ" if con_modo else "Compresión hacia θ")     # corto en la pestaña
-        self.etiqueta_theta.setToolTip(AYUDA_THETA)
-        self.theta = CampoNumero(minimo=0, maximo=359, entero=True, unidad="°", cifras=5)
-        self.theta.setToolTip(AYUDA_THETA)
-        self.theta.poner(0)
-        self.theta.terminado.connect(lambda: self._probar(self.refrescar))
-        fila.addWidget(self.etiqueta_theta)
-        fila.addWidget(self.theta)
-        fila.addStretch(1)
+        # La dirección del momento: un deslizador de 0° a 90° y su valor al lado
+        self.etiqueta_direccion = QLabel("M hacia" if con_modo else "Momento hacia")    # corto en la pestaña
+        self.direccion = QSlider(Qt.Horizontal)
+        self.direccion.setRange(0, 90)
+        self.direccion.setSingleStep(1)
+        self.direccion.setPageStep(15)
+        self.direccion.setValue(DIRECCION_INICIAL)
+        self.direccion.setMinimumWidth(100)
+        self.valor_direccion = QLabel()
+        self.valor_direccion.setMinimumWidth(self.valor_direccion.fontMetrics().horizontalAdvance("90°") + 4)
+        for control in (self.etiqueta_direccion, self.direccion, self.valor_direccion):
+            control.setToolTip(AYUDA_DIRECCION)
+        self._poner_direccion(DIRECCION_INICIAL)
+        # Arrastrando se calcula solo cuando el deslizador se queda quieto un momento (o al soltarlo):
+        # cada dirección nueva tarda unos 0.2 s
+        self._espera = QTimer(self)
+        self._espera.setSingleShot(True)
+        self._espera.setInterval(ESPERA_DESLIZADOR_MS)
+        self._espera.timeout.connect(lambda: self._probar(self.refrescar))
+        self.direccion.valueChanged.connect(self._direccion_movida)
+        self.direccion.sliderReleased.connect(self._direccion_soltada)
+        fila.addWidget(self.etiqueta_direccion)
+        fila.addWidget(self.direccion, 1)
+        fila.addWidget(self.valor_direccion)
+        if not con_modo:
+            fila.addStretch(1)                  # en la ventana aparte, el deslizador no ocupa todo el ancho
         diseno.addLayout(fila)
-        self.aviso = QLabel()
+        self.aviso = QLabel()                   # errores del cálculo
         self.aviso.setWordWrap(True)
         self.aviso.hide()
         diseno.addWidget(self.aviso)
+        self.alerta = QLabel()                  # puntos Pu–Mu fuera del diagrama de diseño (2D y 3D)
+        self.alerta.setWordWrap(True)
+        self.alerta.setTextFormat(Qt.RichText)
+        self.alerta.hide()
+        diseno.addWidget(self.alerta)
         self.paginas = QStackedWidget()         # página 0: el 2D (matplotlib); página 1: el 3D (VTK)
         self.paginas.addWidget(self.lienzo)
         diseno.addWidget(self.paginas, 3)
@@ -204,6 +240,10 @@ class DiagramaInteraccion(QWidget):
         self.puntos = list(puntos or [])
         self.rojos = [i for i, p in enumerate(self.puntos) if activa is not None and p.clave == activa]
         self._pista = pista
+        referencia = self._referencia()
+        if referencia is not None and referencia.m > 1e-9 and seccion.concreto.forma == "rectangular":
+            # El deslizador va a la dirección del punto de referencia (y luego se puede mover)
+            self._poner_direccion(round(math.degrees(self._plegada_de(referencia))))
         self._llenar_edicion(especial)
         self.refrescar()
 
@@ -226,9 +266,70 @@ class DiagramaInteraccion(QWidget):
         self.lienzo.draw_idle()
         self.paginas.setCurrentIndex(0)
 
-    def _con_theta(self):
-        return (self.modo == "2D" and not self.puntos and self.seccion is not None
-                and self.seccion.concreto.forma == "rectangular")
+    def _texto_alerta(self, fuera):
+        """El aviso de los puntos fuera del diagrama de diseño (en rojo), o "" si no hay ninguno."""
+        if not fuera:
+            return ""
+        nombres = [f"{p.combinacion} ({p.lugar})" for p in fuera]
+        lista = " · ".join(nombres[:MAXIMO_EN_AVISO])
+        if len(nombres) > MAXIMO_EN_AVISO:
+            lista += f" y {len(nombres) - MAXIMO_EN_AVISO} más"
+        cuantos = (f"{len(fuera)} de {len(self.puntos)} puntos Pu–Mu quedan" if len(fuera) > 1
+                   else f"1 de {len(self.puntos)} puntos Pu–Mu queda")
+        return (f"<span style='color:{colores.INTERACCION_ELEGIDO}'>⚠ <b>{cuantos} fuera del diagrama de "
+                f"diseño:</b> {lista}</span>")
+
+    # ---------- Dirección del momento ----------
+    def _con_direccion(self):
+        """El deslizador se ve en el 2D de una sección rectangular (en la circular la dirección no importa)."""
+        return self.modo == "2D" and self.seccion is not None and self.seccion.concreto.forma == "rectangular"
+
+    def _poner_direccion(self, grados):
+        """Pone el deslizador en esos grados (sin calcular nada) y su valor al lado."""
+        self.direccion.blockSignals(True)
+        self.direccion.setValue(int(grados))
+        self.direccion.blockSignals(False)
+        self.valor_direccion.setText(f"{self.direccion.value()}°")
+
+    def _direccion_movida(self, grados):
+        """El deslizador cambió: su valor al lado enseguida y el dibujo cuando se quede quieto."""
+        self.valor_direccion.setText(f"{grados}°")
+        self._espera.start()
+
+    def _direccion_soltada(self):
+        """Al soltar el deslizador se dibuja ya, si quedó algo pendiente."""
+        if self._espera.isActive():
+            self._espera.stop()
+            self._probar(self.refrescar)
+
+    def _direccion_vigente(self):
+        """La dirección (rad) del corte que se dibuja: la del deslizador (0 en la circular)."""
+        if self.seccion is None or self.seccion.concreto.forma == "circular":
+            return 0.0
+        return math.radians(self.direccion.value())
+
+    @staticmethod
+    def _plegada_de(p):
+        """La dirección (rad) del momento del punto p, en el primer cuadrante."""
+        return _plegada(concreto.direccion_momento(p.my, p.mz))
+
+    def _direccion_de(self, p):
+        """La dirección (rad) de la curva contra la que se revisa el punto p: la de su momento, a 1°. En
+        la circular, o si el punto no tiene momento, da igual (el techo y la tracción son los mismos en
+        todas las direcciones): la del deslizador, que ya está calculada."""
+        if self.seccion.concreto.forma == "circular" or p.m < 1e-9:
+            return self._direccion_vigente()
+        return math.radians(round(math.degrees(self._plegada_de(p))))
+
+    def _fuera(self):
+        """Los puntos que quedan fuera del diagrama de diseño, cada uno revisado contra la curva de SU
+        dirección (no contra la que se dibuja)."""
+        fuera = []
+        for p in self.puntos:
+            _pn, _mn, phi_pn, phi_mn = self._datos("direccion", self._direccion_de(p))
+            if not concreto.dentro_del_diagrama(phi_pn, phi_mn, p.p, p.m):
+                fuera.append(p)
+        return fuera
 
     def _cambio_modo(self, *_):
         self.modo = self.selector_modo.currentData()
@@ -241,15 +342,15 @@ class DiagramaInteraccion(QWidget):
             self.mostrar_error(f"No se pudo calcular: {e}")
 
     def _referencia(self):
-        """El punto que define la dirección del corte 2D: el rojo de mayor momento o, sin rojos, el de
-        mayor momento de todos. None si no hay puntos."""
+        """El punto en cuya dirección se pone el deslizador al llegar los puntos (y el del título): el
+        rojo de mayor momento o, sin rojos, el de mayor momento de todos. None si no hay puntos."""
         indices = self.rojos or list(range(len(self.puntos)))
         return self.puntos[max(indices, key=lambda i: self.puntos[i].m)] if indices else None
 
     # ---------- Cálculo (solo lo que falte) ----------
     def _datos(self, que, parametro=0.0):
-        """Lo calculado para la sección vigente: "theta" (curva con la fibra comprimida hacia θ),
-        "direccion" (corte en esa dirección del momento) o "superficie". Con el cursor de espera."""
+        """Lo calculado para la sección vigente: "direccion" (el corte en esa dirección del momento, en
+        rad) o "superficie". Con el cursor de espera."""
         datos_seccion = astuple(self.seccion.concreto)
         if datos_seccion != self._de_seccion:
             self._calculado, self._de_seccion = {}, datos_seccion
@@ -259,9 +360,7 @@ class DiagramaInteraccion(QWidget):
             try:
                 c = self.seccion.concreto
                 sec = concreto.propiedades(c)
-                if que == "theta":
-                    self._calculado[clave] = concreto.curva_2d(c, sec, clave[1])
-                elif que == "direccion":
+                if que == "direccion":
                     self._calculado[clave] = concreto.curva_direccion(c, sec, clave[1])
                 else:
                     self._calculado[clave] = concreto.superficie_3d(c, sec)
@@ -279,12 +378,14 @@ class DiagramaInteraccion(QWidget):
         """Dibuja el diagrama (calculando lo que falte), en las unidades de pantalla vigentes."""
         if self.seccion is None:
             return
-        self.etiqueta_theta.setVisible(self._con_theta())
-        self.theta.setVisible(self._con_theta())
+        for control in (self.etiqueta_direccion, self.direccion, self.valor_direccion):
+            control.setVisible(self._con_direccion())
         if self.barra is not None:
             self.barra.setVisible(self.modo == "2D")
         self.pista.setText(self._texto_bajo())  # en las unidades vigentes
         self.pista.setVisible(bool(self.pista.text()))
+        self.alerta.setText(self._texto_alerta(self._fuera()))
+        self.alerta.setVisible(bool(self.alerta.text()))
         if self.modo == "2D":
             self._dibujar_2d()
             self.paginas.setCurrentIndex(0)
@@ -296,27 +397,24 @@ class DiagramaInteraccion(QWidget):
     def _dibujar_2d(self):
         fu, mu = unidades.factor("fuerza"), unidades.factor("momento")
         sf, sm = unidades.simbolo("fuerza"), unidades.simbolo("momento")
-        titulo = "Diagrama de interacción"
         circular = self.seccion.concreto.forma == "circular"
+        direccion = self._direccion_vigente()
+        Pn, Mn, PhiPn, PhiMn = self._datos("direccion", direccion)
         elegido = self._referencia()
         if elegido is not None:
-            direccion = _plegada(concreto.direccion_momento(elegido.my, elegido.mz)) if elegido.m > 1e-9 else 0.0
-            Pn, Mn, PhiPn, PhiMn = self._datos("direccion", direccion)
             titulo = f"{elegido.combinacion}, {elegido.lugar}" if self.rojos else "Puntos Pu–Mu de las combinaciones"
-            if not circular:
-                titulo += f" — momento a {math.degrees(direccion):.1f}°"
-        elif self._con_theta():
-            Pn, Mn, PhiPn, PhiMn = self._datos("theta", np.radians(self.theta.valor()))
-            titulo += f" — θ = {self.theta.valor()}°"
         else:
-            Pn, Mn, PhiPn, PhiMn = self._datos("theta", 0.0)
+            titulo = "Diagrama de interacción"
+        if not circular:
+            titulo += f" — momento a {math.degrees(direccion):.0f}°"
         self.figura.clear()
         ax = self.figura.add_subplot(111)
         ax.plot(Mn / mu, Pn / fu, color=colores.ELEMENTO, label="Nominal (Mn, Pn)")
         ax.plot(PhiMn / mu, PhiPn / fu, color=colores.SELECCIONADO, label="Diseño (φMn, φPn)")
-        for i, p in enumerate(self.puntos):
-            igual = (circular or p.m < 1e-9 or elegido.m < 1e-9
-                     or abs(_plegada(concreto.direccion_momento(p.my, p.mz)) - direccion) <= MISMA_DIRECCION)
+        # Relleno: el momento del punto va en la dirección del corte dibujado; hueco: su curva es otra
+        iguales = [circular or p.m < 1e-9 or abs(self._plegada_de(p) - direccion) <= MISMA_DIRECCION
+                   for p in self.puntos]
+        for i, (p, igual) in enumerate(zip(self.puntos, iguales)):
             rojo = i in self.rojos
             color = colores.INTERACCION_ELEGIDO if rojo else colores.INTERACCION_PUNTO
             ax.plot(p.m / mu, p.p / fu, MARCADOR, color=color, markersize=9 if rojo else 6,
@@ -324,8 +422,7 @@ class DiagramaInteraccion(QWidget):
         if self.puntos:
             ax.plot([], [], MARCADOR, color=colores.INTERACCION_PUNTO, markersize=6, linestyle="none",
                     label="Pu–Mu (combinaciones)")
-            if any(not (circular or p.m < 1e-9 or abs(_plegada(concreto.direccion_momento(p.my, p.mz)) - direccion)
-                        <= MISMA_DIRECCION) for p in self.puntos):
+            if not all(iguales):
                 ax.plot([], [], "o", color=colores.INTERACCION_PUNTO, markerfacecolor="none", markersize=6,
                         linestyle="none", label="momento en otra dirección")
         ax.axhline(0, color="k", linewidth=0.8)

@@ -5,7 +5,7 @@ gira junto con la cámara. Al pasar el mouse se sombrea en gris lo que está deb
 
 - **El cubo.** Con un clic, la cámara gira con una animación corta hasta mirar el modelo desde ese
   lado: desde la cara, o desde una vista intermedia si es una arista o una esquina (26 vistas).
-- **El anillo de giro**, debajo del cubo (en el plano de su base), con cuatro marcas. Arrastrarlo
+- **El anillo de giro**, debajo del cubo (en el plano de su base), liso. Arrastrarlo
   gira la cámara alrededor del eje vertical (Z) que pasa por el foco, a la misma distancia y con el
   mismo zoom: el punto del anillo que se tomó sigue al mouse.
 - **Las flechas**, que aparecen solo con el mouse sobre el cubo y mirando una cara de frente:
@@ -133,8 +133,8 @@ def _borde():
 
 
 def _anillo():
-    """El anillo de giro: una corona plana bajo el cubo, sus dos bordes y cuatro marcas (cada 90°).
-    Las marcas dejan ver que el anillo gira: una corona lisa girando sobre su eje se vería quieta."""
+    """El anillo de giro: una corona plana y lisa bajo el cubo, con sus dos bordes. Sin marcas, a
+    pedido del usuario: que gira se ve en el cubo, que gira con él."""
     interior, exterior = RADIO_ANILLO
     n = SEGMENTOS_ANILLO
     angulos = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
@@ -151,8 +151,6 @@ def _anillo():
     lineas = []
     for base in (0, n):                                 # los dos círculos, cerrados
         lineas += [n + 1, *range(base, base + n), base]
-    for i in range(0, n, n // 4):                       # las cuatro marcas, de un borde al otro
-        lineas += [2, i, n + i]
     bordes = pv.PolyData(puntos, lines=np.array(lineas))
     bordes.cell_data["direccion"] = np.zeros((bordes.n_cells, 3))
     bordes.cell_data["parte"] = np.full(bordes.n_cells, LINEA_ANILLO)

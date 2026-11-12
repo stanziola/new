@@ -59,15 +59,6 @@ def posiciones_barras(c):
     return puntos
 
 
-def curva_2d(concreto, sec, theta=0.0):
-    """Diagrama 2D: arreglos (Pn, Mn, φPn, φMn) en kN y kN·m. theta (rad) solo en la rectangular."""
-    if concreto.forma == "circular":
-        datos = circular.curva_circ(sec, 100)
-    else:
-        datos = biaxial.curva(sec, theta, 100)
-    return [np.asarray(d, dtype=float) * TONF_KN for d in datos]
-
-
 def direccion_momento(my, mz):
     """Dirección (rad) del momento resultante de una barra en el plano de su sección, con los
     momentos My y Mz de la barra (ejes locales): 0 = flexión hacia b (solo Mz) y 90° = flexión hacia h
@@ -90,6 +81,33 @@ def curva_direccion(concreto, sec, direccion):
     else:
         datos = biaxial.curva_direccion(sec, direccion)
     return [np.asarray(d, dtype=float) * TONF_KN for d in datos]
+
+
+def dentro_del_diagrama(phi_pn, phi_mn, pu, mu, tol=1e-6):
+    """True si el punto (Pu, Mu) queda dentro del diagrama de diseño (o en su borde): la curva
+    (φPn, φMn) de SU dirección (curva_direccion), cerrada por el eje P. Pu en kN (compresión
+    positiva) y Mu, el momento resultante, en kN·m.
+
+    A lo largo de la curva, de la tracción a la compresión, φPn nunca baja (comprobado en
+    rectangulares de varias proporciones, en todas las direcciones, y en la circular). Así, la recta
+    P = Pu corta la curva una sola vez, y el punto está dentro si Pu está entre el φPn menor (la
+    tracción) y el mayor (el techo) y si Mu no pasa del φMn de la curva a esa altura. En el techo,
+    que es plano, se toma el mayor φMn. tol es una holgura relativa para los puntos en el borde.
+
+    Es una comparación para el aviso de la pantalla, no la relación demanda/capacidad del diseño
+    (etapa 4)."""
+    pn = np.asarray(phi_pn, dtype=float)
+    mn = np.abs(np.asarray(phi_mn, dtype=float))
+    holgura_p, holgura_m = tol * float(np.abs(pn).max()), tol * float(mn.max())
+    if not pn.min() - holgura_p <= pu <= pn.max() + holgura_p:
+        return False
+    pu = min(max(pu, pn.min()), pn.max())               # si se pasó solo por la holgura, al borde
+    a, b = pn[:-1], pn[1:]
+    corta = (a <= pu) & (pu <= b) & (b > a)              # los tramos que cruzan P = Pu
+    cortes = mn[:-1][corta] + (mn[1:][corta] - mn[:-1][corta]) * (pu - a[corta]) / (b[corta] - a[corta])
+    en_altura = mn[np.abs(pn - pu) <= holgura_p]         # puntos justo a esa altura (el techo plano)
+    capacidad = max(cortes.max(initial=0.0), en_altura.max(initial=0.0))
+    return abs(mu) <= capacidad + holgura_m
 
 
 def superficie_3d(concreto, sec):

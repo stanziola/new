@@ -252,7 +252,7 @@ def capitulo(m):
     m.parrafo("Un punto de diseño con momento en los dos ejes ($P_u$, $M_{ux}$, $M_{uy}$) se compara con el corte de "
               "la superficie en la dirección $\\lambda$ de su momento resultante, que no es $\\theta$ (solo coinciden "
               "en los ejes principales). Para cada profundidad del eje neutro se busca el $\\theta$ que da esa "
-              "dirección.")
+              "dirección. Es el diagrama 2D que muestra el programa, con $\\lambda$ elegida con un deslizador.")
     m.ecuacion(r"\lambda = \arctan \left( \frac{M_x}{M_y} \right), \quad M_n = \sqrt{M_x^2 + M_y^2}",
                cita="$P_u$ y $M_u$ simultáneos de cada combinación: ACI 318-19 §10.4.2.1 (PDF p. 158)")
     m.codigo(biaxial.curva_direccion)
@@ -277,5 +277,7 @@ def capitulo(m):
         "Columna circular siempre con aros: sin los valores de espiral ($\\phi$ = 0.75 y $0.85 P_o$).",
         "Los puntos $P_u$–$M_u$ que se grafican son de primer orden: sin esbeltez ni momento mínimo "
         "(ACI 318-19 §6.6.4), y sin la relación demanda/capacidad (etapa 4).",
-        "El diagrama 2D con $\\theta$ intermedio no es la resistencia en esa dirección del momento.",
+        "La curva con $\\theta$ intermedio (la proyección $M_y \\cos\\theta + M_x \\, \\text{sen}\\,\\theta$) no es la "
+        "resistencia en esa dirección del momento: da de más. Por eso el 2D usa siempre el corte en $\\lambda$; los "
+        "puntos de la superficie sí son los vectores ($M_x$, $M_y$) completos.",
     ])

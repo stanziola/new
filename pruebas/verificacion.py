@@ -313,8 +313,11 @@ def verificar_demandas():
     1. Columna en voladizo de 3 m (empotrada abajo), sin peso propio. Arriba, D: 100 kN hacia abajo y
        10 kN en +X; L: 50 kN hacia abajo y 5 kN en +X. A mano:
        - 1.4D: Pu = 140 kN en los dos extremos; M abajo = 1.4·10·3 = 42 kN·m y arriba 0;
-       - 1.2D + 1.6L: Pu = 120 + 80 = 200 kN; M abajo = (12 + 8)·3 = 60 kN·m.
-       Solo esas dos se grafican: las demás necesitan Lr, W o E, que no tienen cargas.
+       - 1.2D + 1.6L: Pu = 120 + 80 = 200 kN; M abajo = (12 + 8)·3 = 60 kN·m;
+       - en general, con los factores fD y fL de cada combinación: Pu = 100·fD + 50·fL y
+         M abajo = 30·fD + 15·fL (arriba 0).
+       Se grafican las 13, aunque Lr, W y E no tengan cargas (valen cero): 0.9D ± 1.6W da Pu = 90 kN
+       y M = 27 kN·m, dos veces.
        La fuerza va en X global y el eje local z de una columna es −X: flexiona hacia h, o sea My.
     2. El corte de la superficie en la dirección del momento: en 0° y 90° es la curva de un eje; en
        una sección cuadrada, a 45°, es la curva con θ = 45° (por simetría); y en cualquier dirección
@@ -336,17 +339,29 @@ def verificar_demandas():
     viva = m.agregar_caso("Viva", "L")
     m.cargar(2, fx=5, fz=-50, caso=viva)
     aplican = comb.aplicables(m)
-    comprobar(f"Con D y L se revisan: {', '.join(c.nombre for c in aplican.values())}  (la 1 y la 2)",
-              list(aplican) == ["C1", "C2"])
+    comprobar(f"Se grafican las 13 combinaciones de la norma, aunque falten Lr, W y E: {len(aplican)}",
+              len(aplican) == 13 and comb.MUERTA not in aplican)
     resultados = analizar(m)
     puntos = demandas_columna(m, {k: combinar(m, resultados, c) for k, c in aplican.items()}, 1)
-    esperado = {("C1", "inferior"): (140, 42), ("C1", "superior"): (140, 0),
-                ("C2", "inferior"): (200, 60), ("C2", "superior"): (200, 0)}
-    comprobar(f"Dos puntos por combinación (inferior y superior): {len(puntos)}", len(puntos) == 4)
+    comprobar(f"Dos puntos por combinación (inferior y superior): {len(puntos)}", len(puntos) == 26)
+
+    def a_mano(p):
+        """(Pu, |My|) a mano con los factores de la combinación del punto (lo que no está vale cero)."""
+        f = aplican[p.clave].factores
+        fd, fl = f.get("D", 0.0), f.get("L", 0.0)
+        return 100 * fd + 50 * fl, (30 * fd + 15 * fl) if p.lugar == "inferior" else 0.0
+
+    def igual(p):
+        pu, mu = a_mano(p)
+        return bool(np.isclose(p.p, pu) and np.isclose(abs(p.my), mu, atol=1e-9) and abs(p.mz) < 1e-9)
+
     for p in puntos:
-        pu, mu = esperado[(p.clave, p.lugar)]
-        comprobar(f"{p.combinacion}, {p.lugar}: Pu = {p.p:.3f} (a mano {pu}), |My| = {abs(p.my):.3f} (a mano {mu}), "
-                  f"Mz = {p.mz:.1e}", np.isclose(p.p, pu) and np.isclose(abs(p.my), mu, atol=1e-9) and abs(p.mz) < 1e-9)
+        if p.clave in ("C1", "C2", "C6a"):              # a la vista: la 1, la 2 y una sin su carga (W)
+            pu, mu = a_mano(p)
+            comprobar(f"{p.combinacion}, {p.lugar}: Pu = {p.p:.3f} (a mano {pu:g}), |My| = {abs(p.my):.3f} "
+                      f"(a mano {mu:g}), Mz = {p.mz:.1e}", igual(p))
+    comprobar("Los 26 puntos: Pu = 100·fD + 50·fL y M abajo = 30·fD + 15·fL (arriba 0), con los factores de "
+              "cada combinación", all(igual(p) for p in puntos))
 
     for nombre, (b, h) in (("40x40", (0.40, 0.40)), ("30x60", (0.30, 0.60))):
         sec = propiedades_seccion(b * ureg.m, h * ureg.m, 0.06 * ureg.m, 3, 4 if h > b else 3, 4 * ureg.ksi, 8)
@@ -362,6 +377,34 @@ def verificar_demandas():
         po = (0.85 * 4 * (ag - ast) + 60 * ast) * KIP_TF
         comprobar(f"{nombre}: corte a 35°, Pn máx = {pn.max():.2f} tonf (Po a mano {po:.2f}) y techo {ppn.max():.2f} "
                   f"(0.52·Po = {0.52 * po:.2f})", np.isclose(pn.max(), po, rtol=0.02) and np.isclose(ppn.max(), 0.52 * po))
+
+    # 3. Por qué el 2D ya no usa la curva con θ: en la 30×60 a 45°, con el mismo φPn, la curva con la
+    #    fibra más comprimida hacia θ da más momento que el corte real en esa dirección del momento.
+    #    φMn a φPn = 100 tonf, interpolado (φPn crece a lo largo de la curva). sec es la 30×60, la última
+    #    del ciclo de arriba.
+    _, _, ppn_d, pmn_d = (np.array(v) for v in biaxial.curva_direccion(sec, math.radians(45), 200))
+    _, _, ppn_t, pmn_t = (np.array(v) for v in biaxial.curva(sec, math.radians(45), 200))
+    m_corte, m_theta = np.interp(100, ppn_d, pmn_d), np.interp(100, ppn_t, np.abs(pmn_t))
+    comprobar(f"30x60 a 45°, φPn = 100 tonf: corte real φMn = {m_corte:.2f} y curva con θ = 45° {m_theta:.2f} tonf·m "
+              f"(+{(m_theta / m_corte - 1) * 100:.0f} %: la de θ da de más)", m_theta > 1.2 * m_corte)
+
+    # 4. El aviso de puntos fuera (modelo/interaccion.dentro_del_diagrama), contra el corte a 90° de la
+    #    30×60: φMn a una altura, interpolado aparte, y puntos a cada lado del borde.
+    from modelo.interaccion import dentro_del_diagrama
+    _, _, ppn, pmn = (np.array(v) for v in biaxial.curva_direccion(sec, math.radians(90)))
+    techo, traccion = ppn.max(), ppn.min()
+    m100 = np.interp(100, ppn, pmn)
+    casos = (("Pu = 0.1·techo, M = 0", 0.1 * techo, 0.0, True),
+             ("Pu = 100 tonf, M = 0.99·φMn", 100, 0.99 * m100, True),
+             ("Pu = 100 tonf, M = 1.01·φMn", 100, 1.01 * m100, False),
+             ("Pu = 100 tonf, M = 2·φMn", 100, 2 * m100, False),
+             ("en el techo, M = 0", techo, 0.0, True),
+             ("1 % sobre el techo, M = 0", 1.01 * techo, 0.0, False),
+             ("1 % más tracción que la del acero, M = 0", 1.01 * traccion, 0.0, False))
+    for texto, pu, mu, esperado in casos:
+        dentro = dentro_del_diagrama(ppn, pmn, pu, mu)
+        comprobar(f"Aviso, {texto}: {'dentro' if dentro else 'fuera'} (debe quedar {'dentro' if esperado else 'fuera'})",
+                  dentro == esperado)
 
 
 def _portico_2d(nodos, barras, apoyos, cargas_barra, cargas_nodo):

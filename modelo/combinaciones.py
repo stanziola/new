@@ -31,12 +31,13 @@ Lo que todavía NO hace (limitaciones):
 - la opción de 0.5L en la 3, la 4 y la 5 (Lo ≤ 100 psf, salvo garajes y reunión pública): a propósito;
 - W y E en X y en Y, y la torsión accidental (etapas 7 y 8): aquí cada tipo va en una sola dirección;
 - Ev = 0 cuando SDS ≤ 0.125 (excepción de §12.4.2.2): no se aplica;
-- envolventes y cargas que no actúan (alternancia).
+- cargas que no actúan (alternancia de la viva). La envolvente de las 13 está en
+  modelo/analisis.envolvente, solo para ver resultados.
 Por ahora sirven para ver resultados, no para diseñar. Las fórmulas viven aquí, en modelo/, y no
 en calculo/ (sagrado): pasarlas allá es una decisión del usuario.
 
-Para los puntos Pu–Mu del diagrama de interacción de una columna no se usan las 13 siempre, sino las
-aplicables (aplicables): las que tienen cargas de su tipo principal (REQUIERE).
+Los puntos Pu–Mu del diagrama de interacción de una columna salen de las 13 (aplicables), aunque falte
+alguna carga: la que no está vale cero (decisión del usuario: se grafican todas).
 """
 from modelo.estructura import Combinacion, nombre_combinacion
 
@@ -66,41 +67,20 @@ CLAUSULA = {"1": "ASCE 7-05 §2.3.2", "2": "ASCE 7-05 §2.3.2", "3": "ASCE 7-05 
             "5": "ASCE 7-05 §12.4.2.3", "6": "ASCE 7-05 §2.3.2", "7": "ASCE 7-05 §12.4.2.3"}
 
 
-# Qué tipos de carga necesita cada combinación para que tenga sentido revisarla: su carga
-# "principal", la que la distingue de las demás (L en la 2, Lr en la 3, W en la 4 y la 6, E en la 5 y
-# la 7) y, en las que van con los dos signos, la carga del signo. Si falta, la combinación es una
-# copia más débil de otra (1.2D + 1.6W + L sin viento es 1.2D + L, que queda dentro de la 2) o dos
-# puntos repetidos (0.9D ± 1.6W sin viento). Las acompañantes que falten (0.5Lr, L…) valen cero.
-REQUIERE = {"C1": ("D",), "C2": ("L",), "C3": ("Lr",), "C3a": ("Lr", "W"), "C3b": ("Lr", "W"),
-            "C4a": ("W",), "C4b": ("W",), "C5a": ("E",), "C5b": ("E",), "C6a": ("W",), "C6b": ("W",),
-            "C7a": ("E",), "C7b": ("E",)}
-
-
 def numero(clave):
     """Número de la combinación en la norma: "C3a" -> "3"."""
     return clave[1:].rstrip("ab")
 
 
-def tipos_con_cargas(modelo):
-    """Tipos de caso (D, L, Lr, W, E) que tienen cargas en el modelo: algún caso de ese tipo tiene al
-    menos una carga, o lleva peso propio y alguna barra pesa (tiene sección y un material con γ)."""
-    con_cargas = {c.caso for c in modelo.cargas.values()}
-    pesa = any(modelo.secciones.get(el.seccion) is not None
-               and getattr(modelo.materiales.get(el.material), "gamma", 0.0)
-               for el in modelo.elementos.values())
-    return {caso.tipo for cid, caso in modelo.casos.items() if cid in con_cargas or (caso.peso_propio and pesa)}
-
-
 def aplicables(modelo):
-    """{clave: Combinacion}: las combinaciones de la norma que se revisan en el modelo, que son las
-    que tienen su carga principal (REQUIERE). Con cargas D y L solamente quedan 1.4D y
-    1.2D + 1.6L + 0.5Lr. Sin "Carga muerta (D)" ni las propias, como la envolvente.
+    """{clave: Combinacion}: las combinaciones de la norma que se revisan en el modelo: las 13, aunque
+    falte alguna carga (la que no está vale cero; por ejemplo, sin viento 0.9D + 1.6W y 0.9D − 1.6W
+    dan el mismo punto, y se grafican igual: decisión del usuario). Sin "Carga muerta (D)" ni las
+    propias, como la envolvente.
 
     ACI 318-19 §10.4.2.1 (PDF p. 158) pide considerar Pu y Mu simultáneos de cada combinación
-    aplicable. Límite: sin carga de techo (Lr) no queda 1.2D ± 0.8W (la 3 sin Lr)."""
-    tipos = tipos_con_cargas(modelo)
-    return {clave: co for clave, co in predeterminadas(modelo.sds, modelo.rho).items()
-            if clave != MUERTA and all(t in tipos for t in REQUIERE[clave])}
+    aplicable."""
+    return {clave: co for clave, co in predeterminadas(modelo.sds, modelo.rho).items() if clave != MUERTA}
 
 
 def predeterminadas(sds, rho):

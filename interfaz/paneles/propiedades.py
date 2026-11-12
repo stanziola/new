@@ -823,7 +823,7 @@ class Propiedades(QDockWidget):
                 puntos, pista = None, "Analiza (▶) para ver los puntos Pu–Mu de las combinaciones"
             else:
                 puntos = self._puntos(self._barra)
-                pista = "" if puntos else "Ninguna combinación de la norma tiene cargas de su tipo principal"
+                pista = "" if puntos else "No hay puntos Pu–Mu para esta columna"
             self.interaccion.mostrar(self._columna, puntos=puntos, pista=pista, activa=self._activa,
                                      especial=self._especial)
         except ValueError as e:

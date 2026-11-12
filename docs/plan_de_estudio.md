@@ -18,12 +18,12 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - reacciones y fuerzas en los extremos de cada barra (ejes locales);
   - cargas en los nodos y en las barras (uniforme, puntual y momento), con sus fuerzas de empotramiento, y peso propio;
   - diagramas N, V, M y T y la deformada a lo largo de cada barra.
-- **Casos de carga:** Peso propio (automático: A·γ de cada barra) y Carga muerta adicional, fijos, y los que agregue el usuario (Muerta, Viva, Viva de techo, Viento o Sismo). **Combinaciones**: las 12 de ASCE 7-05 ya cargadas (con SDS y ρ a mano) y las propias, por tipo de caso; solo para ver resultados (superposición).
+- **Casos de carga:** Peso propio (automático: A·γ de cada barra) y Carga muerta adicional, fijos, y los que agregue el usuario (Muerta, Viva, Viva de techo, Viento o Sismo). **Combinaciones**: las 13 de ASCE 7-05 ya cargadas (con Lr y su 0.5Lr de acompañamiento, sin la opción de 0.5L; SDS y ρ a mano), las propias, por tipo de caso, y la envolvente; solo para ver resultados (superposición).
 - **Materiales y secciones de concreto** (`calculo/concreto.py`, `modelo/concreto.py`): E, G, A, I, J y γ, con su refuerzo.
 - **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas) y tres estados: editar, resultados de un caso y resultados de una combinación (deformada, diagramas y reacciones en 3D, y lo mismo para una barra en el panel Diagrama, con un corte que se desliza: los desplazamientos en ejes globales, total o por componente, y las fuerzas internas en los ejes locales, que se dibujan sobre la barra seleccionada). Con la sección real, los nudos se rellenan con un bloque de concreto y el concreto se puede ver transparente, con el acero de columnas y vigas (esquemático).
-- **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`.
+- **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`. El 2D es el corte en la dirección del momento, con un deslizador; con resultados, los puntos Pu–Mu de las 13 combinaciones y un aviso si alguno queda fuera.
 - **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
-- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita y el código de las funciones clave. Por ahora, la matriz de rigidez y su transformación y los diagramas de interacción. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
+- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita y el código de las funciones clave. Por ahora, la matriz de rigidez y su transformación, las secciones de acero y los diagramas de interacción. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
 - Combinaciones predeterminadas en `modelo/combinaciones.py` (`scripts/combinaciones_asce7.py` las imprime).
 
 ## Hoja de ruta (orden acordado)
@@ -71,6 +71,14 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - J de 30×50 = 2.82e-3 m⁴;
   - I agrietada de una viga = 0.35Ig, y comprobar que el análisis la usa.
 - **Listo cuando:** se pueden crear, editar y borrar materiales y secciones desde la interfaz, el análisis usa las propiedades modificadas y hay pruebas automáticas para lo anterior.
+- **Pendiente (noviembre de 2026):** la inercia agrietada, en un paso aparte (decisión del usuario). Alcance acordado:
+  - la Tabla 6.6.3.1.1(a) (PDF p. 78) es para el análisis con **cargas mayoradas**, es decir, para obtener las fuerzas de diseño;
+  - las deformaciones no salen de esa tabla:
+    - las laterales inmediatas de servicio (la deriva por viento del REP 4.3) usan **1.4 × esas inercias, sin pasar de Ig** (§6.6.3.2.2, PDF p. 80);
+    - la flecha de vigas por gravedad usa **Ie** (§24.2, etapa 5);
+    - la deriva sísmica usa secciones agrietadas (ASCE 7-05 §12.7.3(a)) y luego δx = Cd·δxe/I (etapa 7);
+  - por eso el programa necesitará dos rigideces, una de resistencia y otra de servicio;
+  - falta decidir dónde vive la tabla. Propuesta: en `calculo/concreto.py` (es dato de la norma y queda protegido) y aplicada en `modelo/analisis.py`.
 
 ## Etapa 2: Cargas en barras y diagramas
 
@@ -145,7 +153,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - con W de servicio = 10: la combinación 4 da 1.2D + 16;
   - con SDS = 0.5: 1.3D + ρQE + L y 0.8D + ρQE;
   - la envolvente coincide con el máximo calculado a mano.
-- **Listo cuando:** `scripts/combinaciones_asce7.py` queda reemplazado por un módulo con pruebas, que incluye Lr, 0.5L y las dos direcciones.
+- **Listo cuando:** `scripts/combinaciones_asce7.py` queda reemplazado por un módulo con pruebas, que incluye Lr y las dos direcciones. La opción de 0.5L **no** entra (decisión del usuario: no reducir cargas); el 0.5Lr de las combinaciones 2 y 4 sí, porque es el factor de acompañamiento que exige §2.3.2 y no una reducción.
 - **Avance (noviembre de 2026), una parte:**
   - **hecho:**
     - el peso propio en su propio caso, automático, y la carga muerta adicional aparte: la muerta total (D) es su suma;
@@ -164,6 +172,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - **hecho después (noviembre de 2026):** Lr (viva de techo) con el 0.5Lr de la 2 y la 4 y la 3 completa (1.2D + 1.6Lr + L y ±0.8W), verificado a mano en una viga simple. La opción de 0.5L **no se usa**, por decisión del usuario (no reducir cargas).
   - **envolventes (noviembre de 2026):** opción "Envolvente" en la lista Combinación: máximo y mínimo de N, V, M y T entre las 13 de la norma, con la combinación que da cada uno; sin deformada ni reacciones. Verificado en la viga simple: máx al centro 109.5 kN·m (1.2D + 1.6W + L + 0.5Lr) y mín 16.5 kN·m (0.9D − 1.6W), a mano; y ninguna combinación se sale de la envolvente en ningún punto.
   - **falta:** R y S (no aplican en Panamá); W y E en X y en Y, con la torsión accidental; SDS y ρ calculados (etapa 7) en vez de escritos a mano; Ev = 0 si SDS ≤ 0.125; el uso de la envolvente en el diseño (etapas 4 y 5). Y decidir si las combinaciones pasan a `calculo/` cuando se usen para diseñar.
+  - **Ojo en el diseño de columnas:** la envolvente junta el máximo de P y el de M por separado, que pueden salir de combinaciones distintas, así que ese par no existe. Una columna se revisa con el par (Pu, Mu) simultáneo de cada combinación (ACI 318-19 §10.4.2.1, PDF p. 158), como ya hace la pestaña Interacción. En vigas, la envolvente de M y V sí sirve.
 
 ## Etapa 4: Columnas (estribos, cortante, esbeltez)
 
@@ -320,15 +329,15 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 5. ~~**Columna circular**~~. Resuelto (noviembre de 2026): siempre con aros, φ = 0.65 y 0.65 + 0.25(εt − εty)/0.003 (ACI 318-19 Tabla 21.2.2 (b) y (d), PDF p. 395) y Pn,max = 0.80·Po (Tabla 22.4.2.1 (a), PDF p. 402). La espiral (0.75 y 0.85·Po) se quitó a pedido del usuario: con una columna con espiral queda del lado seguro.
 6. ~~**Cuantía máxima de 8 %**~~. Resuelto (noviembre de 2026): aviso de 1–8 % (§10.6.1.1) o 1–6 % con la casilla Pórtico especial (§18.7.4.1); solo avisa, no impide.
 7. **Combinaciones:**
-   - les falta Lr;
-   - no aplican la opción 0.5L;
+   - ~~les falta Lr~~: resuelto (noviembre de 2026), con el 0.5Lr de acompañamiento de la 2 y la 4, que exige §2.3.2;
+   - la opción 0.5L no se usa: no es un error, es una decisión del usuario (no reducir cargas);
    - ~~SDS y ρ están fijos en el código~~: ya son datos del modelo, escritos a mano en Definir → Combinaciones; falta que salgan de la etapa de sismo;
    - no consideran X e Y ni la torsión accidental.
 8. **Análisis:**
    - ~~solo cargas nodales~~: ya hay cargas en barras y peso propio; faltan las parciales y trapezoidales;
    - sin liberaciones (articulaciones) en los extremos de barra;
    - sin brazos rígidos;
-   - sin modificadores de inercia agrietada;
+   - sin modificadores de inercia agrietada (paso aparte; ver el pendiente de la etapa 1);
    - la detección de inestabilidad usa cond(K) > 1e12, que depende de las unidades.
 9. **Inconsistencias del propio REP 2021:**
    - 5.7 y 5.8 citan una sección 1.11 que no existe;
@@ -339,7 +348,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 10. **Diferencia REP–ASCE en tabiques:** el REP los trata como carga muerta (0.75 kPa si L < 4 kPa); ASCE como viva (0.72 kPa si L ≤ 3.83 kPa). Manda el REP.
 11. ~~**`fy` según la barra**~~. Resuelto (noviembre de 2026): fy es un dato de la sección (`Concreto.fy`, 60 ksi por defecto), que se escribe en el formulario de la sección.
 12. **Área de la barra:** se calcula como π·db²/4 y no con el área nominal del ACI 318-19, Apéndice B (PDF p. 583). La diferencia es menor de 1 % (#6: 0.4418 contra 0.44 in²).
-13. **Dirección por defecto del diagrama 2D** (interfaz): θ = 0° es compresión hacia +b, es decir, flexión en la dirección de b. La flexión "de un eje" de `rectangular.py` (en la dirección de h) corresponde a θ = 90°. En una sección cuadrada da igual; en una rectangular conviene decidir cuál se muestra primero y decirlo en la pantalla.
+13. ~~**Dirección por defecto del diagrama 2D**~~. Resuelto (noviembre de 2026): el 2D abre en 90°, flexión hacia h, como la flexión "de un eje" de `rectangular.py`. La dirección es la del momento y el deslizador la muestra al lado ("90°").
 
 ## Preguntas abiertas
 
@@ -354,12 +363,16 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 
 - **Corregido (error del cambio de fy como dato):** εy = fy/Es no reducía unidades; con fy en kN/m² (como lo manda la interfaz) daba 14.27 en vez de 0.00207 y el diagrama quedaba inservible. Ahora `.to("dimensionless")`, con prueba por el camino de la interfaz y una referencia de integridad en kN/m².
 - **Hecho (etapa 4, primer paso):** puntos Pu–Mu de la columna en la pestaña Interacción, con resultados a la vista: las combinaciones aplicables (`modelo/combinaciones.aplicables`), los dos extremos (`modelo/analisis.demandas_columna`), tabla, 2D en la dirección del momento del punto elegido (`calculo/interaccion/biaxial.curva_direccion`, verificada contra un barrido denso de θ: < 0.4 %) y 3D en VTK. ACI 318-19 §10.4.2.1 (PDF p. 158) y §6.6.4.5.3 (PDF p. 82).
-- **Falta:** relación demanda/capacidad, esbeltez (δ, Cm, M2,mín) y decidir si la 3 sin Lr (1.2D ± 0.8W) se grafica.
-- **Hallazgo nuevo (pendiente de decidir):** el diagrama 2D con θ intermedio (`biaxial.curva`) grafica la componente del momento sobre θ con el eje neutro perpendicular a θ; no es la resistencia para un momento resultante en esa dirección. A igual φPn, contra el corte real: 40×40, hasta 2 %; 30×60, hasta +46 %; 25×80, hasta +87 % (del lado inseguro). En 0°, 90°, 180° y 270° coinciden. Opción: que el θ del 2D pase a ser la dirección del momento.
+- **Falta:** relación demanda/capacidad y esbeltez (δ, Cm, M2,mín).
+- ~~**Hallazgo: el 2D con θ intermedio**~~. Resuelto (noviembre de 2026). El diagrama 2D con θ intermedio (`biaxial.curva`) graficaba la componente del momento sobre θ, con el eje neutro perpendicular a θ; no es la resistencia para un momento resultante en esa dirección. A igual φPn, contra el corte real: 40×40, hasta 2 %; 30×60, hasta +46 % (a 45°, +34 a +40 %); 25×80, hasta +87 %, del lado inseguro. Ahora el 2D es siempre el corte en la dirección del momento (`curva_direccion`), elegida con un deslizador de 0° a 90° que abre en 90°; `calculo/` no cambió. La prueba "30x60 a 45°" de la verificación lo deja escrito.
+- **Hecho (noviembre de 2026):**
+  - los puntos Pu–Mu salen de las **13 combinaciones**, aunque falte una carga, que vale cero (decisión del usuario; también 1.2D ± 0.8W sin Lr);
+  - un **aviso en rojo**, en 2D y en 3D, dice qué puntos quedan fuera del diagrama de diseño. Cada uno se revisa contra la curva de su dirección (a 1°) con `modelo/interaccion.dentro_del_diagrama`. Como φPn nunca baja a lo largo de la curva (comprobado en varias secciones y direcciones), un punto está dentro si Pu está entre la tracción y el techo y Mu ≤ φMn a esa altura;
+  - el aviso es para la pantalla; la relación demanda/capacidad del diseño sigue pendiente (etapa 4).
 
 ### Noviembre de 2026: secciones de acero y el marco de la tarea
 
 - **Hecho:** materiales y secciones de acero (tubo circular y perfil I, `calculo/acero.py`), en Definir, Propiedades y el dibujo 3D; el marco de la tarea de Ftool como ejemplo por defecto (`ejemplos/marco_acero.py`), con pedestales de concreto.
-- **Verificado:** propiedades a mano (tubo de 4 in y W18x60) y el marco, en los 4 casos, contra un pórtico plano resuelto aparte (reacciones y desplazamientos iguales a 1e-10). Falta pegar las reacciones de Ftool en `pruebas/referencias/ftool_marco.json` para compararlas.
-- **Pendiente de confirmar:** el sentido del viento en el techo (se supuso que en Ftool las barras se dibujaron de izquierda a derecha).
+- **Verificado:** propiedades a mano (tubo de 4 in y W18x60) y el marco, en los 4 casos, contra un pórtico plano resuelto aparte (reacciones y desplazamientos iguales a 1e-10).
+- **Ftool:** por ahora **se asume igual** (decisión del usuario, noviembre de 2026), y también el sentido del viento en el techo (barras dibujadas de izquierda a derecha). Si más adelante se copian las reacciones en `pruebas/referencias/ftool_marco.json`, la verificación las compara sola.
 - **Falta:** diseño de acero (AISC 360, que no está en `docs/codigos/`) y articulaciones (la placa base sobre el pedestal queda rígida).
