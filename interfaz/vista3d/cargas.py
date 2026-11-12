@@ -13,7 +13,8 @@
   de la sección y no al eje, y las de las cargas en nodo, a la cara del nudo: si no, quedarían
   metidas dentro del concreto.
 Todas del mismo largo (ui.TAMANO_CARGA × tamaño del modelo) y del color colores.CARGA: el valor se
-lee en las etiquetas (Etiquetas → Valores de las cargas).
+lee en las etiquetas (Etiquetas → Valores de las cargas). En una uniforme, la cantidad de flechas
+depende del largo de la barra: una cada ui.SEPARACION_CARGA × el largo de la flecha (al menos una).
 flecha, flecha_doble y flechas_en_nodo las usa también el dibujo de las reacciones (resultados.py).
 """
 import numpy as np
@@ -96,26 +97,38 @@ def _media_seccion(modelo, eid, u, seccion_real):
     return float(abs(u @ r[1]) * c.b / 2 + abs(u @ r[2]) * c.h / 2)
 
 
+def _tramos(pi, pj, largo):
+    """Cuántos tramos lleva la fila de flechas de una barra: uno cada ui.SEPARACION_CARGA × el largo de
+    la flecha, y al menos uno. Así la cantidad depende del largo de la barra: una barra corta no
+    amontona flechas."""
+    separacion = max(ui.SEPARACION_CARGA * largo, 1e-9)
+    return max(1, int(round(float(np.linalg.norm(pj - pi)) / separacion)))
+
+
 def _uniforme(piezas, modelo, eid, pi, pj, eje, u, largo, seccion_real):
-    """Agrega a `piezas` la fila de flechas de una carga uniforme. Devuelve dónde va su etiqueta."""
-    tramos = np.linspace(0, 1, 7)
+    """Agrega a `piezas` la fila de flechas de una carga uniforme. Devuelve dónde va su etiqueta.
+
+    Las flechas van en los centros de los tramos (_tramos), no en los nodos: dos barras vecinas
+    cargadas no ponen dos flechas en el nodo que comparten. La línea que une las colas va de punta a
+    punta de la barra, para que se vea dónde empieza y dónde termina la carga."""
+    n = _tramos(pi, pj, largo)
+    centros = (np.arange(n) + 0.5) / n
+    alto = largo * 0.8
     if abs(u @ eje) < PARALELA:                    # lo normal: flechas que llegan a la barra
         cara = u * _media_seccion(modelo, eid, u, seccion_real)
-        puntos = [pi + (pj - pi) * t - cara for t in tramos]
-        for q in puntos:
-            piezas.append(flecha(q, u, largo * 0.8))
-        colas = np.array([q - u * largo * 0.8 for q in puntos])
+        for t in centros:
+            piezas.append(flecha(pi + (pj - pi) * t - cara, u, alto))
+        colas = np.array([pi - cara - u * alto, pj - cara - u * alto])
         piezas.append(pv.lines_from_points(colas))
-        return colas[len(colas) // 2] - u * largo * 0.15
+        return colas.mean(axis=0) - u * largo * 0.15
     # Paralela a la barra (el peso propio de una columna): sobre el eje, con las flechas a lo largo.
     # La propia barra hace de línea que las une. Con la sección real opaca quedan dentro del
-    # concreto: se ven con las barras como líneas o con transparencia.
-    puntos = [pi + (pj - pi) * t for t in tramos]
-    cada = min(largo * 0.8, 0.85 * float(np.linalg.norm(puntos[1] - puntos[0])))
-    for q in (puntos[1:] if u @ eje > 0 else puntos[:-1]):     # cada flecha queda dentro de su tramo
-        piezas.append(flecha(q, u, cada))
+    # concreto: se ven con las barras como líneas o con transparencia. Cada flecha cabe en su tramo.
+    cada = min(alto, 0.85 * float(np.linalg.norm(pj - pi)) / n)
+    for t in centros:
+        piezas.append(flecha(pi + (pj - pi) * t + u * cada / 2, u, cada))   # centrada en su tramo
     lado = geometria(modelo, eid)[0][2]                        # la etiqueta, al costado (z local)
-    return puntos[len(puntos) // 2] + lado * (_media_seccion(modelo, eid, lado, seccion_real) + largo * 0.2)
+    return (pi + pj) / 2 + lado * (_media_seccion(modelo, eid, lado, seccion_real) + largo * 0.2)
 
 
 def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True, seccion_real=False):

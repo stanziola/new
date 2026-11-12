@@ -101,6 +101,7 @@ class Ventana(QMainWindow):
         self.modificado = False
         self.seleccion = None                      # ("nodo", id), ("apoyo", id), ("barra", id), ("carga", id) o None
         self.resaltado = None                      # lo que está bajo el mouse con Seleccionar
+        self.marcados = []                         # barras de la sección o el material elegidos en el Explorador
         self._en_propiedades = None                # lo que muestra el panel Propiedades
         self.dibujado = ModeloDibujado()
         self.rejilla = None                        # rejilla 3D (se rehace en cada redibujar)
@@ -297,7 +298,21 @@ class Ventana(QMainWindow):
             self.ventana_matriz.mostrar(self.modelo, ident)
         elif tipo in ("seccion", "material"):
             self.seleccionar(None)
+            self._marcar_uso(item)
             self._mostrar_propiedades(item)
+
+    def _marcar_uso(self, item):
+        """Las barras que usan la sección o el material elegidos se pintan en gris oscuro, como lo
+        seleccionado. Se quitan al seleccionar otra cosa o al cambiar el modelo."""
+        tipo, ident = item
+        if tipo == "seccion" and ident in self.modelo.secciones:
+            barras = cc.uso_seccion(self.modelo, ident)
+        elif tipo == "material" and ident in self.modelo.materiales:
+            barras = cc.uso_material(self.modelo, ident)[0]
+        else:
+            barras = []
+        self.marcados = [("barra", eid) for eid in barras]
+        self.pintar()
 
     def ver_diagrama(self, sid, modo):
         """Abre la ventana del diagrama de interacción (2D o 3D) de la sección sid."""
@@ -1016,7 +1031,8 @@ class Ventana(QMainWindow):
         self.seleccion, self.resaltado = self._vigente(self.seleccion), self._vigente(self.resaltado)
         self._dibujar_ejes_locales()
         self._aplicar_visibilidad(dibujar=False)
-        self.dibujado.pintar(self.resaltado, self._en_3d(self.seleccion), self._enlazados())
+        self.marcados = [m for m in self.marcados if m[1] in self.modelo.elementos]
+        self.dibujado.pintar(self.resaltado, self._en_3d(self.seleccion), self._enlazados(), self.marcados)
         self.previsualizacion.actualizar_estilo()
         if reiniciar_camara:
             self.vista.view_isometric()
@@ -1092,7 +1108,7 @@ class Ventana(QMainWindow):
     def pintar(self):
         """Colores vigentes: gris; un gris intermedio lo relacionado y lo que está bajo el mouse;
         gris oscuro lo seleccionado."""
-        self.dibujado.pintar(self.resaltado, self._en_3d(self.seleccion), self._enlazados())
+        self.dibujado.pintar(self.resaltado, self._en_3d(self.seleccion), self._enlazados(), self.marcados)
         self.vista.render()
 
     # ---------- Cambios, Deshacer y Eliminar ----------
@@ -1209,6 +1225,7 @@ class Ventana(QMainWindow):
         invalida=False: el cambio no toca los resultados de los casos (editar combinaciones, que se
         calculan sumando esos resultados); solo se rehacen las combinaciones."""
         self.modificado = True
+        self.marcados = []
         if invalida:
             self._invalidar_resultados()
         else:
@@ -1309,6 +1326,7 @@ class Ventana(QMainWindow):
         3D (con lo relacionado en un gris más tenue), marcado en el explorador con todo lo
         relacionado y sus datos en Propiedades. None quita la selección."""
         self.seleccion = self._vigente(seleccion)
+        self.marcados = []                         # una selección nueva quita lo marcado por una sección
         self._dibujar_ejes_locales()
         self.pintar()
         self.explorador.marcar(self.seleccion, *self._relacionados(self.seleccion))

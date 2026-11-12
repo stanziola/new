@@ -93,13 +93,15 @@ class ModeloDibujado:
             return lugares
         return []
 
-    def pintar(self, resaltado=None, seleccion=None, enlazados=()):
+    def pintar(self, resaltado=None, seleccion=None, enlazados=(), marcados=()):
         """Colores vigentes, en este orden (el último gana): base gris; lo relacionado con la
         selección (los nodos y apoyos de una barra, el apoyo y las barras de un nodo) y lo que está
-        bajo el mouse, en un gris intermedio (RESALTADO); y lo seleccionado, en gris oscuro."""
+        bajo el mouse, en un gris intermedio (RESALTADO); y lo seleccionado, en gris oscuro, también
+        `marcados` (las barras de la sección o el material elegidos en el Explorador)."""
         nuevos = {nombre: base.copy() for nombre, base in self.base.items()}
         capas = [(item, colores.RESALTADO) for item in enlazados]
         capas += [(resaltado, colores.RESALTADO), (seleccion, colores.SELECCIONADO)]
+        capas += [(item, colores.SELECCIONADO) for item in marcados]
         for item, color in capas:
             for malla, i in self._lugares(item):
                 nuevos[malla][i] = colores.rgb(color)
@@ -233,30 +235,52 @@ def seccion_acero(modelo, el):
     return getattr(sec, "acero", None) if sec is not None else None
 
 
-def contorno_acero(acero, lados=16):
+LADOS_TUBO = 24                    # lados del polígono con que se dibuja un tubo
+
+
+def contorno_acero(acero, lados=LADOS_TUBO, interior=False):
     """Contorno de la sección de acero en ejes locales (y, z), en m. El tubo, como un polígono de
-    `lados` lados (por fuera: el hueco no se ve desde afuera); el perfil I, con las alas en y y el
-    peralte d en z."""
+    `lados` lados (interior=True: la cara de adentro, de diámetro D − 2t); el perfil I, con las alas en
+    y y el peralte d en z."""
     if acero.forma == "tubo":
         t = np.linspace(0, 2 * np.pi, lados, endpoint=False)
-        return np.column_stack([np.cos(t), np.sin(t)]) * acero.D / 2
+        diametro = acero.D - 2 * acero.t if interior else acero.D
+        return np.column_stack([np.cos(t), np.sin(t)]) * diametro / 2
     b, d, tw, tf = acero.bf / 2, acero.d / 2, acero.tw / 2, acero.tf
     return np.array([(-b, -d), (b, -d), (b, -d + tf), (tw, -d + tf), (tw, d - tf), (b, d - tf), (b, d),
                      (-b, d), (-b, d - tf), (-tw, d - tf), (-tw, -d + tf), (-b, -d + tf)])
 
 
 def perfil_barra(pi, pj, alfa_grados, acero):
-    """Prisma con la sección de acero entre pi y pj: caras laterales y las dos tapas, en triángulos."""
+    """La barra de acero entre pi y pj, en triángulos, con normales para el sombreado.
+
+    - Perfil I: el prisma de su contorno, con las dos tapas.
+    - Tubo: la pared de afuera, la de adentro y las tapas en anillo, para que se vea hueco en las
+      puntas. Las normales de punto (quiebre a 60°) lo sombrean suave: se ve redondo y no como un
+      prisma de caras planas. Las aristas a 90° (tapas, alas del I) quedan vivas."""
     pi, pj = np.asarray(pi, float), np.asarray(pj, float)
     beta, gamma, _ = angulos(pi, pj)
     r = rotacion(np.radians(alfa_grados), beta, gamma)
-    contorno = contorno_acero(acero)
-    n = len(contorno)
-    plano = contorno[:, :1] * r[1] + contorno[:, 1:] * r[2]
-    puntos = np.vstack([pi + plano, pj + plano])
+
+    def anillo(contorno):
+        plano = contorno[:, :1] * r[1] + contorno[:, 1:] * r[2]
+        return np.vstack([pi + plano, pj + plano])
+
+    afuera = contorno_acero(acero)
+    n = len(afuera)
     caras = [[4, k, (k + 1) % n, n + (k + 1) % n, n + k] for k in range(n)]
-    caras += [[n, *range(n - 1, -1, -1)], [n, *range(n, 2 * n)]]
-    return pv.PolyData(puntos, np.hstack(caras)).triangulate()
+    if acero.forma == "tubo":
+        puntos = np.vstack([anillo(afuera), anillo(contorno_acero(acero, interior=True))])
+        a = 2 * n                                     # primer punto de la pared de adentro
+        caras += [[4, a + k, a + n + k, a + n + (k + 1) % n, a + (k + 1) % n] for k in range(n)]   # mira hacia el eje
+        caras += [[4, k, a + k, a + (k + 1) % n, (k + 1) % n] for k in range(n)]                      # tapa en pi
+        caras += [[4, n + k, n + (k + 1) % n, a + n + (k + 1) % n, a + n + k] for k in range(n)]      # tapa en pj
+    else:
+        puntos = anillo(afuera)
+        caras += [[n, *range(n - 1, -1, -1)], [n, *range(n, 2 * n)]]
+    malla = pv.PolyData(puntos, np.hstack(caras)).triangulate()
+    return malla.compute_normals(cell_normals=False, point_normals=True, split_vertices=True,
+                                 feature_angle=60.0, consistent_normals=False, auto_orient_normals=False)
 
 
 def seccion_rectangular(modelo, el):

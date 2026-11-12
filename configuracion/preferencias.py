@@ -65,6 +65,8 @@ PARAMETROS = [
     P(interfaz, "TAMANO_NODO", "Tamaño de los nodos (píxeles)", "entero", "Vista", 1, 50),
     P(interfaz, "TAMANO_APOYO", "Tamaño de los apoyos (fracción del modelo)", "real", "Vista", 0.01, 0.3),
     P(interfaz, "TAMANO_CARGA", "Tamaño de las cargas (fracción del modelo)", "real", "Vista", 0.01, 0.5),
+    P(interfaz, "SEPARACION_CARGA", "Separación de las flechas de una carga distribuida (× largo de la flecha)",
+      "real", "Vista", 0.2, 3.0),
     P(interfaz, "DEFORMADA_AUTOMATICA", "Escala automática de la deformada", "bool", "Vista"),
     P(interfaz, "FACTOR_DEFORMADA", "Escala de la deformada, si no es automática (× real; 1 = real)", "real",
       "Vista", 0.01, 1e7),

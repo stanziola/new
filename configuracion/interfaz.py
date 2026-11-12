@@ -18,6 +18,7 @@ TAMANO_NODO = 9                       # en píxeles; el nodo seleccionado usa el
 
 TAMANO_APOYO = 0.06                   # cono y placa de los apoyos: fracción del tamaño del modelo
 TAMANO_CARGA = 0.08                   # largo de las flechas de carga: fracción del tamaño del modelo
+SEPARACION_CARGA = 0.5                # personalización base: flechas de una uniforme, una cada (×) largo de flecha
 
 # ---------- Escala de los resultados ----------
 # Deformada: el factor multiplica los desplazamientos REALES (1 = tamaño real, que casi no se ve).
