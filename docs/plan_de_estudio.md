@@ -23,7 +23,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
 - **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas) y tres estados: editar, resultados de un caso y resultados de una combinación (deformada, diagramas y reacciones en 3D, y lo mismo para una barra en el panel Diagrama, con un corte que se desliza: los desplazamientos en ejes globales, total o por componente, y las fuerzas internas en los ejes locales, que se dibujan sobre la barra seleccionada). Con la sección real, los nudos se rellenan con un bloque de concreto y el concreto se puede ver transparente, con el acero de columnas y vigas (esquemático).
 - **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`. El 2D es el corte en la dirección del momento, con un deslizador; con resultados, los puntos Pu–Mu de las 13 combinaciones y un aviso si alguno queda fuera.
 - **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
-- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita y el código de las funciones clave. Por ahora, la matriz de rigidez y su transformación, las secciones de acero y los diagramas de interacción. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
+- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita y el código de las funciones clave. Por ahora, la matriz de rigidez y su transformación y los diagramas de interacción. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
 - Combinaciones predeterminadas en `modelo/combinaciones.py` (`scripts/combinaciones_asce7.py` las imprime).
 
 ## Hoja de ruta (orden acordado)
@@ -381,9 +381,9 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
   - un **aviso en rojo**, en 2D y en 3D, dice qué puntos quedan fuera del diagrama de diseño. Cada uno se revisa contra la curva de su dirección (a 1°) con `modelo/interaccion.dentro_del_diagrama`. Como φPn nunca baja a lo largo de la curva (comprobado en varias secciones y direcciones), un punto está dentro si Pu está entre la tracción y el techo y Mu ≤ φMn a esa altura;
   - el aviso es para la pantalla; la relación demanda/capacidad del diseño sigue pendiente (etapa 4).
 
-### Noviembre de 2026: secciones de acero y el marco de la tarea
+### Noviembre de 2026: el acero estructural salió del programa
 
-- **Hecho:** materiales y secciones de acero (tubo circular y perfil I, `calculo/acero.py`), en Definir, Propiedades y el dibujo 3D; el marco de la tarea de Ftool como ejemplo por defecto (`ejemplos/marco_acero.py`), con pedestales de concreto.
-- **Verificado:** propiedades a mano (tubo de 4 in y W18x60) y el marco, en los 4 casos, contra un pórtico plano resuelto aparte (reacciones y desplazamientos iguales a 1e-10).
-- **Ftool:** por ahora **se asume igual** (decisión del usuario, noviembre de 2026), y también el sentido del viento en el techo (barras dibujadas de izquierda a derecha). Si más adelante se copian las reacciones en `pruebas/referencias/ftool_marco.json`, la verificación las compara sola.
-- **Falta:** diseño de acero (AISC 360, que no está en `docs/codigos/`) y articulaciones (la placa base sobre el pedestal queda rígida).
+- Las secciones de acero (tubo circular y perfil I) y el marco de Ftool de una tarea de la universidad se agregaron y luego **se quitaron** a pedido del usuario: el programa es solo de concreto armado.
+- Quedaron en una copia aparte con su historial: `C:\Users\luisa\OneDrive\Desktop\utp`.
+- Un archivo viejo con acero se abre con esas secciones y materiales en "Otros", con las mismas propiedades. Comprobado: el marco guardado desde `utp` da la misma suma de reacciones.
+- Con el marco se fue su prueba contra un pórtico plano independiente (`_portico_2d`). Una igual con un pórtico de concreto sigue en las propuestas de verificación (punto 2).

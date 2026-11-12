@@ -39,7 +39,6 @@ from interfaz.paneles.formularios import (BARRAS, FORMULARIOS, VistaSeccion, cam
                                           campo_seccion)
 from interfaz.textos import DIRECCION, UNIDAD_CARGA, donde, texto_carga
 from interfaz.ventanas.interaccion import DiagramaInteraccion
-from modelo import acero as ac
 from modelo import concreto as cc
 from modelo import interaccion as puente
 from modelo.analisis import carga_de_peso_propio
@@ -155,8 +154,7 @@ class PanelAsignar(QWidget):
         modelo = self._modelo
         sec = modelo.secciones.get(self.lista.currentData()) if modelo is not None else None
         c = sec.concreto if sec is not None else None
-        acero = getattr(sec, "acero", None) if sec is not None else None
-        self.dibujo.mostrar(acero if acero is not None else c if c is not None and c.forma == "rectangular" else None)
+        self.dibujo.mostrar(c if c is not None and c.forma == "rectangular" else None)
         self.dibujo.setVisible(sec is not None)
         mat = modelo.materiales.get(sec.material) if sec is not None else None
         self.material.setText(f"Material: {textos.nombre(mat)}" if mat else "")
@@ -586,8 +584,6 @@ class PanelPropiedades(QWidget):
         self._fila(g, "G", formato.cantidad(mat.g, "esfuerzo"))
         if familia == "concreto":
             self._fila(g, "ν", f"{cc.POISSON:g}")
-        elif familia == "acero":
-            self._fila(g, "ν", f"{ac.poisson(mat):.3g}")
         self._fila(g, "γ (peso propio)", formato.cantidad(mat.gamma, "peso_unitario"))
         barras, secciones = cc.uso_material(modelo, mid)
         g = self._grupo("Uso")
@@ -602,9 +598,6 @@ class PanelPropiedades(QWidget):
         if c is not None and c.forma == "rectangular":
             self.dibujo.mostrar(c)
             self.dibujo.show()
-        elif sec.acero is not None:
-            self.dibujo.mostrar(sec.acero)
-            self.dibujo.show()
         g = self._grupo("Sección")
         self._fila(g, "Familia", cc.nombre_familia(cc.familia_seccion(sec)))
         mat = modelo.materiales.get(sec.material)
@@ -613,13 +606,6 @@ class PanelPropiedades(QWidget):
         for nombre in ("iy", "iz", "j"):
             self._fila(g, nombre.capitalize() if nombre != "j" else "J", formato.cantidad(getattr(sec, nombre), "inercia"))
         self._fila(g, "Barras", ", ".join(map(str, cc.uso_seccion(modelo, sid))) or "ninguna")
-        if sec.acero is not None:
-            s = sec.acero
-            g = self._grupo("Acero")
-            self._fila(g, "Forma", ac.FORMAS[s.forma])
-            for medida in ac.MEDIDAS[s.forma]:
-                self._fila(g, medida, formato.cantidad(getattr(s, medida), "seccion"))
-            return
         if c is None:
             return
         g = self._grupo("Concreto y refuerzo")

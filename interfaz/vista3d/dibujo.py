@@ -61,7 +61,6 @@ class ModeloDibujado:
         self.cajas_apoyo = {}      # ID de nodo -> caja 3D de su cono o placa (para seleccionarlo)
         self.indice_solido = {}    # ID de barra -> celdas (inicio, fin) en la malla "solidos"
         self.indice_nudo = {}      # ID de nodo -> celdas (inicio, fin) de su bloque en la malla "solidos"
-        self.indice_perfil = {}    # ID de barra de acero -> celdas (inicio, fin) en la malla "perfiles"
         self.cajas_nudo = {}       # ID de nodo -> caja 3D de su bloque (un clic sobre él elige el nodo)
 
     def _lugares(self, item):
@@ -81,8 +80,6 @@ class ModeloDibujado:
                 lugares.append(("barras", self.indice_barra[ident]))
             if ident in self.indice_solido:
                 lugares.append(("solidos", slice(*self.indice_solido[ident])))
-            if ident in self.indice_perfil:
-                lugares.append(("perfiles", slice(*self.indice_perfil[ident])))
             return lugares
         if tipo == "nodo":
             lugares = []
@@ -229,60 +226,6 @@ def _unir(mallas):
     return pv.wrap(union.GetOutput())
 
 
-def seccion_acero(modelo, el):
-    """El Acero (tubo o perfil I) de la sección de la barra, o None."""
-    sec = modelo.secciones.get(el.seccion) if el.seccion is not None else None
-    return getattr(sec, "acero", None) if sec is not None else None
-
-
-LADOS_TUBO = 24                    # lados del polígono con que se dibuja un tubo
-
-
-def contorno_acero(acero, lados=LADOS_TUBO, interior=False):
-    """Contorno de la sección de acero en ejes locales (y, z), en m. El tubo, como un polígono de
-    `lados` lados (interior=True: la cara de adentro, de diámetro D − 2t); el perfil I, con las alas en
-    y y el peralte d en z."""
-    if acero.forma == "tubo":
-        t = np.linspace(0, 2 * np.pi, lados, endpoint=False)
-        diametro = acero.D - 2 * acero.t if interior else acero.D
-        return np.column_stack([np.cos(t), np.sin(t)]) * diametro / 2
-    b, d, tw, tf = acero.bf / 2, acero.d / 2, acero.tw / 2, acero.tf
-    return np.array([(-b, -d), (b, -d), (b, -d + tf), (tw, -d + tf), (tw, d - tf), (b, d - tf), (b, d),
-                     (-b, d), (-b, d - tf), (-tw, d - tf), (-tw, -d + tf), (-b, -d + tf)])
-
-
-def perfil_barra(pi, pj, alfa_grados, acero):
-    """La barra de acero entre pi y pj, en triángulos, con normales para el sombreado.
-
-    - Perfil I: el prisma de su contorno, con las dos tapas.
-    - Tubo: la pared de afuera, la de adentro y las tapas en anillo, para que se vea hueco en las
-      puntas. Las normales de punto (quiebre a 60°) lo sombrean suave: se ve redondo y no como un
-      prisma de caras planas. Las aristas a 90° (tapas, alas del I) quedan vivas."""
-    pi, pj = np.asarray(pi, float), np.asarray(pj, float)
-    beta, gamma, _ = angulos(pi, pj)
-    r = rotacion(np.radians(alfa_grados), beta, gamma)
-
-    def anillo(contorno):
-        plano = contorno[:, :1] * r[1] + contorno[:, 1:] * r[2]
-        return np.vstack([pi + plano, pj + plano])
-
-    afuera = contorno_acero(acero)
-    n = len(afuera)
-    caras = [[4, k, (k + 1) % n, n + (k + 1) % n, n + k] for k in range(n)]
-    if acero.forma == "tubo":
-        puntos = np.vstack([anillo(afuera), anillo(contorno_acero(acero, interior=True))])
-        a = 2 * n                                     # primer punto de la pared de adentro
-        caras += [[4, a + k, a + n + k, a + n + (k + 1) % n, a + (k + 1) % n] for k in range(n)]   # mira hacia el eje
-        caras += [[4, k, a + k, a + (k + 1) % n, (k + 1) % n] for k in range(n)]                      # tapa en pi
-        caras += [[4, n + k, n + (k + 1) % n, a + n + (k + 1) % n, a + n + k] for k in range(n)]      # tapa en pj
-    else:
-        puntos = anillo(afuera)
-        caras += [[n, *range(n - 1, -1, -1)], [n, *range(n, 2 * n)]]
-    malla = pv.PolyData(puntos, np.hstack(caras)).triangulate()
-    return malla.compute_normals(cell_normals=False, point_normals=True, split_vertices=True,
-                                 feature_angle=60.0, consistent_normals=False, auto_orient_normals=False)
-
-
 def seccion_rectangular(modelo, el):
     """El Concreto rectangular de la sección de la barra, o None."""
     sec = modelo.secciones.get(el.seccion) if el.seccion is not None else None
@@ -362,26 +305,8 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
             d.actores["acero"] = vista.add_mesh(acero, color=colores.ACERO, pickable=False,
                                                 reset_camera=False, name="acero", render=False)
 
-    # Barras de acero con sección real: el perfil (tubo o I) extruido de nodo a nodo, sin recortes en
-    # los nudos ni bloque (los bloques son de concreto). Siempre opacos: la transparencia es del concreto
-    con_perfil = {eid: s for eid, el in modelo.elementos.items()
-                  if seccion_real and (s := seccion_acero(modelo, el)) is not None}
-    if con_perfil:
-        perfiles, inicio = [], 0
-        for eid, s in con_perfil.items():
-            el = modelo.elementos[eid]
-            perfil = perfil_barra(modelo.nodos[el.ni].coords, modelo.nodos[el.nj].coords, el.alfa, s)
-            d.indice_perfil[eid] = (inicio, inicio + perfil.n_cells)
-            inicio += perfil.n_cells
-            perfiles.append(perfil)
-        malla = _unir(perfiles)
-        d.base["perfiles"] = _rgb(colores.ELEMENTO, malla.n_cells)
-        malla.cell_data["color"] = d.base["perfiles"].copy()
-        d.mallas["perfiles"] = malla
-        d.actores["perfiles"] = _agregar(vista, "perfiles", malla, por_celda=True)
-
-    # Barras como línea (las que no tienen caja ni perfil); las sin material o sección, en un gris más claro
-    lineales = [(eid, el) for eid, el in modelo.elementos.items() if eid not in con_caja and eid not in con_perfil]
+    # Barras como línea (las que no tienen caja); las sin material o sección, en un gris más claro
+    lineales = [(eid, el) for eid, el in modelo.elementos.items() if eid not in con_caja]
     if lineales:
         lineas, base = [], []
         for k, (eid, el) in enumerate(lineales):
