@@ -10,6 +10,10 @@ Corregido en noviembre de 2026 (antes eran hallazgos pendientes):
 - fy es un dato de la sección (por defecto FY = 60 ksi, Grado 60), no se deduce del número de barra;
 - límites de cuantía de columnas: 1 %–8 % (§10.6.1.1, PDF p. 160) y 6 % en pórticos especiales
   (§18.7.4.1, PDF p. 308).
+
+εy = fy/Es se reduce a un número sin unidades con .to("dimensionless"): fy puede llegar en ksi, en MPa
+o en kN/m² (así lo manda la interfaz) y Es está en ksi. Con .magnitude a secas, pint devuelve el número
+en las unidades mezcladas (413 685 kN/m² / 29 000 ksi = 14.27 en vez de 0.00207) y el acero nunca cede.
 """
 import math
 
@@ -75,5 +79,5 @@ def propiedades_seccion(b, h, d, nx, ny, fc, nob, fy=FY):
         "cuantia": rho(As_total, b, h),
         "beta1": beta1(fc),
         "fy": fy_val,
-        "epsilon_y": (fy_val / module_s).magnitude,
+        "epsilon_y": (fy_val / module_s).to("dimensionless").magnitude,
     }

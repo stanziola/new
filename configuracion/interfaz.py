@@ -63,6 +63,7 @@ CUBO_TAMANO = 0.20                    # lado del cubo, fracción del alto de la 
 EJES_TAMANO = 0.16                    # lado de los ejes X, Y, Z, fracción del alto de la vista
 MARGEN_ESQUINA_PX = 8                 # separación del cubo y los ejes a sus esquinas
 CUBO_FRANJA = 0.2                     # ancho de aristas y esquinas clicables, fracción del lado
+CUBO_ANILLO = True                    # personalización base: anillo de giro y flechas del cubo (como Civil 3D)
 
 # ---------- Animación de la cámara (cubo de vistas y Encuadre) ----------
 ANIM_CAMARA_DURACION_MS = 350         # personalización base: duración del giro (0 = sin animación)

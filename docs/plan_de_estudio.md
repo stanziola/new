@@ -187,7 +187,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - ejemplo resuelto de un libro con ACI 318-19 (diagrama y estribos);
   - casos borde: Pu = 0.3·Ag·f'c y el paso de barra #10 a #11 (cambio de diámetro mínimo del estribo);
   - diagrama de interacción contra **spColumn** o un ejemplo publicado.
-- ~~**Corregir antes** (hallazgos)~~: corregidos en noviembre de 2026 (β1 con 2.5 ksi, barras #14 y #18, fy como dato, aros o espiral en la circular y aviso de cuantía con el tipo de pórtico). Ver "Hallazgos".
+- ~~**Corregir antes** (hallazgos)~~: corregidos en noviembre de 2026 (β1 con 2.5 ksi, barras #14 y #18, fy como dato, la circular con aros y aviso de cuantía con el tipo de pórtico). Ver "Hallazgos".
 - **Listo cuando:** dada una columna y sus fuerzas, el programa dice qué cumple, qué no, y por qué (con la cláusula).
 
 ## Etapa 5: Vigas (acero longitudinal y estribos)
@@ -317,7 +317,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 2. ~~**`requirements.txt`** no incluye `pint` ni `matplotlib`~~. Resuelto: ya los incluye.
 3. ~~**`beta1`:** rechaza f'c = 2.5 ksi~~. Resuelto (noviembre de 2026): acepta 2.5 ksi (Tabla 22.2.2.4.3, PDF p. 401).
 4. ~~**Barras #14 y #18**~~. Resuelto (noviembre de 2026): 1.693 y 2.257 in (Apéndice B, PDF p. 583).
-5. ~~**Columna circular:** usa φ y 0.80·Po de columna con estribos~~. Resuelto (noviembre de 2026): usa los valores de espiral, φ = 0.75 y 0.75 + 0.15(εt − εty)/0.003 (ACI 318-19 Tabla 21.2.2 (a) y (c), PDF p. 395) y Pn,max = 0.85·Po (Tabla 22.4.2.1 (b), PDF p. 402). Después (noviembre de 2026) se puede elegir: `Concreto.confinamiento` = "aros" (por defecto: 0.65 y 0.80·Po) o "espiral". Falta elegirlo en la interfaz cuando se definan circulares.
+5. ~~**Columna circular**~~. Resuelto (noviembre de 2026): siempre con aros, φ = 0.65 y 0.65 + 0.25(εt − εty)/0.003 (ACI 318-19 Tabla 21.2.2 (b) y (d), PDF p. 395) y Pn,max = 0.80·Po (Tabla 22.4.2.1 (a), PDF p. 402). La espiral (0.75 y 0.85·Po) se quitó a pedido del usuario: con una columna con espiral queda del lado seguro.
 6. ~~**Cuantía máxima de 8 %**~~. Resuelto (noviembre de 2026): aviso de 1–8 % (§10.6.1.1) o 1–6 % con la casilla Pórtico especial (§18.7.4.1); solo avisa, no impide.
 7. **Combinaciones:**
    - les falta Lr;
@@ -349,3 +349,10 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 4. **Sistema estructural objetivo:** ¿solo pórticos especiales de concreto, o también muros y sistemas duales?
 5. **Análisis sísmico:** ¿basta con la FLE al principio, o se quiere el modal desde el inicio?
 6. **Cimentaciones:** no están en la hoja de ruta. ¿Se agregan después (ACI 13 y REP 6)?
+
+### Noviembre de 2026: diagrama de interacción y puntos Pu–Mu
+
+- **Corregido (error del cambio de fy como dato):** εy = fy/Es no reducía unidades; con fy en kN/m² (como lo manda la interfaz) daba 14.27 en vez de 0.00207 y el diagrama quedaba inservible. Ahora `.to("dimensionless")`, con prueba por el camino de la interfaz y una referencia de integridad en kN/m².
+- **Hecho (etapa 4, primer paso):** puntos Pu–Mu de la columna en la pestaña Interacción, con resultados a la vista: las combinaciones aplicables (`modelo/combinaciones.aplicables`), los dos extremos (`modelo/analisis.demandas_columna`), tabla, 2D en la dirección del momento del punto elegido (`calculo/interaccion/biaxial.curva_direccion`, verificada contra un barrido denso de θ: < 0.4 %) y 3D en VTK. ACI 318-19 §10.4.2.1 (PDF p. 158) y §6.6.4.5.3 (PDF p. 82).
+- **Falta:** relación demanda/capacidad, esbeltez (δ, Cm, M2,mín) y decidir si la 3 sin Lr (1.2D ± 0.8W) se grafica.
+- **Hallazgo nuevo (pendiente de decidir):** el diagrama 2D con θ intermedio (`biaxial.curva`) grafica la componente del momento sobre θ con el eje neutro perpendicular a θ; no es la resistencia para un momento resultante en esa dirección. A igual φPn, contra el corte real: 40×40, hasta 2 %; 30×60, hasta +46 %; 25×80, hasta +87 % (del lado inseguro). En 0°, 90°, 180° y 270° coinciden. Opción: que el θ del 2D pase a ser la dirección del momento.

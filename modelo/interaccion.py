@@ -21,7 +21,7 @@ def propiedades(concreto):
     fc, fy = concreto.fc * KN_M2, concreto.fy * KN_M2
     if concreto.forma == "circular":
         return circular.propiedades_circular(concreto.D * ureg.m, concreto.d * ureg.m,
-                                             concreto.nbarras, fc, concreto.barra, fy, concreto.confinamiento)
+                                             concreto.nbarras, fc, concreto.barra, fy)
     return propiedades_seccion(concreto.b * ureg.m, concreto.h * ureg.m, concreto.d * ureg.m,
                                concreto.nx, concreto.ny, fc, concreto.barra, fy)
 
@@ -68,8 +68,34 @@ def curva_2d(concreto, sec, theta=0.0):
     return [np.asarray(d, dtype=float) * TONF_KN for d in datos]
 
 
+def direccion_momento(my, mz):
+    """Dirección (rad) del momento resultante de una barra en el plano de su sección, con los
+    momentos My y Mz de la barra (ejes locales): 0 = flexión hacia b (solo Mz) y 90° = flexión hacia h
+    (solo My). Es el ángulo que usa curva_direccion.
+
+    Nombres: la sección tiene b en el eje local y, y h en el local z. El cálculo de interacción llama
+    x al eje de b e y al de h, y nombra el momento por el eje HACIA el que flexiona: su "My" (Σ F·x,
+    hacia b) es el Mz de la barra, y su "Mx" (Σ F·y, hacia h) es el My de la barra. Los signos
+    coinciden: Mz > 0 comprime la cara +y local y My > 0, la cara +z local."""
+    return math.atan2(my, mz)
+
+
+def curva_direccion(concreto, sec, direccion):
+    """Diagrama para un momento resultante con esa dirección (rad; direccion_momento): arreglos
+    (Pn, Mn, φPn, φMn) en kN y kN·m, con Mn = √(My² + Mz²). Es el corte de la superficie contra el
+    que se compara un punto Pu–Mu con momento en los dos ejes. En la circular, por simetría, la
+    dirección no importa: es su curva de siempre."""
+    if concreto.forma == "circular":
+        datos = circular.curva_circ(sec, 100)
+    else:
+        datos = biaxial.curva_direccion(sec, direccion)
+    return [np.asarray(d, dtype=float) * TONF_KN for d in datos]
+
+
 def superficie_3d(concreto, sec):
-    """Superficie de diseño: arreglos X = φMy, Y = φMx (kN·m) y Z = φPn (kN).
+    """Superficie de diseño: arreglos X = φMz, Y = φMy (kN·m) y Z = φPn (kN), con los nombres de los
+    momentos de la barra (X: flexión hacia b; Y: flexión hacia h; ver direccion_momento). En el
+    cálculo, X es su "φMy" e Y su "φMx".
 
     Rectangular: la superficie biaxial del cálculo. Circular: como es simétrica, la curva de diseño
     girada alrededor del eje P.

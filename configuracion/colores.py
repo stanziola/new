@@ -40,6 +40,9 @@ DEFORMADA = "#1f4e9c"                 # barras deformadas
 DIAGRAMA_POSITIVO = "#5b9bd5"         # relleno de los diagramas: valores positivos (azul suave)
 DIAGRAMA_NEGATIVO = "#e07b7b"         # y negativos (rojo suave)
 DIAGRAMA_BORDE = "#303030"
+INTERACCION_SUPERFICIE = "#c4c4c4"    # superficie de interacción 3D (translúcida)
+INTERACCION_PUNTO = "#1f4e9c"         # puntos Pu–Mu de las combinaciones, en los diagramas de interacción
+INTERACCION_ELEGIDO = "#c0392b"       # el punto elegido en la tabla
 
 # ---------- Cubo de vistas ----------
 CUBO_CARA = "#ffffff"

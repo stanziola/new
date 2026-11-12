@@ -610,7 +610,6 @@ class PanelPropiedades(QWidget):
         if c.forma == "circular":
             self._fila(g, "Forma", "circular")
             self._fila(g, "D", formato.cantidad(c.D, "seccion"))
-            self._fila(g, "Refuerzo transversal", "espiral" if c.confinamiento == "espiral" else "aros (estribos circulares)")
         else:
             self._fila(g, "Forma", "rectangular")
             self._fila(g, "b × h", f"{formato.cantidad(c.b, 'seccion', False)} × {formato.cantidad(c.h, 'seccion')}")
@@ -725,6 +724,8 @@ class Propiedades(QDockWidget):
         self.pestanas.currentChanged.connect(self._cambio_pestana)
         self.setWidget(self.pestanas)
         self._columna = None                       # sección de la columna elegida, o None
+        self._barra = None                         # ID de esa columna
+        self._puntos = None                        # función ID de barra -> puntos Pu–Mu (None: editando)
         self._con_interaccion = False              # la pestaña Interacción está a la vista
         # Atajos al contenido (la ventana los usa como si fueran del panel acoplable)
         p = self.panel
@@ -734,9 +735,14 @@ class Propiedades(QDockWidget):
         p.formulario_abierto.connect(lambda: self._poner_columna(None))
 
     # ---------- Lo que se muestra (siempre en la pestaña Propiedades, salvo una columna) ----------
-    def mostrar(self, modelo, item, caso=None, rc=None, editable=True):
+    def mostrar(self, modelo, item, caso=None, rc=None, editable=True, puntos=None):
+        """puntos: función que da los puntos Pu–Mu de una columna (ID de barra -> lista de Demanda),
+        o None si no hay resultados a la vista. Se llama solo con la pestaña Interacción abierta."""
         self.panel.mostrar(modelo, item, caso, rc, editable)
-        self._poner_columna(self._seccion_columna(modelo, item))
+        self._puntos = puntos
+        seccion = self._seccion_columna(modelo, item)
+        self._barra = item[1] if seccion is not None else None
+        self._poner_columna(seccion)
 
     def mostrar_panel_apoyo(self, tipo):
         self.panel.mostrar_panel_apoyo(tipo)
@@ -755,7 +761,8 @@ class Propiedades(QDockWidget):
 
     def actualizar_unidades(self):
         self.panel.actualizar_unidades()
-        self.interaccion.refrescar()
+        if self.pestanas.currentIndex() == 1:      # solo si está a la vista (si no, se calcula al abrirla)
+            self._ver_interaccion()
 
     # ---------- Pestaña Interacción ----------
     @staticmethod
@@ -793,6 +800,11 @@ class Propiedades(QDockWidget):
         if self.pestanas.currentIndex() != 1 or self._columna is None:
             return
         try:
-            self.interaccion.mostrar(self._columna)
+            if self._puntos is None:
+                puntos, pista = None, "Analiza (▶) para ver los puntos Pu–Mu de las combinaciones"
+            else:
+                puntos = self._puntos(self._barra)
+                pista = "" if puntos else "Ninguna combinación de la norma tiene cargas de su tipo principal"
+            self.interaccion.mostrar(self._columna, puntos=puntos, pista=pista)
         except ValueError as e:
             self.interaccion.mostrar_error(f"No se pudo calcular el diagrama: {e}")

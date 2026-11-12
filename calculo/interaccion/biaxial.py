@@ -116,6 +116,67 @@ def curva(sec, th, n_puntos=100):
     return Pn, Mn, PPn, PMn
 
 
+def curva_direccion(sec, lam, n_puntos=60, tol=1e-6):
+    """Diagrama para un momento resultante de dirección lam (rad): listas (Pn, Mn, φPn, φMn) en
+    tonne_force y tonne_force·m, con Mn = √(Mx² + My²).
+
+    lam = atan2(Mx, My): 0 es flexión hacia +x (a lo largo de b) y 90°, hacia +y (a lo largo de h).
+    Es el corte de la superficie de interacción por el semiplano vertical que contiene al eje P y a
+    esa dirección: el diagrama contra el que se compara un punto (Pu, Mux, Muy) con ese momento.
+
+    No es curva(sec, lam). Allí el ángulo es θ, la dirección de la fibra más comprimida, y el momento
+    resultante de ese eje neutro apunta, en general, hacia otro lado: solo coinciden en 0°, 90°, 180°
+    y 270° (y en 45° si la sección es cuadrada con el mismo acero en las cuatro caras).
+
+    Para cada profundidad relativa del eje neutro (c = f·D(θ), con D la altura de la sección en la
+    dirección θ, como en curva) se busca el θ cuyo momento resultante nominal tiene la dirección
+    pedida. La sección es doblemente simétrica, así que se trabaja en el primer cuadrante, donde esa
+    dirección vale 0 con θ = 0 y 90° con θ = 90°: siempre hay una raíz entre los dos. Se busca con
+    falsa posición (variante Illinois), que encierra la raíz como la bisección pero llega en pocas
+    evaluaciones.
+    """
+    b = sec["b"].to("inch").magnitude
+    h = sec["h"].to("inch").magnitude
+    lam = math.atan2(abs(math.sin(lam)), abs(math.cos(lam)))      # al primer cuadrante, por simetría
+
+    def punto(f, th):
+        D = b * abs(math.cos(th)) + h * abs(math.sin(th))
+        return phipnmn_biaxial(f * D, th, sec)
+
+    def desvio(r):
+        return math.atan2(r[2], r[3]) - lam                       # dirección del momento − la pedida
+
+    Pn, Mn, PPn, PMn = [], [], [], []
+    for f in np.geomspace(0.001, 3, n_puntos):
+        if lam < tol or lam > math.pi / 2 - tol:                  # un eje principal: θ = lam, sin buscar
+            r = punto(f, 0.0 if lam < tol else math.pi / 2)
+        else:
+            lo, hi = 0.0, math.pi / 2
+            r, g_lo, g_hi = None, -lam, math.pi / 2 - lam         # en los extremos, θ = dirección
+            lado = 0
+            for _ in range(60):
+                th = (lo * g_hi - hi * g_lo) / (g_hi - g_lo)      # donde la recta entre los extremos da 0
+                r = punto(f, th)
+                g = desvio(r)
+                if abs(g) < tol or hi - lo < 1e-12:
+                    break
+                if g < 0:
+                    lo, g_lo = th, g
+                    if lado < 0:
+                        g_hi /= 2                                 # dos veces del mismo lado: se acerca el otro
+                    lado = -1
+                else:
+                    hi, g_hi = th, g
+                    if lado > 0:
+                        g_lo /= 2
+                    lado = 1
+        Pn.append(r[1] * KIP_TF)
+        Mn.append(math.hypot(r[2], r[3]) * KIPIN_TFM)
+        PPn.append(r[4] * KIP_TF)
+        PMn.append(math.hypot(r[5], r[6]) * KIPIN_TFM)
+    return Pn, Mn, PPn, PMn
+
+
 def superficie(sec, paso_grados=10, n_puntos=60):
     """Superficie de diseño: listas X = φMy, Y = φMx (tonne_force·m) y Z = φPn (tonne_force).
 

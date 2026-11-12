@@ -34,12 +34,11 @@ def _beta1(fc):
     return 0.85 if fc <= 4 else 0.65 if fc >= 8 else 0.85 - 0.05 * (fc - 4)
 
 
-def _phi(et, ey, espiral=False):
-    """φ de la Tabla 21.2.2."""
-    base, pendiente = (0.75, 0.15) if espiral else (0.65, 0.25)
+def _phi(et, ey):
+    """φ de la Tabla 21.2.2, para columnas con estribos o aros."""
     if et <= ey:
-        return base
-    return 0.90 if et >= ey + 0.003 else base + pendiente * (et - ey) / 0.003
+        return 0.65
+    return 0.90 if et >= ey + 0.003 else 0.65 + 0.25 * (et - ey) / 0.003
 
 
 def rectangular_a_mano(b, h, d, nx, ny, fc, fy, barra, c):
@@ -213,18 +212,16 @@ def capitulo(m):
     # ------------------------------------------------------------------ φ y Pn,max
     m.titulo("Factor φ y resistencia axial máxima", 2)
     m.ecuacion(r"\varepsilon_t = 0.003 \, \frac{d_t - c}{c}")
-    m.tabla([r"$\varepsilon_t$", r"$\phi$ con estribos o aros", r"$\phi$ con espiral"], [
-        [r"$\varepsilon_t \le \varepsilon_{ty}$", "0.65", "0.75"],
+    m.tabla([r"$\varepsilon_t$", r"$\phi$ (estribos o aros)"], [
+        [r"$\varepsilon_t \le \varepsilon_{ty}$", "0.65"],
         [r"$\varepsilon_{ty} < \varepsilon_t < \varepsilon_{ty} + 0.003$",
-         r"$0.65 + 0.25 \, \frac{\varepsilon_t - \varepsilon_{ty}}{0.003}$",
-         r"$0.75 + 0.15 \, \frac{\varepsilon_t - \varepsilon_{ty}}{0.003}$"],
-        [r"$\varepsilon_t \ge \varepsilon_{ty} + 0.003$", "0.90", "0.90"],
-    ], anchos_cm=[5.3, 5.3, 5.3], centrar=(0, 1, 2))
+         r"$0.65 + 0.25 \, \frac{\varepsilon_t - \varepsilon_{ty}}{0.003}$"],
+        [r"$\varepsilon_t \ge \varepsilon_{ty} + 0.003$", "0.90"],
+    ], anchos_cm=[7.9, 7.9], centrar=(0, 1))
     m.parrafo("ACI 318-19, Tabla 21.2.2 (PDF p. 395).").style = "Cita"
     m.ecuacion(r"P_o = 0.85 \, f'_c \left( A_g - A_{st} \right) + f_y \, A_{st}",
                cita="ACI 318-19 Ec. 22.4.2.2 (PDF p. 402)")
-    m.ecuacion(r"\phi P_n \le 0.65 \cdot 0.80 \, P_o \;\; \text{(estribos o aros)}, \quad "
-               r"\phi P_n \le 0.75 \cdot 0.85 \, P_o \;\; \text{(espiral)}",
+    m.ecuacion(r"\phi P_n \le 0.65 \cdot 0.80 \, P_o",
                cita="ACI 318-19 Tabla 22.4.2.1 (PDF p. 402)")
     _phi, pn_fin, _mn, _ppn, _pmn = rectangular.phipnmn(3 * h * ureg.inch, sec)
     po = pn_fin.magnitude
@@ -251,10 +248,19 @@ def capitulo(m):
     m.codigo(biaxial.phipnmn_biaxial)
     m.codigo(biaxial.curva)
 
+    m.titulo("Corte en la dirección del momento", 2)
+    m.parrafo("Un punto de diseño con momento en los dos ejes ($P_u$, $M_{ux}$, $M_{uy}$) se compara con el corte de "
+              "la superficie en la dirección $\\lambda$ de su momento resultante, que no es $\\theta$ (solo coinciden "
+              "en los ejes principales). Para cada profundidad del eje neutro se busca el $\\theta$ que da esa "
+              "dirección.")
+    m.ecuacion(r"\lambda = \arctan \left( \frac{M_x}{M_y} \right), \quad M_n = \sqrt{M_x^2 + M_y^2}",
+               cita="$P_u$ y $M_u$ simultáneos de cada combinación: ACI 318-19 §10.4.2.1 (PDF p. 158)")
+    m.codigo(biaxial.curva_direccion)
+
     # ------------------------------------------------------------------ Circular
     m.titulo("Columna circular", 2)
     m.parrafo("Diámetro $D$ (radio $R$), $n$ barras en un círculo de radio $R_s = R - d$. Refuerzo transversal: aros "
-              "(estribos circulares, por defecto) o espiral, que fija $\\phi$ y $P_{n,max}$ según la tabla anterior.")
+              "(estribos circulares), con el mismo $\\phi$ y el mismo $P_{n,max}$ de la columna con estribos.")
     m.ecuacion(r"a = \text{mín} \left( \beta_1 c, \; D \right), \quad \alpha = \arccos \left( \frac{R - a}{R} \right)")
     m.ecuacion(r"A = R^2 \left( \alpha - \text{sen}\,\alpha \, \cos\alpha \right), \quad "
                r"\bar{y} = \frac{4 R \, \text{sen}^3 \alpha}{3 \left( 2\alpha - \text{sen}\,2\alpha \right)}")
@@ -268,5 +274,8 @@ def capitulo(m):
         "Área de barra $\\pi d_b^2/4$, no la nominal del Apéndice B (diferencia < 1 %).",
         "$\\varepsilon_{ty} = f_y / E_s$ (el ACI permite 0.002 con Grado 60).",
         "La cuantía fuera de sus límites solo se avisa.",
-        "Todavía sin los puntos $P_u$–$M_u$ ni esbeltez (etapa 4).",
+        "Columna circular siempre con aros: sin los valores de espiral ($\\phi$ = 0.75 y $0.85 P_o$).",
+        "Los puntos $P_u$–$M_u$ que se grafican son de primer orden: sin esbeltez ni momento mínimo "
+        "(ACI 318-19 §6.6.4), y sin la relación demanda/capacidad (etapa 4).",
+        "El diagrama 2D con $\\theta$ intermedio no es la resistencia en esa dirección del momento.",
     ])

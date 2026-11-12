@@ -98,7 +98,7 @@
 
 ## Diferencias o contradicciones encontradas
 
-1. **Columna circular** (`calculo/interaccion/circular.py`): ya usa los valores de **espiral**, 0.75, 0.75 + 0.15(…) y 0.85·Po (comprobados en el PDF, p. 395 y 402); antes usaba los de estribos. Falta poder elegir el tipo de refuerzo transversal: con **aros** circulares corresponden 0.65, 0.65 + 0.25(…) y 0.80·Po, y la espiral tiene que cumplir 25.7.3 y llevar al menos 6 barras (10.7.3.1).
+1. **Columna circular** (`calculo/interaccion/circular.py`): siempre con **aros** circulares: 0.65, 0.65 + 0.25(…) y 0.80·Po (comprobados en el PDF, p. 395 y 402). La espiral se quitó del programa a pedido del usuario (noviembre de 2026); si se retoma, tiene que cumplir 25.7.3 y llevar al menos 6 barras (10.7.3.1).
 2. **Cuantía 1 %–8 %** (`mostrar_propiedades`): en **pórticos especiales el máximo es 6 %** (18.7.4.1). Conviene que el límite dependa del tipo de pórtico.
 3. **"Verificar estribos" depende del tipo de pórtico.** En CDS D (lo usual en la ciudad de Panamá) mandan los requisitos de 18.7, no solo los de 25.7.2. Además, el cortante de diseño sale de **Mpr**, que se calcula con el diagrama de interacción (con 1.25fy y φ = 1). Los diagramas que ya existen sirven para obtener Mn y Mpr.
 4. **Cortante biaxial:** en un programa 3D hay que revisar el 22.5.1.11, y no cada dirección por separado.

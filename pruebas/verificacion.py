@@ -149,12 +149,17 @@ def verificar_interaccion():
     - β1 con f'c = 2.5 ksi es 0.85 (Tabla 22.2.2.4.3, PDF p. 401);
     - diámetros nominales de las barras #14 y #18: 1.693 y 2.257 in (Apéndice B, PDF p. 583);
     - fy es un dato: con 40 ksi, Po = 0.85·f'c·(Ag − Ast) + fy·Ast se calcula a mano igual;
-    - columna circular: con aros, techo de diseño 0.65·0.80·Po; con espiral, 0.75·0.85·Po
-      (Tablas 21.2.2 y 22.4.2.1, PDF p. 395 y 402);
-    - cuantía: 1–8 % y, en pórtico especial, 1–6 % (§10.6.1.1 y §18.7.4.1)."""
+    - columna circular (siempre con aros): techo de diseño 0.65·0.80·Po (Tablas 21.2.2 y 22.4.2.1,
+      PDF p. 395 y 402);
+    - cuantía: 1–8 % y, en pórtico especial, 1–6 % (§10.6.1.1 y §18.7.4.1);
+    - unidades: εy = fy/Es no depende de en qué unidad llegue fy (ksi, MPa o kN/m², que es como lo
+      manda la interfaz), y el diagrama armado por el puente del modelo (modelo/interaccion.py) es el
+      mismo que el calculado directamente en cm y ksi. Es la prueba que faltaba: en noviembre de 2026
+      εy salía 14.27 por el camino de la interfaz y el diagrama quedaba inservible."""
     import math
     from calculo.interaccion import circular, rectangular
     from calculo.interaccion.comun import area_barra, beta1, limites_cuantia, propiedades_seccion, ureg
+    from modelo import interaccion as puente
 
     print("\n===== DIAGRAMA DE INTERACCIÓN =====")
     comprobar(f"β1 con f'c = 2.5 ksi: {beta1(2.5 * ureg.ksi)}  (Tabla 22.2.2.4.3: 0.85)",
@@ -171,14 +176,34 @@ def verificar_interaccion():
     po = (0.85 * 4 * (b * h - ast) + 40 * ast) * 0.45359237      # tonf
     comprobar(f"fy = 40 ksi: Po = {pn.magnitude:.3f} tonf  (a mano {po:.3f})", math.isclose(pn.magnitude, po))
 
-    for confinamiento, techo in (("aros", 0.65 * 0.80), ("espiral", 0.75 * 0.85)):
-        sc = circular.propiedades_circular(20 * ureg.inch, 2.5 * ureg.inch, 8, 4 * ureg.ksi, 8,
-                                           confinamiento=confinamiento)
-        _phi, p_o, _m, phi_p, _pm = circular.phipnmn_circ(60.0, sc)
-        comprobar(f"Circular con {confinamiento}: φPn,max / Po = {phi_p / p_o:.4f}  (esperado {techo:.4f})",
-                  math.isclose(phi_p / p_o, techo))
+    sc = circular.propiedades_circular(20 * ureg.inch, 2.5 * ureg.inch, 8, 4 * ureg.ksi, 8)
+    _phi, p_o, _m, phi_p, _pm = circular.phipnmn_circ(60.0, sc)
+    comprobar(f"Circular (aros): φPn,max / Po = {phi_p / p_o:.4f}  (esperado 0.65·0.80 = 0.5200)",
+              math.isclose(phi_p / p_o, 0.65 * 0.80))
     comprobar(f"Cuantía: {limites_cuantia(False)} y en pórtico especial {limites_cuantia(True)}  (1–8 % y 1–6 %)",
               limites_cuantia(False) == (1.0, 8.0) and limites_cuantia(True) == (1.0, 6.0))
+
+    # εy no depende de la unidad en que llegue fy: 60 ksi = 413.685 MPa = 413 685 kN/m²
+    esperado = 60 / 29000
+    kn_m2 = ureg.kilonewton / ureg.meter ** 2
+    for unidad, fy in (("ksi", 60 * ureg.ksi), ("MPa", 413.6854375901 * ureg.MPa), ("kN/m²", 413685.4375901 * kn_m2)):
+        rect = propiedades_seccion(b * ureg.inch, h * ureg.inch, 2.5 * ureg.inch, 3, 3, 4 * ureg.ksi, 6, fy)
+        circ = circular.propiedades_circular(20 * ureg.inch, 2.5 * ureg.inch, 8, 4 * ureg.ksi, 8, fy)
+        comprobar(f"εy con fy en {unidad}: {rect['epsilon_y']:.7f} y {circ['epsilon_y']:.7f} (circular)  "
+                  f"(fy/Es = {esperado:.7f})",
+                  math.isclose(rect["epsilon_y"], esperado, rel_tol=1e-9)
+                  and math.isclose(circ["epsilon_y"], esperado, rel_tol=1e-9))
+
+    # El diagrama por el camino de la interfaz (Concreto del modelo -> puente) = el directo en cm y ksi
+    concreto = next(s.concreto for s in crear_portico().secciones.values()
+                    if s.concreto is not None and abs(s.concreto.b - s.concreto.h) < 1e-9)     # la columna 40x40
+    por_puente = rectangular.curva(puente.propiedades(concreto))
+    directo = rectangular.curva(propiedades_seccion(
+        concreto.b * 100 * ureg.cm, concreto.h * 100 * ureg.cm, concreto.d * 100 * ureg.cm, concreto.nx, concreto.ny,
+        4 * ureg.ksi, concreto.barra, 60 * ureg.ksi))
+    peor = max(float(np.max(np.abs(a - d_))) for a, d_ in zip(por_puente, directo))
+    comprobar(f"Columna del ejemplo por el puente del modelo = cálculo directo: Mn máx {por_puente[1].max():.3f} "
+              f"y {directo[1].max():.3f} tonf·m (dif. máx {peor:.1e})", peor < 1e-6)
 
 
 def verificar_combinaciones():
@@ -281,6 +306,64 @@ def verificar_combinaciones():
     comprobar("Envolvente: ninguna combinación se sale del máximo ni del mínimo, en ningún punto", cubre)
 
 
+def verificar_demandas():
+    """Puntos Pu–Mu de una columna para el diagrama de interacción (modelo/analisis.demandas_columna,
+    modelo/combinaciones.aplicables y calculo/interaccion/biaxial.curva_direccion).
+
+    1. Columna en voladizo de 3 m (empotrada abajo), sin peso propio. Arriba, D: 100 kN hacia abajo y
+       10 kN en +X; L: 50 kN hacia abajo y 5 kN en +X. A mano:
+       - 1.4D: Pu = 140 kN en los dos extremos; M abajo = 1.4·10·3 = 42 kN·m y arriba 0;
+       - 1.2D + 1.6L: Pu = 120 + 80 = 200 kN; M abajo = (12 + 8)·3 = 60 kN·m.
+       Solo esas dos se grafican: las demás necesitan Lr, W o E, que no tienen cargas.
+       La fuerza va en X global y el eje local z de una columna es −X: flexiona hacia h, o sea My.
+    2. El corte de la superficie en la dirección del momento: en 0° y 90° es la curva de un eje; en
+       una sección cuadrada, a 45°, es la curva con θ = 45° (por simetría); y en cualquier dirección
+       llega al mismo Po y al mismo techo 0.52·Po (ACI 318-19 Tabla 22.4.2.1, PDF p. 402)."""
+    import math
+    from calculo.interaccion import biaxial
+    from calculo.interaccion.comun import KIP_TF, propiedades_seccion, ureg
+    from modelo.analisis import demandas_columna
+
+    print("\n===== PUNTOS Pu–Mu DE UNA COLUMNA =====")
+    m = Modelo()
+    m.agregar_material("C", e=25e6, g=10e6)
+    m.agregar_seccion("S", a=0.16, iy=2.133e-3, iz=2.133e-3, j=3.6e-3)
+    m.agregar_nodo(0, 0, 0)
+    m.agregar_nodo(0, 0, 3)
+    m.agregar_elemento(1, 2, 1, 1)
+    m.restringir(1)
+    m.cargar(2, fx=10, fz=-100)
+    viva = m.agregar_caso("Viva", "L")
+    m.cargar(2, fx=5, fz=-50, caso=viva)
+    aplican = comb.aplicables(m)
+    comprobar(f"Con D y L se revisan: {', '.join(c.nombre for c in aplican.values())}  (la 1 y la 2)",
+              list(aplican) == ["C1", "C2"])
+    resultados = analizar(m)
+    puntos = demandas_columna(m, {k: combinar(m, resultados, c) for k, c in aplican.items()}, 1)
+    esperado = {("C1", "inferior"): (140, 42), ("C1", "superior"): (140, 0),
+                ("C2", "inferior"): (200, 60), ("C2", "superior"): (200, 0)}
+    comprobar(f"Dos puntos por combinación (inferior y superior): {len(puntos)}", len(puntos) == 4)
+    for p in puntos:
+        pu, mu = esperado[(p.clave, p.lugar)]
+        comprobar(f"{p.combinacion}, {p.lugar}: Pu = {p.p:.3f} (a mano {pu}), |My| = {abs(p.my):.3f} (a mano {mu}), "
+                  f"Mz = {p.mz:.1e}", np.isclose(p.p, pu) and np.isclose(abs(p.my), mu, atol=1e-9) and abs(p.mz) < 1e-9)
+
+    for nombre, (b, h) in (("40x40", (0.40, 0.40)), ("30x60", (0.30, 0.60))):
+        sec = propiedades_seccion(b * ureg.m, h * ureg.m, 0.06 * ureg.m, 3, 4 if h > b else 3, 4 * ureg.ksi, 8)
+        for grados in (0, 90) + ((45,) if b == h else ()):
+            corte = biaxial.curva_direccion(sec, math.radians(grados))
+            curva = biaxial.curva(sec, math.radians(grados), 60)
+            dif = max(float(np.abs(np.array(a) - (np.abs(np.array(c)) if i in (1, 3) else np.array(c))).max())
+                      for i, (a, c) in enumerate(zip(corte, curva)))      # los momentos, en valor absoluto
+            comprobar(f"{nombre}: corte en la dirección {grados}° = curva con θ = {grados}° (dif. máx {dif:.1e})", dif < 1e-6)
+        pn, _mn, ppn, _pmn = (np.array(v) for v in biaxial.curva_direccion(sec, math.radians(35)))
+        ast = sec["As_total"].to("inch**2").magnitude
+        ag = (sec["b"] * sec["h"]).to("inch**2").magnitude
+        po = (0.85 * 4 * (ag - ast) + 60 * ast) * KIP_TF
+        comprobar(f"{nombre}: corte a 35°, Pn máx = {pn.max():.2f} tonf (Po a mano {po:.2f}) y techo {ppn.max():.2f} "
+                  f"(0.52·Po = {0.52 * po:.2f})", np.isclose(pn.max(), po, rtol=0.02) and np.isclose(ppn.max(), 0.52 * po))
+
+
 if __name__ == "__main__":
     from pruebas.integridad import revisar
     configurar()
@@ -291,5 +374,6 @@ if __name__ == "__main__":
     verificar_desplazamientos_globales()
     verificar_interaccion()
     verificar_combinaciones()
+    verificar_demandas()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()

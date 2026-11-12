@@ -234,6 +234,50 @@ def fuerzas_en(modelo, rc, eid):
     return diagramas.internas(largo, rc.res.fuerzas[eid], rc.cargas_locales.get(eid, []))
 
 
+@dataclass
+class Demanda:
+    """Fuerzas de una sección de una columna para una combinación: el punto (Pu, Muy, Muz) que se
+    compara con el diagrama de interacción. Son simultáneas: las tres salen del mismo corte de la
+    misma combinación (ACI 318-19 §10.4.2.1, PDF p. 158)."""
+    clave: object          # clave de la combinación ("C1", "C3a"…)
+    combinacion: str       # su nombre ("1.2D + 1.6L + 0.5Lr")
+    lugar: str             # "inferior" (nodo i), "superior" (nodo j) o "tramo" (el mayor momento, entre los dos)
+    x: float               # distancia desde el nodo i, en m
+    p: float               # carga axial en kN, positiva en COMPRESIÓN (es −N: N > 0 es tracción)
+    my: float              # momento My en kN·m (ejes locales): flexión hacia h
+    mz: float              # momento Mz en kN·m: flexión hacia b
+
+    @property
+    def m(self):
+        """Momento resultante, √(My² + Mz²)."""
+        return float(np.hypot(self.my, self.mz))
+
+
+def demandas_columna(modelo, combinados, eid):
+    """Puntos (Pu, My, Mz) de la barra eid, uno por combinación y por extremo: lista de Demanda.
+
+    combinados: {clave: ResultadoCaso}, los resultados de cada combinación (combinar). De cada una se
+    toman los dos extremos de la barra: el inferior (x = 0: el nodo i es el de abajo, por el orden de
+    los nodos de una barra) y el superior (x = L). Sin cargas a lo largo de la columna el momento es
+    lineal y el mayor siempre está en un extremo; si las hay y el momento resultante es mayor dentro
+    del tramo, se agrega ese punto ("tramo"). Cada extremo va con su propia Pu (con el peso propio, la
+    de abajo es mayor) y son los M1 y M2 de la esbeltez (ACI 318-19 §6.6.4.5.3, PDF p. 82).
+
+    Son fuerzas de primer orden: sin magnificar por esbeltez y sin el momento mínimo (§6.6.4.5.4)."""
+    puntos = []
+    for clave, rc in combinados.items():
+        d = fuerzas_en(modelo, rc, eid)
+        resultante = np.hypot(d["My"], d["Mz"])
+        lugares = [("inferior", 0), ("superior", len(d["x"]) - 1)]
+        k = int(np.argmax(resultante))
+        if resultante[k] > max(resultante[0], resultante[-1]) * (1 + 1e-6) + 1e-9:
+            lugares.insert(1, ("tramo", k))
+        for lugar, i in lugares:
+            puntos.append(Demanda(clave, rc.nombre, lugar, float(d["x"][i]), -float(d["N"][i]),
+                                  float(d["My"][i]), float(d["Mz"][i])))
+    return puntos
+
+
 def fuerzas_en_x(modelo, rc, eid, x):
     """Fuerzas internas en el corte x (m desde el nodo i, ejes locales): {"N", "Vy", "Vz", "T",
     "My", "Mz"}. Si en x hay una carga puntual, da el valor justo después de ella (como en

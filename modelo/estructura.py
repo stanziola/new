@@ -60,8 +60,8 @@ class Concreto:
     """Geometría y refuerzo de una sección de concreto, para su diagrama de interacción.
 
     Todo en unidades internas (m y kN/m²). Rectangular: b, h, nx (barras en las caras de arriba y
-    abajo) y ny (filas). Circular: D, nbarras y el confinamiento (aros o espiral). En las dos: d (del
-    borde al centro de las barras), f'c, el número de barra y fy del refuerzo.
+    abajo) y ny (filas). Circular: D y nbarras (siempre con aros: estribos circulares). En las dos: d
+    (del borde al centro de las barras), f'c, el número de barra y fy del refuerzo.
     """
     forma: str               # "rectangular" o "circular"
     fc: float                # f'c, en kN/m²
@@ -74,7 +74,6 @@ class Concreto:
     D: float = 0.0           # circular: diámetro, en m
     nbarras: int = 0         # circular: cantidad de barras
     fy: float = FY_DEFECTO   # fluencia del refuerzo, en kN/m² (Grado 60 por defecto)
-    confinamiento: str = "aros"   # circular: "aros" (estribos circulares) o "espiral"
 
 @dataclass
 class Seccion:

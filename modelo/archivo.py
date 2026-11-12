@@ -65,9 +65,13 @@ def guardar(modelo, ruta, vista=None):
 
 
 def _seccion(d):
-    """Seccion desde su diccionario. "concreto" y "material" pueden faltar (archivos anteriores)."""
+    """Seccion desde su diccionario. "concreto" y "material" pueden faltar (archivos anteriores).
+    Los archivos guardados en noviembre de 2026 traen "confinamiento" (aros o espiral) en el
+    concreto: ya no existe (la circular va siempre con aros) y se descarta."""
     d = dict(d)
     concreto = d.pop("concreto", None)
+    if concreto:
+        concreto = {k: v for k, v in concreto.items() if k != "confinamiento"}
     return Seccion(**d, concreto=Concreto(**concreto) if concreto else None)
 
 

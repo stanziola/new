@@ -149,10 +149,19 @@ def calcular_resultados():
             rect.append([phi, pn.magnitude, mn.magnitude, ppn.magnitude, pmn.magnitude])
     resultados["rectangular"] = rect
 
-    sec = circular.propiedades_circular(0.7335 * ureg.m, 0.075 * ureg.m, 16, 4 * ureg.ksi, 8,
-                                        confinamiento="espiral")
+    sec = circular.propiedades_circular(0.7335 * ureg.m, 0.075 * ureg.m, 16, 4 * ureg.ksi, 8)
     D = sec["D"].to("inch").magnitude
     resultados["circular"] = [list(circular.phipnmn_circ(c, sec)) for c in np.geomspace(0.01 * D, 2 * D, 10)]
+
+    # Con f'c y fy en kN/m² (como los manda la interfaz) y fy distinto de 60 ksi: que las unidades
+    # en que llegan los datos no cambien el resultado
+    kn_m2 = ureg.kilonewton / ureg.meter ** 2
+    sec = propiedades_seccion(0.40 * ureg.m, 0.60 * ureg.m, 0.06 * ureg.m, 3, 4, 5 * KSI * kn_m2, 8, 75 * KSI * kn_m2)
+    unidades = []
+    for c in np.geomspace(0.006, 1.2, 8):
+        phi, pn, mn, ppn, pmn = rectangular.phipnmn(c * ureg.m, sec)
+        unidades.append([phi, pn.magnitude, mn.magnitude, ppn.magnitude, pmn.magnitude])
+    resultados["rectangular_kn_m2"] = unidades
 
     sec = propiedades_seccion(0.40 * ureg.m, 0.60 * ureg.m, 0.06 * ureg.m, 3, 4, 5 * ureg.ksi, 8)
     bi = []
@@ -161,6 +170,9 @@ def calcular_resultados():
         for c in (2.0, 6.0, 12.0, 20.0, 35.0, 60.0):
             bi.append([float(x) for x in biaxial.phipnmn_biaxial(c, th, sec)])
     resultados["biaxial"] = bi
+    # El corte de la superficie en la dirección del momento (la misma sección, tres direcciones)
+    resultados["biaxial_direccion"] = [[float(x) for x in lista] for deg in (20, 45, 70)
+                                       for lista in biaxial.curva_direccion(sec, math.radians(deg), 12)]
     return resultados
 
 

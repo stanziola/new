@@ -27,7 +27,8 @@ De Editar a los resultados se pasa con ▶ (Analizar), que queda marcado; de vue
 Al entrar a los resultados la Sección real se apaga sola (los diagramas y la deformada se leen mejor
 sobre las barras como líneas); se puede prender a mano y, al volver a Editar, queda como estaba.
 Los desplazamientos (Deformada ▾: total, Δx, Δy o Δz) van en ejes globales; las fuerzas internas (N,
-V, M y T), en los ejes locales de cada barra, que se dibujan sobre la barra seleccionada.
+V, M y T), en los ejes locales de cada barra, que se dibujan sobre la barra seleccionada (menos con la
+deformada a la vista, para que no se confundan con los globales).
 La lógica de cada herramienta está en herramientas.py; la de la rejilla 3D y el snap, en vista3d/rejilla.py.
 """
 from pathlib import Path
@@ -69,7 +70,7 @@ from interfaz.tema import aplicar_tema
 from modelo import Modelo, archivo
 from modelo import combinaciones as comb
 from modelo import concreto as cc
-from modelo.analisis import analizar, combinar, envolvente
+from modelo.analisis import analizar, combinar, demandas_columna, envolvente
 from modelo.apoyos import TIPOS
 
 ENVOLVENTE = "ENV"            # clave de la envolvente en la lista Combinación (y en la caché _combinados)
@@ -224,8 +225,20 @@ class Ventana(QMainWindow):
         if not self.herramienta.mostrar_panel():
             caso = None if self.modo_combinaciones else self.caso_activo()
             self.propiedades.mostrar(self.modelo, item, caso=caso, rc=self._rc(),
-                                     editable=not self.modo_resultados)
+                                     editable=not self.modo_resultados,
+                                     puntos=self._puntos_columna if self.modo_resultados and self.resultados else None)
         self._refrescar_diagrama()
+
+    def _puntos_columna(self, eid):
+        """Puntos Pu–Mu de la columna eid para el diagrama de interacción: los dos extremos, en cada
+        combinación de la norma que aplica al modelo (comb.aplicables). Las combinaciones se suman
+        una vez y se guardan con las demás (hasta que cambie el análisis, SDS o ρ)."""
+        combinados = {}
+        for clave, co in comb.aplicables(self.modelo).items():
+            if clave not in self._combinados:
+                self._combinados[clave] = combinar(self.modelo, self.resultados, co)
+            combinados[clave] = self._combinados[clave]
+        return demandas_columna(self.modelo, combinados, eid)
 
     def _refrescar_diagrama(self):
         """El panel Diagrama: la barra seleccionada (o la de la carga elegida), con el caso o la
@@ -814,7 +827,7 @@ class Ventana(QMainWindow):
         self.boton_etiquetas.setIcon(icono("etiqueta"))
         self.boton_etiquetas.setIconSize(tamano)
         self.boton_etiquetas.setToolTip("Etiquetas: qué textos se ven en el dibujo, y los ejes locales de la "
-                                        "barra seleccionada")
+                                        "barra seleccionada (no con la deformada, que va en ejes globales)")
         self.boton_etiquetas.setPopupMode(QToolButton.InstantPopup)
         menu = MenuPersistente(self.boton_etiquetas)
         self.etiquetas = {}
@@ -1014,13 +1027,17 @@ class Ventana(QMainWindow):
     def _dibujar_ejes_locales(self):
         """Los ejes locales x, y, z de la barra seleccionada (o de la barra de la carga elegida). Se
         rehacen al cambiar la selección y al redibujar; el menú Etiquetas los muestra u oculta.
-        Sirven para leer los diagramas (N, V, M y T están en esos ejes) y las cargas en x, y, z."""
+        Sirven para leer los diagramas (N, V, M y T están en esos ejes) y las cargas en x, y, z.
+        Con la deformada a la vista NO se dibujan: los desplazamientos van en ejes globales, y los
+        locales (con los mismos colores) harían creer que Δx es a lo largo de la barra."""
         for nombre in ("ejes_locales", "letras_ejes_locales"):
             actor = self.dibujado.actores.pop(nombre, None)
             if actor is not None:
                 self.vista.remove_actor(actor, render=False)
         elegido = self._en_3d(self.seleccion)
         if elegido is None or elegido[0] != "barra":
+            return
+        if self.modo_resultados and self.resultado_visible in DEFORMADAS:
             return
         actores = dibujar_ejes_locales(self.vista, self.modelo, elegido[1], self._tamano(),
                                        self.accion_seccion_real.isChecked())
@@ -1259,13 +1276,11 @@ class Ventana(QMainWindow):
         if self._pos_presion is not None:          # arrastrando para rotar: no se recalcula nada
             return
         self._mouse = self.vista.iren.get_event_position()
-        self.cubo.resaltar(*self._mouse)
-        self._actualizar_resaltado()
+        self._actualizar_resaltado()               # el cubo se resalta solo (filtra los eventos de la vista)
         self._actualizar_puntero()
 
     def _al_salir(self, *_):
         self._mouse = None
-        self.cubo.quitar_resaltado()
         self._actualizar_resaltado()
         self._actualizar_puntero()
 
@@ -1280,7 +1295,7 @@ class Ventana(QMainWindow):
         self._clic(x, y)
 
     def _clic(self, x, y):
-        if self.cubo.clic(x, y):                   # clic sobre el cubo: gira hasta esa vista
+        if self.cubo.contiene(x, y):               # clic en la zona del cubo: lo atiende el propio cubo
             return
         self._mouse = (x, y)
         self._actualizar_puntero()
@@ -1447,6 +1462,7 @@ class Ventana(QMainWindow):
         for ventana in list(self.diagramas):
             ventana.close()
         self.ventana_matriz.close()
+        self.propiedades.interaccion.cerrar()      # la vista 3D de la pestaña Interacción, si se creó
         self.cubo.apagar()                         # apaga el cubo antes de cerrar la vista 3D
         self.vista.close()                         # libera la ventana 3D al cerrar
         super().closeEvent(evento)

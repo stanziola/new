@@ -2,10 +2,10 @@
 
 Movido desde iteracion2dcir.py; sin los gráficos ni los datos de ejemplo.
 
-El refuerzo transversal se elige (confinamiento):
-- "espiral": φ de la Tabla 21.2.2 (a), (c) y (e) y Pn,max = 0.85·Po (Tabla 22.4.2.1 (b));
-- "aros" (estribos circulares cerrados): φ de la Tabla 21.2.2 (b), (d) y (f) y Pn,max = 0.80·Po
-  (Tabla 22.4.2.1 (a)). ACI 318-19, PDF p. 395 y 402.
+El refuerzo transversal son aros (estribos circulares cerrados), como en la rectangular: φ de la
+Tabla 21.2.2 (b), (d) y (f) y Pn,max = 0.80·Po (Tabla 22.4.2.1 (a)). ACI 318-19, PDF p. 395 y 402.
+La espiral (φ = 0.75 y 0.85·Po) no se usa: se quitó a pedido del usuario (noviembre de 2026). Con una
+columna con espiral, estos valores quedan del lado seguro.
 """
 import math
 
@@ -13,23 +13,18 @@ import numpy as np
 
 from .comun import FY, Ast, area_barra, beta1, module_s
 
-# confinamiento -> (φ controlada por compresión, pendiente de la transición, Pn,max / Po)
-CONFINAMIENTO = {"espiral": (0.75, 0.15, 0.85), "aros": (0.65, 0.25, 0.80)}
 
-
-def propiedades_circular(D, d, nbarras, fc, nob, fy=FY, confinamiento="aros"):
-    if confinamiento not in CONFINAMIENTO:
-        raise ValueError("confinamiento debe ser 'espiral' o 'aros'")
+def propiedades_circular(D, d, nbarras, fc, nob, fy=FY):
     Ag = math.pi * D**2 / 4
     As_total = Ast(nob, nbarras).to("cm^2")
     fy_val = fy
     return {
-        "D": D, "d": d, "nbarras": nbarras, "fc": fc, "nob": nob, "confinamiento": confinamiento,
+        "D": D, "d": d, "nbarras": nbarras, "fc": fc, "nob": nob,
         "As_total": As_total,
         "cuantia": (As_total / Ag).to("dimensionless").magnitude * 100,
         "beta1": beta1(fc),
         "fy": fy_val,
-        "epsilon_y": (fy_val / module_s).magnitude,
+        "epsilon_y": (fy_val / module_s).to("dimensionless").magnitude,
     }
 
 
@@ -69,18 +64,17 @@ def phipnmn_circ(c, sec):
     P += F.sum()
     M += (F * arm).sum()
 
-    # phi con la barra más lejana de la fibra comprimida, según el confinamiento
-    phi_c, pendiente, tope = CONFINAMIENTO[sec["confinamiento"]]
+    # phi con la barra más lejana de la fibra comprimida (columna con aros)
     et = 0.003 * (t.max() - c) / c
     if et <= ey:
-        phi = phi_c
+        phi = 0.65
     elif et >= ey + 0.003:
         phi = 0.90
     else:
-        phi = phi_c + pendiente * (et - ey) / 0.003
+        phi = 0.65 + 0.25 * (et - ey) / 0.003
 
     P0 = 0.85 * fc * (math.pi * R**2 - As_total) + fy_val * As_total
-    phi_P = min(phi * P, tope * phi_c * P0)
+    phi_P = min(phi * P, 0.80 * 0.65 * P0)
 
     kip_tf = 0.45359237                 # kip -> tonne_force
     kipin_tfm = 0.45359237 * 0.0254     # kip*in -> tonne_force*m
