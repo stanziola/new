@@ -36,7 +36,7 @@ from interfaz import textos
 from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import interaccion as concreto
 
-MARCADOR = {"inferior": "v", "superior": "^", "tramo": "o"}     # cómo se dibuja cada punto en el 2D
+MARCADOR = "o"                  # todos los puntos Pu–Mu, círculos (el extremo se lee en la tabla)
 MISMA_DIRECCION = math.radians(1.0)     # hasta aquí, dos momentos "van en la misma dirección"
 AYUDA_THETA = ("θ: dirección de la fibra más comprimida, en el plano de la sección (0° = hacia b, 90° = hacia h). "
                "No es la dirección del momento resultante, salvo en 0°, 90°, 180° y 270°")
@@ -264,12 +264,11 @@ class DiagramaInteraccion(QWidget):
             igual = (circular or p.m < 1e-9 or elegido.m < 1e-9
                      or abs(_plegada(concreto.direccion_momento(p.my, p.mz)) - direccion) <= MISMA_DIRECCION)
             color = colores.INTERACCION_ELEGIDO if i == self.elegido else colores.INTERACCION_PUNTO
-            ax.plot(p.m / mu, p.p / fu, MARCADOR[p.lugar], color=color, markersize=9 if i == self.elegido else 6,
+            ax.plot(p.m / mu, p.p / fu, MARCADOR, color=color, markersize=9 if i == self.elegido else 6,
                     markerfacecolor=color if igual else "none", zorder=4 if i == self.elegido else 3)
         if self.puntos:
-            for lugar in dict.fromkeys(p.lugar for p in self.puntos):
-                ax.plot([], [], MARCADOR[lugar], color=colores.INTERACCION_PUNTO, markersize=6, linestyle="none",
-                        label=f"Pu–Mu, {lugar}")
+            ax.plot([], [], MARCADOR, color=colores.INTERACCION_PUNTO, markersize=6, linestyle="none",
+                    label="Pu–Mu (combinaciones)")
             if any(not (circular or p.m < 1e-9 or abs(_plegada(concreto.direccion_momento(p.my, p.mz)) - direccion)
                         <= MISMA_DIRECCION) for p in self.puntos):
                 ax.plot([], [], "o", color=colores.INTERACCION_PUNTO, markerfacecolor="none", markersize=6,

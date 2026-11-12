@@ -24,6 +24,7 @@ import copy
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QMenu, QPushButton, QSplitter, QTreeWidgetItem, QVBoxLayout
 
+from modelo import acero as ac
 from modelo import concreto as cc
 from interfaz.paneles.comunes import ArbolLimpio, carpeta
 from interfaz.paneles.propiedades import PanelPropiedades
@@ -141,6 +142,15 @@ def _hacer(modelo, pedido):
     tipo, familia, modo, ident, v = (pedido["tipo"], pedido["familia"], pedido["modo"], pedido["ident"],
                                      pedido["valores"])
     nuevo = modo in ("nuevo", "copiar")
+    if tipo == "material" and familia == "acero":
+        if nuevo:
+            mid = ac.crear_material(modelo, v["nombre"], v["e"], v["nu"], v["gamma"])
+            return ("material", mid), f"Material {mid} agregado: {nombre(modelo.materiales[mid])}"
+        barras, secciones = ac.cambiar_material(modelo, ident, v["nombre"], v["e"], v["nu"], v["gamma"])
+        texto = f"Material cambiado: {nombre(modelo.materiales[ident])}"
+        if barras or secciones:
+            texto += f" (lo usan {len(barras)} barras y {len(secciones)} secciones)"
+        return ("material", ident), texto
     if tipo == "material":
         if nuevo:
             mid = cc.crear_material(modelo, v["nombre"], fc=v.get("fc"), e=v.get("e"), g=v.get("g"),
@@ -152,7 +162,15 @@ def _hacer(modelo, pedido):
         if barras or secciones:
             texto += f" (lo usan {len(barras)} barras y {len(secciones)} secciones)"
         return ("material", ident), texto
-    if familia == "concreto":
+    if familia == "acero":
+        if nuevo:
+            existente = ac.buscar_seccion(modelo, v["material"], v["acero"])
+            if existente is not None:
+                raise ValueError(f"Ya existe una sección igual: {nombre(modelo.secciones[existente], modelo)}")
+            sid = ac.crear_seccion(modelo, v["material"], v["acero"], v["nombre"])
+            return ("seccion", sid), f"Sección {sid} agregada: {nombre(modelo.secciones[sid], modelo)}"
+        barras = ac.cambiar_seccion(modelo, ident, v["material"], v["acero"], v["nombre"])
+    elif familia == "concreto":
         args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"], v["fy"])
         if nuevo:
             existente = cc.buscar_seccion(modelo, *args)

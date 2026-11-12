@@ -125,6 +125,7 @@ def vigas_referencia():
 
 def calcular_resultados():
     """Resultados de referencia calculados con el cálculo actual."""
+    from calculo import acero
     from calculo.interaccion import biaxial, circular, rectangular
     from calculo.interaccion.comun import propiedades_seccion, ureg
     from modelo.analisis import analizar_caso, fuerzas_en
@@ -171,6 +172,9 @@ def calcular_resultados():
             bi.append([float(x) for x in biaxial.phipnmn_biaxial(c, th, sec)])
     resultados["biaxial"] = bi
     # El corte de la superficie en la dirección del momento (la misma sección, tres direcciones)
+    resultados["acero"] = [list(acero.propiedades_tubo(0.1143, 0.00602)),
+                           list(acero.propiedades_perfil_i(0.462, 0.192, 0.0105, 0.0177)),
+                           [acero.modulo_cortante(2.05e8, 0.3), acero.GAMMA_ACERO]]
     resultados["biaxial_direccion"] = [[float(x) for x in lista] for deg in (20, 45, 70)
                                        for lista in biaxial.curva_direccion(sec, math.radians(deg), 12)]
     return resultados

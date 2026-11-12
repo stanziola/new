@@ -83,6 +83,10 @@ def nombre(obj, modelo=None):
         if obj.fc is not None and obj.nombre == cc.nombre_material(obj.fc):
             return nombre_concreto(obj.fc)
         return obj.nombre
+    if getattr(obj, "acero", None) is not None:
+        # Acero: el nombre del usuario ("W18x60") o el automático, siempre en mm ("Tubo 88.9x5.5"): los
+        # espesores tienen décimas de mm que en cm se perderían
+        return obj.nombre
     if not _automatico(obj):
         return obj.nombre
     c = obj.concreto

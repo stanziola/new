@@ -356,3 +356,10 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 - **Hecho (etapa 4, primer paso):** puntos Pu–Mu de la columna en la pestaña Interacción, con resultados a la vista: las combinaciones aplicables (`modelo/combinaciones.aplicables`), los dos extremos (`modelo/analisis.demandas_columna`), tabla, 2D en la dirección del momento del punto elegido (`calculo/interaccion/biaxial.curva_direccion`, verificada contra un barrido denso de θ: < 0.4 %) y 3D en VTK. ACI 318-19 §10.4.2.1 (PDF p. 158) y §6.6.4.5.3 (PDF p. 82).
 - **Falta:** relación demanda/capacidad, esbeltez (δ, Cm, M2,mín) y decidir si la 3 sin Lr (1.2D ± 0.8W) se grafica.
 - **Hallazgo nuevo (pendiente de decidir):** el diagrama 2D con θ intermedio (`biaxial.curva`) grafica la componente del momento sobre θ con el eje neutro perpendicular a θ; no es la resistencia para un momento resultante en esa dirección. A igual φPn, contra el corte real: 40×40, hasta 2 %; 30×60, hasta +46 %; 25×80, hasta +87 % (del lado inseguro). En 0°, 90°, 180° y 270° coinciden. Opción: que el θ del 2D pase a ser la dirección del momento.
+
+### Noviembre de 2026: secciones de acero y el marco de la tarea
+
+- **Hecho:** materiales y secciones de acero (tubo circular y perfil I, `calculo/acero.py`), en Definir, Propiedades y el dibujo 3D; el marco de la tarea de Ftool como ejemplo por defecto (`ejemplos/marco_acero.py`), con pedestales de concreto.
+- **Verificado:** propiedades a mano (tubo de 4 in y W18x60) y el marco, en los 4 casos, contra un pórtico plano resuelto aparte (reacciones y desplazamientos iguales a 1e-10). Falta pegar las reacciones de Ftool en `pruebas/referencias/ftool_marco.json` para compararlas.
+- **Pendiente de confirmar:** el sentido del viento en el techo (se supuso que en Ftool las barras se dibujaron de izquierda a derecha).
+- **Falta:** diseño de acero (AISC 360, que no está en `docs/codigos/`) y articulaciones (la placa base sobre el pedestal queda rígida).

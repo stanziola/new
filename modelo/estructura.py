@@ -54,6 +54,7 @@ class Material:
     g: float
     fc: float = None         # f'c en kN/m² si es concreto (E y G se calcularon con él); si no, None
     gamma: float = 0.0       # peso unitario en kN/m³, para el peso propio (0 = sin peso propio)
+    familia: str = None      # "acero" para los de acero (definidos por E y ν); None: concreto (con f'c) u otros
 
 @dataclass
 class Concreto:
@@ -76,6 +77,18 @@ class Concreto:
     fy: float = FY_DEFECTO   # fluencia del refuerzo, en kN/m² (Grado 60 por defecto)
 
 @dataclass
+class Acero:
+    """Geometría de una sección de acero, en m. Tubo circular: D (diámetro exterior) y t (espesor).
+    Perfil I: d (peralte, en el eje local z), bf (ancho de alas, en el local y), tw (alma) y tf (alas)."""
+    forma: str               # "tubo" o "i"
+    D: float = 0.0
+    t: float = 0.0
+    d: float = 0.0
+    bf: float = 0.0
+    tw: float = 0.0
+    tf: float = 0.0
+
+@dataclass
 class Seccion:
     nombre: str
     a: float
@@ -84,6 +97,7 @@ class Seccion:
     j: float
     concreto: Concreto = None   # geometría y refuerzo (None si no es de concreto o no se definió)
     material: int = None        # material de la sección: al asignarla a una barra, se asigna también
+    acero: Acero = None         # geometría de una sección de acero (tubo o perfil I), o None
 
 @dataclass
 class Elemento:
@@ -169,16 +183,16 @@ class Modelo:
         self.nodos[nid] = Nodo(x, y, z)
         return nid
 
-    def agregar_material(self, nombre, e, g, fc=None, gamma=0.0):
+    def agregar_material(self, nombre, e, g, fc=None, gamma=0.0, familia=None):
         mid = self._nuevo_id("mat")
-        self.materiales[mid] = Material(nombre, e, g, fc, gamma)
+        self.materiales[mid] = Material(nombre, e, g, fc, gamma, familia)
         return mid
 
-    def agregar_seccion(self, nombre, a, iy, iz, j, concreto=None, material=None):
+    def agregar_seccion(self, nombre, a, iy, iz, j, concreto=None, material=None, acero=None):
         if material is not None and material not in self.materiales:
             raise KeyError(f"El material {material} no existe")
         sid = self._nuevo_id("sec")
-        self.secciones[sid] = Seccion(nombre, a, iy, iz, j, concreto, material)
+        self.secciones[sid] = Seccion(nombre, a, iy, iz, j, concreto, material, acero)
         return sid
 
     def asignar_seccion(self, eid, sid):

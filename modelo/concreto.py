@@ -63,9 +63,10 @@ def buscar_o_crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy=FY_DEFEC
 
 
 # ---------------------------------------------------------------- Familias, uso y cambios
-# Las carpetas de Definir. Por ahora solo concreto. Los materiales sin f'c y las secciones sin
-# refuerzo (de archivos viejos o del código) van a "Otros", que solo aparece si hay alguno.
-FAMILIAS = {"concreto": "Concreto"}
+# Las carpetas de Definir: concreto y acero (las operaciones del acero están en modelo/acero.py). Los
+# materiales sin f'c ni familia y las secciones sin refuerzo ni geometría de acero (de archivos viejos o
+# del código) van a "Otros", que solo aparece si hay alguno.
+FAMILIAS = {"concreto": "Concreto", "acero": "Acero"}
 NOMBRE_OTROS = "Otros"
 
 
@@ -74,13 +75,18 @@ def nombre_familia(familia):
 
 
 def familia_material(mat):
-    """"concreto" si se definió por f'c; "otros" si se dieron E y G directamente (viejos)."""
-    return "concreto" if mat.fc is not None else "otros"
+    """"concreto" si se definió por f'c; "acero" si es de acero; "otros" si se dieron E y G directamente."""
+    if mat.fc is not None:
+        return "concreto"
+    return "acero" if getattr(mat, "familia", None) == "acero" else "otros"
 
 
 def familia_seccion(sec):
-    """"concreto" si tiene geometría y refuerzo; "otros" si se dieron A, I y J directamente (viejas)."""
-    return "concreto" if sec.concreto is not None else "otros"
+    """"concreto" si tiene geometría y refuerzo; "acero" si tiene geometría de acero (tubo o I); "otros" si
+    se dieron A, I y J directamente (viejas)."""
+    if sec.concreto is not None:
+        return "concreto"
+    return "acero" if getattr(sec, "acero", None) is not None else "otros"
 
 
 def uso_material(modelo, mid):

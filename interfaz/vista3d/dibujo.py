@@ -61,6 +61,7 @@ class ModeloDibujado:
         self.cajas_apoyo = {}      # ID de nodo -> caja 3D de su cono o placa (para seleccionarlo)
         self.indice_solido = {}    # ID de barra -> celdas (inicio, fin) en la malla "solidos"
         self.indice_nudo = {}      # ID de nodo -> celdas (inicio, fin) de su bloque en la malla "solidos"
+        self.indice_perfil = {}    # ID de barra de acero -> celdas (inicio, fin) en la malla "perfiles"
         self.cajas_nudo = {}       # ID de nodo -> caja 3D de su bloque (un clic sobre él elige el nodo)
 
     def _lugares(self, item):
@@ -80,6 +81,8 @@ class ModeloDibujado:
                 lugares.append(("barras", self.indice_barra[ident]))
             if ident in self.indice_solido:
                 lugares.append(("solidos", slice(*self.indice_solido[ident])))
+            if ident in self.indice_perfil:
+                lugares.append(("perfiles", slice(*self.indice_perfil[ident])))
             return lugares
         if tipo == "nodo":
             lugares = []
@@ -224,6 +227,38 @@ def _unir(mallas):
     return pv.wrap(union.GetOutput())
 
 
+def seccion_acero(modelo, el):
+    """El Acero (tubo o perfil I) de la sección de la barra, o None."""
+    sec = modelo.secciones.get(el.seccion) if el.seccion is not None else None
+    return getattr(sec, "acero", None) if sec is not None else None
+
+
+def contorno_acero(acero, lados=16):
+    """Contorno de la sección de acero en ejes locales (y, z), en m. El tubo, como un polígono de
+    `lados` lados (por fuera: el hueco no se ve desde afuera); el perfil I, con las alas en y y el
+    peralte d en z."""
+    if acero.forma == "tubo":
+        t = np.linspace(0, 2 * np.pi, lados, endpoint=False)
+        return np.column_stack([np.cos(t), np.sin(t)]) * acero.D / 2
+    b, d, tw, tf = acero.bf / 2, acero.d / 2, acero.tw / 2, acero.tf
+    return np.array([(-b, -d), (b, -d), (b, -d + tf), (tw, -d + tf), (tw, d - tf), (b, d - tf), (b, d),
+                     (-b, d), (-b, d - tf), (-tw, d - tf), (-tw, -d + tf), (-b, -d + tf)])
+
+
+def perfil_barra(pi, pj, alfa_grados, acero):
+    """Prisma con la sección de acero entre pi y pj: caras laterales y las dos tapas, en triángulos."""
+    pi, pj = np.asarray(pi, float), np.asarray(pj, float)
+    beta, gamma, _ = angulos(pi, pj)
+    r = rotacion(np.radians(alfa_grados), beta, gamma)
+    contorno = contorno_acero(acero)
+    n = len(contorno)
+    plano = contorno[:, :1] * r[1] + contorno[:, 1:] * r[2]
+    puntos = np.vstack([pi + plano, pj + plano])
+    caras = [[4, k, (k + 1) % n, n + (k + 1) % n, n + k] for k in range(n)]
+    caras += [[n, *range(n - 1, -1, -1)], [n, *range(n, 2 * n)]]
+    return pv.PolyData(puntos, np.hstack(caras)).triangulate()
+
+
 def seccion_rectangular(modelo, el):
     """El Concreto rectangular de la sección de la barra, o None."""
     sec = modelo.secciones.get(el.seccion) if el.seccion is not None else None
@@ -303,8 +338,26 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
             d.actores["acero"] = vista.add_mesh(acero, color=colores.ACERO, pickable=False,
                                                 reset_camera=False, name="acero", render=False)
 
-    # Barras como línea (las que no tienen caja); las sin material o sección, en un gris más claro
-    lineales = [(eid, el) for eid, el in modelo.elementos.items() if eid not in con_caja]
+    # Barras de acero con sección real: el perfil (tubo o I) extruido de nodo a nodo, sin recortes en
+    # los nudos ni bloque (los bloques son de concreto). Siempre opacos: la transparencia es del concreto
+    con_perfil = {eid: s for eid, el in modelo.elementos.items()
+                  if seccion_real and (s := seccion_acero(modelo, el)) is not None}
+    if con_perfil:
+        perfiles, inicio = [], 0
+        for eid, s in con_perfil.items():
+            el = modelo.elementos[eid]
+            perfil = perfil_barra(modelo.nodos[el.ni].coords, modelo.nodos[el.nj].coords, el.alfa, s)
+            d.indice_perfil[eid] = (inicio, inicio + perfil.n_cells)
+            inicio += perfil.n_cells
+            perfiles.append(perfil)
+        malla = _unir(perfiles)
+        d.base["perfiles"] = _rgb(colores.ELEMENTO, malla.n_cells)
+        malla.cell_data["color"] = d.base["perfiles"].copy()
+        d.mallas["perfiles"] = malla
+        d.actores["perfiles"] = _agregar(vista, "perfiles", malla, por_celda=True)
+
+    # Barras como línea (las que no tienen caja ni perfil); las sin material o sección, en un gris más claro
+    lineales = [(eid, el) for eid, el in modelo.elementos.items() if eid not in con_caja and eid not in con_perfil]
     if lineales:
         lineas, base = [], []
         for k, (eid, el) in enumerate(lineales):

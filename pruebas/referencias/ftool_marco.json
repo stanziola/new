@@ -1,0 +1,53 @@
+{
+  "nota": "Reacciones de Ftool del marco de acero (ftool/*.ftl), en kN y kN·m, con los signos de Ftool: Rx y Ry positivas hacia +x y +y, M antihorario. Copia cada valor en lugar de null; python -m pruebas.verificacion los compara (tolerancia 1 %). D = MUERTA, L = VIVA, W = VIENTO, E = SISMO; izquierda = apoyo en x = 0, derecha = en x = 18.35 m.",
+  "casos": {
+    "D": {
+      "izquierda": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      },
+      "derecha": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      }
+    },
+    "L": {
+      "izquierda": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      },
+      "derecha": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      }
+    },
+    "W": {
+      "izquierda": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      },
+      "derecha": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      }
+    },
+    "E": {
+      "izquierda": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      },
+      "derecha": {
+        "Rx": null,
+        "Ry": null,
+        "M": null
+      }
+    }
+  }
+}

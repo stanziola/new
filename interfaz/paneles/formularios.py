@@ -10,15 +10,16 @@ CampoNumero (paneles/comunes.py): la unidad va al lado, sin flechas.
 Las medidas de la sección (b, h, d) usan la magnitud "seccion" (cm por defecto), no la longitud.
 """
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from configuracion import colores, formato
 from interfaz import textos
 from interfaz.paneles.comunes import CampoNumero, Lista
 from modelo import interaccion as puente
+from modelo import acero as ac
 from modelo import concreto as cc
-from modelo.estructura import FY_DEFECTO, Concreto
+from modelo.estructura import FY_DEFECTO, Acero, Concreto
 from modelo.interaccion import diametro_barra, posiciones_barras
 
 BARRAS = list(range(3, 12))              # números de barra que se ofrecen (#3 a #11)
@@ -54,6 +55,9 @@ class VistaSeccion(QWidget):
         self.update()
 
     def paintEvent(self, _evento):
+        if isinstance(self.concreto, Acero):         # también dibuja las de acero (Propiedades, Asignar)
+            pintar_acero(self, self.concreto)
+            return
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), QColor(colores.INTERFAZ_FONDO))
@@ -336,9 +340,221 @@ class FormularioOtraSeccion(QWidget):
         return None
 
 
+# ---------------------------------------------------------------- Acero
+class FormularioAcero(QWidget):
+    """Material de acero: nombre, E, ν y γ; G = E/(2(1 + ν)) se calcula y se muestra al lado."""
+
+    def __init__(self, modelo, parent=None):
+        super().__init__(parent)
+        self.modelo = modelo
+        self.nombre = QLineEdit()
+        self.e = campo("esfuerzo", 1e6, 1e9)
+        self.e.poner(ac.E_ACERO)
+        self.e.setToolTip("Módulo de elasticidad. Acero estructural: 29 000 ksi ≈ 200 000 MPa")
+        self.nu = CampoNumero(minimo=0.0, maximo=0.49)
+        self.nu.poner(ac.POISSON_ACERO)
+        self.gamma = campo("peso_unitario", 0.0, 200.0)
+        self.gamma.poner(ac.GAMMA_ACERO)
+        self.gamma.setToolTip("Peso unitario para el peso propio. Acero: 492 lb/ft³ = 77.3 kN/m³ "
+                              "(ASCE 7-05, Tabla C3-2). 0 = sin peso propio")
+        self.g = QLabel()
+        for caja in (self.e, self.nu):
+            caja.cambiado.connect(self._actualizar)
+        forma = QFormLayout(self)
+        forma.setContentsMargins(0, 0, 0, 0)
+        forma.addRow("Nombre", self.nombre)
+        forma.addRow("E", self.e)
+        forma.addRow("ν", self.nu)
+        forma.addRow("G = E/(2(1 + ν))", self.g)
+        forma.addRow("γ (peso propio)", self.gamma)
+        self._actualizar()
+
+    def cargar(self, mat):
+        self.e.poner(mat.e)
+        self.nu.poner(round(ac.poisson(mat), 6))
+        self.gamma.poner(mat.gamma)
+        self.nombre.setText("" if mat.nombre == ac.nombre_material(mat.e) else mat.nombre)
+        self._actualizar()
+
+    def _actualizar(self, *_):
+        try:
+            self.g.setText(formato.cantidad(ac.modulo_cortante(self.e.valor(), self.nu.valor()), "esfuerzo"))
+        except ValueError as e:
+            self.g.setText(str(e))
+        self.nombre.setPlaceholderText(ac.nombre_material(self.e.valor()))
+
+    def refrescar(self):
+        self._actualizar()
+
+    def valores(self):
+        return {"nombre": self.nombre.text(), "e": self.e.valor(), "nu": self.nu.valor(), "gamma": self.gamma.valor()}
+
+    def error(self):
+        try:
+            ac.modulo_cortante(self.e.valor(), self.nu.valor())
+        except ValueError as e:
+            return str(e)
+        return None
+
+
+class VistaAcero(QWidget):
+    """Dibujo a escala de una sección de acero (tubo o perfil I), con sus cotas, en grises."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(200, 200)
+        self.acero = None
+
+    def mostrar(self, acero):
+        self.acero = acero
+        self.update()
+
+    def paintEvent(self, _evento):
+        pintar_acero(self, self.acero)
+
+
+def pintar_acero(widget, s):
+    """Dibuja en widget la sección de acero s (tubo o perfil I) a escala, con sus cotas."""
+    if True:
+        self = widget
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), QColor(colores.INTERFAZ_FONDO))
+        try:
+            ac.propiedades(s)
+        except (ValueError, AttributeError):
+            p.end()
+            return
+        ancho_real, alto_real = (s.D, s.D) if s.forma == "tubo" else (s.bf, s.d)
+        margen = 34
+        escala = min((self.width() - 2 * margen) / ancho_real, (self.height() - 2 * margen) / alto_real)
+        cx, cy = self.width() / 2, self.height() / 2
+        p.setPen(QPen(QColor(colores.INTERFAZ_TEXTO), 1.5))
+        p.setBrush(QColor(colores.INTERFAZ_HOVER))
+        if s.forma == "tubo":
+            r = s.D * escala / 2
+            camino = QPainterPath()
+            camino.addEllipse(QPointF(cx, cy), r, r)
+            ri = max(r - s.t * escala, 0.0)
+            camino.addEllipse(QPointF(cx, cy), ri, ri)          # el hueco (regla par-impar)
+            p.drawPath(camino)
+            abajo = cy + r
+            cotas = f"D = {formato.cantidad(s.D, 'seccion')}   ·   t = {formato.cantidad(s.t, 'seccion')}"
+        else:
+            bf, d, tw, tf = (v * escala for v in (s.bf, s.d, s.tw, s.tf))
+            x0, y0 = cx - bf / 2, cy - d / 2
+            puntos = [(0, 0), (bf, 0), (bf, tf), (bf / 2 + tw / 2, tf), (bf / 2 + tw / 2, d - tf), (bf, d - tf),
+                      (bf, d), (0, d), (0, d - tf), (bf / 2 - tw / 2, d - tf), (bf / 2 - tw / 2, tf), (0, tf)]
+            p.drawPolygon(QPolygonF([QPointF(x0 + x, y0 + y) for x, y in puntos]))
+            abajo = cy + d / 2
+            cotas = f"bf = {formato.cantidad(s.bf, 'seccion')}   ·   d = {formato.cantidad(s.d, 'seccion')}"
+        p.setPen(QPen(QColor(colores.INTERFAZ_DESHABILITADO), 1))
+        p.drawText(QRectF(0, abajo + 4, self.width(), margen - 8), Qt.AlignHCenter | Qt.AlignTop, cotas)
+        p.end()
+
+
+class FormularioSeccionAcero(QWidget):
+    """Sección de acero: material, forma (tubo circular o perfil I), sus medidas y un nombre (vacío: el
+    automático, en mm). Debajo, A, I y J calculados y el dibujo."""
+
+    ETIQUETAS = {"D": "D (diámetro exterior)", "t": "t (espesor)", "d": "d (peralte, eje local z)",
+                 "bf": "bf (ancho de alas, eje local y)", "tw": "tw (alma)", "tf": "tf (alas)"}
+
+    def __init__(self, modelo, parent=None):
+        super().__init__(parent)
+        self.modelo = modelo
+        self.material = Lista()
+        self.forma_lista = Lista()
+        for clave, texto in ac.FORMAS.items():
+            self.forma_lista.addItem(texto, clave)
+        self.medidas = {m: campo_seccion(0.0005, 5.0) for m in ("D", "t", "d", "bf", "tw", "tf")}
+        for m, v in {"D": 0.1143, "t": 0.00602, "d": 0.462, "bf": 0.192, "tw": 0.0105, "tf": 0.0177}.items():
+            self.medidas[m].poner(v)
+        self.nombre = QLineEdit()
+        self.datos = QLabel()
+        self.datos.setTextFormat(Qt.RichText)
+        self.vista = VistaAcero()
+        self.forma = QFormLayout()
+        self.forma.addRow("Material", self.material)
+        self.forma.addRow("Forma", self.forma_lista)
+        for m, caja in self.medidas.items():
+            self.forma.addRow(self.ETIQUETAS[m], caja)
+            caja.cambiado.connect(self._actualizar)
+        self.forma.addRow("Nombre", self.nombre)
+        self.forma.addRow(self.datos)
+        diseno = QVBoxLayout(self)
+        diseno.setContentsMargins(0, 0, 0, 0)
+        diseno.addLayout(self.forma)
+        diseno.addWidget(self.vista, 1)
+        self.forma_lista.currentIndexChanged.connect(self._actualizar)
+        self.material.currentIndexChanged.connect(self._actualizar)
+        self.llenar_materiales()
+        self._actualizar()
+
+    def llenar_materiales(self):
+        actual = self.material.currentData()
+        self.material.blockSignals(True)
+        self.material.clear()
+        for mid, m in self.modelo.materiales.items():
+            if cc.familia_material(m) == ac.FAMILIA:
+                self.material.addItem(textos.nombre(m), mid)
+        i = self.material.findData(actual)
+        self.material.setCurrentIndex(i if i >= 0 else 0)
+        self.material.blockSignals(False)
+
+    def cargar(self, sec):
+        s = sec.acero
+        self.forma_lista.blockSignals(True)
+        self.forma_lista.setCurrentIndex(self.forma_lista.findData(s.forma))
+        self.forma_lista.blockSignals(False)
+        for m in ac.MEDIDAS[s.forma]:
+            self.medidas[m].poner(getattr(s, m))
+        if self.material.findData(sec.material) >= 0:
+            self.material.setCurrentIndex(self.material.findData(sec.material))
+        self.nombre.setText("" if sec.nombre == ac.nombre_seccion(s) else sec.nombre)
+        self._actualizar()
+
+    def acero(self):
+        forma = self.forma_lista.currentData()
+        return Acero(forma=forma, **{m: self.medidas[m].valor() for m in ac.MEDIDAS[forma]})
+
+    def valores(self):
+        return {"material": self.material.currentData(), "acero": self.acero(), "nombre": self.nombre.text()}
+
+    def error(self):
+        if self.material.currentData() is None:
+            return "Primero crea un material de acero"
+        try:
+            ac.propiedades(self.acero())
+        except ValueError as e:
+            return str(e)
+        return None
+
+    def refrescar(self):
+        self.llenar_materiales()
+        self._actualizar()
+
+    def _actualizar(self, *_):
+        forma = self.forma_lista.currentData()
+        for m, caja in self.medidas.items():
+            self.forma.setRowVisible(caja, m in ac.MEDIDAS[forma])
+        error = self.error()
+        if error is None:
+            s = self.acero()
+            a, iy, iz, j = ac.propiedades(s)
+            self.nombre.setPlaceholderText(ac.nombre_seccion(s))
+            self.datos.setText(f"A = {formato.cantidad(a, 'area')}<br>Iy = {formato.cantidad(iy, 'inercia')}"
+                               f"<br>Iz = {formato.cantidad(iz, 'inercia')}<br>J = {formato.cantidad(j, 'inercia')}")
+        else:
+            self.datos.setText(f"<span style='color:{colores.INTERFAZ_DESHABILITADO}'>{error}</span>")
+        self.vista.mostrar(self.acero())
+
+
 FORMULARIOS = {
     ("material", "concreto"): FormularioConcreto,
+    ("material", "acero"): FormularioAcero,
     ("material", "otros"): FormularioOtroMaterial,
     ("seccion", "concreto"): FormularioSeccion,
+    ("seccion", "acero"): FormularioSeccionAcero,
     ("seccion", "otros"): FormularioOtraSeccion,
 }

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from calculo.concreto import GAMMA_CONCRETO
 from modelo.estructura import (NOMBRE_MUERTA_ADICIONAL, NOMBRE_PESO_PROPIO, CargaBarra, CargaNodal, Caso,
-                               Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
+                               Acero, Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
 
 VERSION_FORMATO = 4
 VERSIONES_LEIDAS = (1, 2, 3, 4)
@@ -72,7 +72,8 @@ def _seccion(d):
     concreto = d.pop("concreto", None)
     if concreto:
         concreto = {k: v for k, v in concreto.items() if k != "confinamiento"}
-    return Seccion(**d, concreto=Concreto(**concreto) if concreto else None)
+    acero = d.pop("acero", None)                 # secciones de acero (noviembre de 2026); antes no había
+    return Seccion(**d, concreto=Concreto(**concreto) if concreto else None, acero=Acero(**acero) if acero else None)
 
 
 def _material(d):

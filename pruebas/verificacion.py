@@ -364,6 +364,152 @@ def verificar_demandas():
                   f"(0.52·Po = {0.52 * po:.2f})", np.isclose(pn.max(), po, rtol=0.02) and np.isclose(ppn.max(), 0.52 * po))
 
 
+def _portico_2d(nodos, barras, apoyos, cargas_barra, cargas_nodo):
+    """Pórtico plano (en X–Z) resuelto aparte, con 3 GDL por nodo (u_x, u_z, θ), para comparar con el
+    programa (3D, 6 GDL). Es otro camino: matriz de rigidez 2D de los libros, cargas equivalentes de una
+    uniforme en toda la barra (qa·L/2, qp·L/2 y qp·L²/12) y θ antihorario en el plano X–Z.
+
+    nodos: [(x, z)]; barras: [(i, j, E, A, I)]; apoyos: índices empotrados; cargas_barra: [(barra,
+    (qx, qz))] en kN/m globales, por metro de barra; cargas_nodo: [(nodo, (Fx, Fz, M))].
+    Devuelve (desplazamientos (n, 3), reacciones {apoyo: (Rx, Rz, M)})."""
+    n = len(nodos)
+    K, F = np.zeros((3 * n, 3 * n)), np.zeros(3 * n)
+    datos = []
+    for (i, j, e, a, inercia) in barras:
+        (xi, zi), (xj, zj) = nodos[i], nodos[j]
+        largo = np.hypot(xj - xi, zj - zi)
+        c, s = (xj - xi) / largo, (zj - zi) / largo
+        ea, ei = e * a / largo, e * inercia
+        k = np.array([[ea, 0, 0, -ea, 0, 0],
+                      [0, 12 * ei / largo ** 3, 6 * ei / largo ** 2, 0, -12 * ei / largo ** 3, 6 * ei / largo ** 2],
+                      [0, 6 * ei / largo ** 2, 4 * ei / largo, 0, -6 * ei / largo ** 2, 2 * ei / largo],
+                      [-ea, 0, 0, ea, 0, 0],
+                      [0, -12 * ei / largo ** 3, -6 * ei / largo ** 2, 0, 12 * ei / largo ** 3, -6 * ei / largo ** 2],
+                      [0, 6 * ei / largo ** 2, 2 * ei / largo, 0, -6 * ei / largo ** 2, 4 * ei / largo]])
+        r = np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
+        t = np.block([[r, np.zeros((3, 3))], [np.zeros((3, 3)), r]])
+        gdl = [3 * i, 3 * i + 1, 3 * i + 2, 3 * j, 3 * j + 1, 3 * j + 2]
+        K[np.ix_(gdl, gdl)] += t.T @ k @ t
+        datos.append((gdl, t, largo, c, s))
+    for b, (qx, qz) in cargas_barra:
+        gdl, t, largo, c, s = datos[b]
+        qa, qp = qx * c + qz * s, -qx * s + qz * c
+        F[gdl] += t.T @ np.array([qa * largo / 2, qp * largo / 2, qp * largo ** 2 / 12,
+                                  qa * largo / 2, qp * largo / 2, -qp * largo ** 2 / 12])
+    for nodo, fuerzas in cargas_nodo:
+        F[3 * nodo:3 * nodo + 3] += fuerzas
+    fijos = [g for a in apoyos for g in range(3 * a, 3 * a + 3)]
+    libres = [g for g in range(3 * n) if g not in fijos]
+    U = np.zeros(3 * n)
+    U[libres] = np.linalg.solve(K[np.ix_(libres, libres)], F[libres])
+    R = K @ U - F
+    return U.reshape(n, 3), {a: R[3 * a:3 * a + 3] for a in apoyos}
+
+
+def verificar_acero():
+    """Secciones de acero (calculo/acero.py), a mano en mm con números redondos de las medidas:
+    - tubo de 4 in (D = 114.3, t = 6.02, interior 102.26): A = π(114.3² − 102.26²)/4 = 2047.8 mm²,
+      I = π(114.3⁴ − 102.26⁴)/64 = 3.0105e6 mm⁴ y J = 2I;
+    - W18x60 sin filetes (d = 462, bf = 192, tw = 10.5, tf = 17.7; alma de 426.6): A = 2·192·17.7 +
+      426.6·10.5 = 11 276.1 mm²; Iy = (192·462³ − 181.5·426.6³)/12 = 4.0354e8 mm⁴ (eje fuerte);
+      Iz = 2·17.7·192³/12 + 426.6·10.5³/12 = 2.0921e7 mm⁴; J = (2·192·17.7³ + 444.3·10.5³)/3 = 8.812e5 mm⁴;
+    - G = 2.05e8/2.6 = 7.885e7 kN/m² y γ = 492 lb/ft³ = 77.29 kN/m³ (ASCE 7-05 Tabla C3-2, PDF p. 295)."""
+    import math
+    from calculo import acero
+
+    print("\n===== SECCIONES DE ACERO =====")
+    mm2, mm4 = 1e-6, 1e-12
+    a, iy, iz, j = acero.propiedades_tubo(0.1143, 0.00602)
+    comprobar(f"Tubo 4 in: A = {a / mm2:.1f} mm² (a mano 2047.8), I = {iy / mm4:.4e} mm⁴ (3.0105e6), J = 2I",
+              math.isclose(a / mm2, 2047.8, rel_tol=1e-4) and math.isclose(iy / mm4, 3.0105e6, rel_tol=1e-4)
+              and iy == iz and math.isclose(j, 2 * iy))
+    a, iy, iz, j = acero.propiedades_perfil_i(0.462, 0.192, 0.0105, 0.0177)
+    comprobar(f"W18x60: A = {a / mm2:.1f} mm² (11 276.1), Iy = {iy / mm4:.4e} (4.0354e8), Iz = {iz / mm4:.4e} "
+              f"(2.0921e7), J = {j / mm4:.4e} mm⁴ (8.812e5)",
+              math.isclose(a / mm2, 11276.1, rel_tol=1e-5) and math.isclose(iy / mm4, 4.0354e8, rel_tol=1e-4)
+              and math.isclose(iz / mm4, 2.0921e7, rel_tol=1e-4) and math.isclose(j / mm4, 8.812e5, rel_tol=1e-3))
+    comprobar(f"G = {acero.modulo_cortante(2.05e8, 0.3):.4e} (E/2.6 = 7.8846e7) y γ = {acero.GAMMA_ACERO:.2f} kN/m³ (77.29)",
+              math.isclose(acero.modulo_cortante(2.05e8, 0.3), 2.05e8 / 2.6) and abs(acero.GAMMA_ACERO - 77.29) < 0.01)
+
+
+def verificar_marco_ftool():
+    """El marco de acero de la tarea (ejemplos/marco_acero.py), como en Ftool (sin pedestal ni peso
+    propio), contra un pórtico plano resuelto aparte (_portico_2d) con los mismos datos: los 4 casos,
+    desplazamientos de todos los nodos y reacciones. El programa es 3D: fuera del plano no debe
+    moverse nada. Las cargas "z" locales del techo se pasan a globales aquí con otra cuenta: la normal
+    a la barra que apunta hacia arriba.
+
+    Si en pruebas/referencias/ftool_marco.json hay reacciones copiadas de Ftool, se comparan también
+    (Ftool: Rx, Ry hacia +x y +y y M antihorario; aquí Ry es Rz y M = −My)."""
+    import json
+    from pathlib import Path
+
+    from ejemplos import marco_acero as ma
+    from modelo import acero as ac
+
+    print("\n===== MARCO DE ACERO (FTOOL) =====")
+    m = ma.crear_marco(pedestal=False, peso_propio=False)
+    resultados = analizar(m)
+    ids = list(m.nodos)                                         # mismo orden que ma.NODOS
+    indice = {nid: k for k, nid in enumerate(ids)}
+    secciones = {"T": ac.propiedades(ma.TUBO_4IN), "W": ac.propiedades(ma.W18X60)}
+    barras = [(a, b, ma.E_FTOOL, secciones[s][0], secciones[s][1]) for a, b, s, _g in ma.BARRAS]
+    nodos = list(ma.NODOS)
+
+    def normal_arriba(b):
+        (xi, zi), (xj, zj) = nodos[barras[b][0]], nodos[barras[b][1]]
+        largo = np.hypot(xj - xi, zj - zi)
+        nx, nz = -(zj - zi) / largo, (xj - xi) / largo
+        return (nx, nz) if nz > 0 else (-nx, -nz)
+
+    cargas = {"D": [], "L": [], "W": [], "E": []}
+    for k, (_a, _b, _s, grupo) in enumerate(ma.BARRAS):
+        if grupo.startswith("techo"):
+            for tipo, q in ma.CARGAS.items():
+                cargas[tipo].append((k, (0.0, q)))
+            nx, nz = normal_arriba(k)
+            cargas["W"].append((k, (ma.VIENTO[grupo] * nx, ma.VIENTO[grupo] * nz)))
+        elif grupo.startswith("col"):
+            cargas["W"].append((k, (ma.VIENTO[grupo], 0.0)))
+    nodales = {"E": [(ma.NODO_SISMO, (ma.SISMO, 0.0, 0.0))]}
+    tipo_de = {cid: c.tipo for cid, c in m.casos.items() if not c.peso_propio}
+    apoyos = list(ma.APOYOS)
+    calculados = {}
+    for cid, tipo in tipo_de.items():
+        u2, r2 = _portico_2d(nodos, barras, apoyos, cargas[tipo], nodales.get(tipo, []))
+        res = resultados[cid].res
+        u3 = np.array([res.desplazamientos[nid] for nid in ids])
+        dif_u = max(np.abs(u3[:, 0] - u2[:, 0]).max(), np.abs(u3[:, 2] - u2[:, 1]).max(),
+                    np.abs(u3[:, 4] + u2[:, 2]).max())
+        fuera = np.abs(u3[:, [1, 3, 5]]).max()
+        r3 = {a: res.reacciones[ids[a]] for a in apoyos}
+        dif_r = max(max(abs(r3[a][0] - r2[a][0]), abs(r3[a][2] - r2[a][1]), abs(-r3[a][4] - r2[a][2])) for a in apoyos)
+        escala = max(np.abs(u2).max(), 1e-12)
+        nombre = m.casos[cid].nombre
+        calculados[tipo] = r3
+        izq, der = r3[apoyos[0]], r3[apoyos[1]]
+        comprobar(f"{nombre}: reacciones izq. (Rx {izq[0]:.3f}, Rz {izq[2]:.3f}, M {-izq[4]:.3f}) y der. "
+                  f"(Rx {der[0]:.3f}, Rz {der[2]:.3f}, M {-der[4]:.3f}) = pórtico 2D (dif. {dif_r:.1e}); "
+                  f"desplazamientos dif. {dif_u / escala:.1e} (relativa); fuera del plano {fuera:.1e}",
+                  dif_r < 1e-6 and dif_u < 1e-8 * max(escala, 1.0) and fuera < 1e-9)
+
+    archivo = Path(__file__).parent / "referencias" / "ftool_marco.json"
+    ftool = json.loads(archivo.read_text(encoding="utf-8")).get("casos", {}) if archivo.exists() else {}
+    hay = False
+    for tipo, apoyos_ftool in ftool.items():
+        for lado, valores in apoyos_ftool.items():
+            r = calculados[tipo][apoyos[0 if lado == "izquierda" else 1]]
+            nuestro = {"Rx": r[0], "Ry": r[2], "M": -r[4]}
+            for clave, valor in valores.items():
+                if valor is None:
+                    continue
+                hay = True
+                comprobar(f"Ftool, {tipo}, apoyo {lado}: {clave} = {nuestro[clave]:.3f} (Ftool {valor})",
+                          abs(nuestro[clave] - valor) <= max(0.01 * abs(valor), 0.02))
+    if not hay:
+        print("  · Sin valores de Ftool: cópialos en pruebas/referencias/ftool_marco.json para compararlos")
+
+
 if __name__ == "__main__":
     from pruebas.integridad import revisar
     configurar()
@@ -375,5 +521,7 @@ if __name__ == "__main__":
     verificar_interaccion()
     verificar_combinaciones()
     verificar_demandas()
+    verificar_acero()
+    verificar_marco_ftool()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()
