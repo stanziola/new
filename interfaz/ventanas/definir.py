@@ -107,12 +107,20 @@ def menu_definir(parent, info, modelo, destino):
     if clase in ("materiales", "secciones"):
         tipo = "material" if clase == "materiales" else "seccion"
         for familia, nombre in cc.FAMILIAS.items():
-            accion(f"Nuevo: {nombre}…" if tipo == "material" else f"Nueva: {nombre}…",
-                   lambda t=tipo, f=familia: destino.nuevo(t, f))
+            if tipo == "material":
+                accion(f"Nuevo: {nombre}…", lambda f=familia: destino.nuevo("material", f))
+            else:
+                accion(f"Nueva: {nombre} rectangular…", lambda f=familia: destino.nuevo("seccion", f))
+                accion(f"Nueva: {nombre} T…", lambda f=familia: destino.nuevo("seccion", f, "T"))
     elif clase == "familia":
         tipo, familia = valor
         if familia in cc.FAMILIAS:                       # en "Otros" no se crean nuevos
-            accion("Nuevo…" if tipo == "material" else "Nueva…", lambda: destino.nuevo(tipo, familia))
+            if tipo == "material":
+                accion("Nuevo…", lambda: destino.nuevo(tipo, familia))
+            else:
+                accion("Nueva rectangular…", lambda: destino.nuevo(tipo, familia))
+                accion("Nueva T…", lambda: destino.nuevo(tipo, familia, "T"),
+                       ayuda="Vigas y viguetas con su losa: alma bw, ala bf × hf")
     elif clase == "material" and valor in modelo.materiales:
         accion("Editar…", lambda: destino.editar("material", valor))
         accion("Copiar…", lambda: destino.copiar("material", valor))
@@ -124,10 +132,10 @@ def menu_definir(parent, info, modelo, destino):
                lambda: destino.eliminar("material", valor), habilitada=not partes)
     elif clase == "seccion" and valor in modelo.secciones:
         sec = modelo.secciones[valor]
-        rectangular = sec.concreto is None or sec.concreto.forma == "rectangular"
-        accion("Editar…", lambda: destino.editar("seccion", valor), habilitada=rectangular,
-               ayuda="" if rectangular else "Por ahora solo se editan las secciones rectangulares")
-        accion("Copiar…", lambda: destino.copiar("seccion", valor), habilitada=rectangular)
+        editable = sec.concreto is None or sec.concreto.forma in ("rectangular", "T")
+        accion("Editar…", lambda: destino.editar("seccion", valor), habilitada=editable,
+               ayuda="" if editable else "Por ahora solo se editan las secciones rectangulares y T")
+        accion("Copiar…", lambda: destino.copiar("seccion", valor), habilitada=editable)
         menu.addSeparator()
         barras = cc.uso_seccion(modelo, valor)
         accion("Eliminar" + (f" (en uso: {len(barras)} barra{'s' if len(barras) != 1 else ''})" if barras else ""),
@@ -152,7 +160,16 @@ def _hacer(modelo, pedido):
         if barras or secciones:
             texto += f" (lo usan {len(barras)} barras y {len(secciones)} secciones)"
         return ("material", ident), texto
-    if familia == "concreto":
+    if familia == "concreto" and pedido.get("forma") == "T":
+        args = (v["material"], v["bw"], v["h"], v["bf"], v["hf"], v["d"], v["barra"], v["n"], v["fy"])
+        if nuevo:
+            existente = cc.buscar_seccion_T(modelo, *args)
+            if existente is not None:
+                raise ValueError(f"Ya existe una sección igual: {nombre(modelo.secciones[existente], modelo)}")
+            sid = cc.crear_seccion_T(modelo, *args)
+            return ("seccion", sid), f"Sección {sid} agregada: {nombre(modelo.secciones[sid], modelo)}"
+        barras = cc.cambiar_seccion_T(modelo, ident, *args)
+    elif familia == "concreto":
         args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"], v["fy"])
         if nuevo:
             existente = cc.buscar_seccion(modelo, *args)
@@ -206,16 +223,22 @@ class Destino:
             return cc.familia_material(modelo.materiales[ident])
         return cc.familia_seccion(modelo.secciones[ident])
 
-    def nuevo(self, tipo, familia):
-        self.panel.editar(self.ventana.modelo, {"tipo": tipo, "familia": familia, "modo": "nuevo", "ident": None})
+    def _forma(self, tipo, ident):
+        """"T" si es una sección T (tiene su propio formulario); si no, None."""
+        sec = self.ventana.modelo.secciones.get(ident) if tipo == "seccion" else None
+        return "T" if sec is not None and sec.concreto is not None and sec.concreto.forma == "T" else None
+
+    def nuevo(self, tipo, familia, forma=None):
+        self.panel.editar(self.ventana.modelo, {"tipo": tipo, "familia": familia, "modo": "nuevo", "ident": None,
+                                                "forma": forma})
 
     def editar(self, tipo, ident):
         self.panel.editar(self.ventana.modelo, {"tipo": tipo, "familia": self._familia(tipo, ident),
-                                                "modo": "editar", "ident": ident})
+                                                "modo": "editar", "ident": ident, "forma": self._forma(tipo, ident)})
 
     def copiar(self, tipo, ident):
         self.panel.editar(self.ventana.modelo, {"tipo": tipo, "familia": self._familia(tipo, ident),
-                                                "modo": "copiar", "ident": ident})
+                                                "modo": "copiar", "ident": ident, "forma": self._forma(tipo, ident)})
 
     def eliminar(self, tipo, ident):
         try:

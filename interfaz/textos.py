@@ -65,9 +65,20 @@ def nombre_rectangular(b, h, nx, ny, barra, fy=FY_DEFECTO):
     return texto
 
 
+def nombre_T(bw, h, bf, hf, n, barra, fy=FY_DEFECTO):
+    """Nombre automático de una sección T, en la unidad de sección: "Concreto T 15x45 bf50 hf10 1#6"."""
+    s = lambda x: formato.compacto(x, 'seccion')        # noqa: E731
+    texto = f"Concreto T {s(bw)}x{s(h)} bf{s(bf)} hf{s(hf)} {n}#{barra}"
+    if abs(fy - FY_DEFECTO) >= 1e-6 * FY_DEFECTO:
+        texto += f" fy {formato.compacto(fy, 'esfuerzo')} {unidades.simbolo('esfuerzo')}"
+    return texto
+
+
 def _automatico(sec):
     """True si la sección tiene el nombre automático (el canónico, en cm)."""
     c = sec.concreto
+    if c is not None and c.forma == "T":
+        return sec.nombre == cc.nombre_seccion_T(c.b, c.h, c.bf, c.hf, c.nx, c.barra, c.fy)
     return (c is not None and c.forma == "rectangular"
             and sec.nombre == cc.nombre_seccion(c.b, c.h, c.nx, c.ny, c.barra, c.fy))
 
@@ -86,7 +97,8 @@ def nombre(obj, modelo=None):
     if not _automatico(obj):
         return obj.nombre
     c = obj.concreto
-    texto = nombre_rectangular(c.b, c.h, c.nx, c.ny, c.barra, c.fy)
+    texto = (nombre_T(c.b, c.h, c.bf, c.hf, c.nx, c.barra, c.fy) if c.forma == "T"
+             else nombre_rectangular(c.b, c.h, c.nx, c.ny, c.barra, c.fy))
     if modelo is not None:
         gemelas = [s for s in modelo.secciones.values()
                    if s is not obj and s.nombre == obj.nombre and s.material != obj.material]

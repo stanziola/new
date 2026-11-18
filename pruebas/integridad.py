@@ -141,6 +141,11 @@ def calcular_resultados():
                          "diagramas": {k: np.asarray(d[k]).tolist() for k in ("x", "N", "Vy", "Vz", "T", "My", "Mz")}}
     resultados["vigas"] = vigas
 
+    # Propiedades de secciones de concreto: rectángulo y T (A, Iy, Iz, J y, la T, su centroide yb)
+    from calculo.concreto import propiedades_rectangulo, propiedades_T
+    resultados["secciones"] = {"rectangulo": list(propiedades_rectangulo(0.30, 0.50)),
+                               "T": list(propiedades_T(0.15, 0.45, 0.50, 0.10))}
+
     rect = []
     for b, h, d, nx, ny, fc, nob in ((0.65, 0.65, 0.075, 5, 5, 4, 8), (0.40, 0.60, 0.06, 3, 4, 6.5, 9)):
         sec = propiedades_seccion(b * ureg.m, h * ureg.m, d * ureg.m, nx, ny, fc * ureg.ksi, nob)

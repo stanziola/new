@@ -23,7 +23,7 @@ import pyvista as pv
 from configuracion import colores
 from configuracion import interfaz as ui
 from interfaz.textos import texto_carga
-from interfaz.vista3d.dibujo import seccion_rectangular
+from interfaz.vista3d.dibujo import media_hacia, seccion_dibujable
 from modelo.analisis import cargas_de_peso_propio, geometria
 from modelo.estructura import CargaBarra, CargaNodal
 
@@ -89,12 +89,12 @@ def _vector_global(modelo, c):
 
 def _media_seccion(modelo, eid, u, seccion_real):
     """Lo que hay del eje de la barra a la cara de su sección en la dirección u (m). 0 si las barras
-    se dibujan como líneas o la barra no tiene sección rectangular."""
-    c = seccion_rectangular(modelo, modelo.elementos[eid]) if seccion_real else None
+    se dibujan como líneas o la barra no tiene sección que se dibuje (rectangular o T)."""
+    c = seccion_dibujable(modelo, modelo.elementos[eid]) if seccion_real else None
     if c is None:
         return 0.0
     r, _t, _l = geometria(modelo, eid)
-    return float(abs(u @ r[1]) * c.b / 2 + abs(u @ r[2]) * c.h / 2)
+    return float(media_hacia(c, r, u))
 
 
 def _tramos(pi, pj, largo):

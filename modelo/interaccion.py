@@ -51,7 +51,11 @@ def diametro_barra(numero):
 def posiciones_barras(c):
     """Centros de las barras de una sección rectangular, en m, desde la esquina inferior izquierda:
     (a lo ancho b, a lo alto h). Nx barras en las caras de arriba y abajo y dos por cada fila
-    intermedia: el mismo arreglo que usa el cálculo (calculo/interaccion/biaxial.py, _barras)."""
+    intermedia: el mismo arreglo que usa el cálculo (calculo/interaccion/biaxial.py, _barras).
+    En una T (con "b" el alma): nx barras abajo, repartidas en el alma, a d del borde inferior."""
+    if c.forma == "T":
+        xs = [c.d + i * (c.b - 2 * c.d) / (c.nx - 1) for i in range(c.nx)] if c.nx > 1 else [c.b / 2]
+        return [(x, c.d) for x in xs]
     xs = [c.d + i * (c.b - 2 * c.d) / (c.nx - 1) for i in range(c.nx)] if c.nx > 1 else [c.b / 2]
     ys = [c.d + j * (c.h - 2 * c.d) / (c.ny - 1) for j in range(c.ny)] if c.ny > 1 else [c.h / 2]
     puntos = [(x, ys[0]) for x in xs] + [(x, ys[-1]) for x in xs]

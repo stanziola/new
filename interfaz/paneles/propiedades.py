@@ -21,6 +21,8 @@ de concreto con refuerzo seleccionada aparecen dos pestañas, Propiedades e Inte
 de interacción); con cualquier otra cosa no hay pestañas. La ventana Definir usa otro
 PanelPropiedades a su derecha.
 """
+import math
+
 import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QDockWidget, QGridLayout,
@@ -154,7 +156,7 @@ class PanelAsignar(QWidget):
         modelo = self._modelo
         sec = modelo.secciones.get(self.lista.currentData()) if modelo is not None else None
         c = sec.concreto if sec is not None else None
-        self.dibujo.mostrar(c if c is not None and c.forma == "rectangular" else None)
+        self.dibujo.mostrar(c if c is not None and c.forma in ("rectangular", "T") else None)
         self.dibujo.setVisible(sec is not None)
         mat = modelo.materiales.get(sec.material) if sec is not None else None
         self.material.setText(f"Material: {textos.nombre(mat)}" if mat else "")
@@ -539,6 +541,10 @@ class PanelPropiedades(QWidget):
         c = sec.concreto
         if c is not None and c.forma == "rectangular":
             self._medidas(g, eid, el, sec, editable)
+        elif c is not None and c.forma == "T":                 # sus medidas se editan en Definir
+            self._fila(g, "bw × h", f"{formato.cantidad(c.b, 'seccion', False)} × {formato.cantidad(c.h, 'seccion')}")
+            self._fila(g, "bf × hf", f"{formato.cantidad(c.bf, 'seccion', False)} × {formato.cantidad(c.hf, 'seccion')}")
+            self._fila(g, "Barras abajo", f"{c.nx} #{c.barra}  (se edita en Definir → Secciones)")
         self._fila(g, "A", formato.cantidad(sec.a, "area"))
         for nombre in ("iy", "iz", "j"):
             self._fila(g, nombre.capitalize() if nombre != "j" else "J", formato.cantidad(getattr(sec, nombre), "inercia"))
@@ -595,7 +601,7 @@ class PanelPropiedades(QWidget):
         sec = modelo.secciones[sid]
         self._ver(textos.nombre(sec, modelo))
         c = sec.concreto
-        if c is not None and c.forma == "rectangular":
+        if c is not None and c.forma in ("rectangular", "T"):
             self.dibujo.mostrar(c)
             self.dibujo.show()
         g = self._grupo("Sección")
@@ -609,6 +615,19 @@ class PanelPropiedades(QWidget):
         if c is None:
             return
         g = self._grupo("Concreto y refuerzo")
+        if c.forma == "T":                       # vigas y viguetas: sin diagrama de interacción
+            yb = cc.centroide(c)
+            self._fila(g, "Forma", "T")
+            self._fila(g, "bw × h", f"{formato.cantidad(c.b, 'seccion', False)} × {formato.cantidad(c.h, 'seccion')}")
+            self._fila(g, "bf × hf", f"{formato.cantidad(c.bf, 'seccion', False)} × {formato.cantidad(c.hf, 'seccion')}")
+            self._fila(g, "yb (centroide, desde abajo)", formato.cantidad(yb, "seccion"))
+            self._fila(g, "d (de abajo al centro de las barras)", formato.cantidad(c.d, "seccion"))
+            self._fila(g, "h − d", formato.cantidad(c.h - c.d, "seccion"))
+            self._fila(g, "f'c", formato.cantidad(c.fc, "esfuerzo"))
+            self._fila(g, "Barras abajo", f"{c.nx} #{c.barra}")
+            self._fila(g, "As", formato.cantidad(c.nx * math.pi * puente.diametro_barra(c.barra) ** 2 / 4, "area"))
+            self._fila(g, "fy", formato.cantidad(c.fy, "esfuerzo"))
+            return
         if c.forma == "circular":
             self._fila(g, "Forma", "circular")
             self._fila(g, "D", formato.cantidad(c.D, "seccion"))
@@ -662,7 +681,8 @@ class PanelPropiedades(QWidget):
         "modo": "nuevo"|"editar"|"copiar", "ident": ID o None}."""
         self._vaciar()
         tipo, familia, modo, ident = pedido["tipo"], pedido["familia"], pedido["modo"], pedido["ident"]
-        formulario = FORMULARIOS[(tipo, familia)](modelo)
+        es_t = pedido.get("forma") == "T"                # la sección T tiene su propio formulario
+        formulario = FORMULARIOS[(tipo, familia, "T") if es_t else (tipo, familia)](modelo)
         objeto = (modelo.materiales if tipo == "material" else modelo.secciones).get(ident)
         if objeto is not None:
             formulario.cargar(objeto)
@@ -675,7 +695,8 @@ class PanelPropiedades(QWidget):
         elif modo == "copiar":
             titulo = f"Copia de {textos.nombre(objeto, modelo)}"
         else:
-            titulo = ("Nuevo material: " if tipo == "material" else "Nueva sección: ") + cc.nombre_familia(familia)
+            titulo = (("Nuevo material: " if tipo == "material" else "Nueva sección: ") + cc.nombre_familia(familia)
+                      + (" T" if es_t else ""))
         self.titulo.setText(titulo)
         self.titulo.show()
         self._pedido, self._formulario = dict(pedido), formulario
@@ -778,7 +799,8 @@ class Propiedades(QDockWidget):
         if not item or item[0] != "barra" or item[1] not in modelo.elementos:
             return None
         sec = modelo.secciones.get(modelo.elementos[item[1]].seccion)
-        if sec is None or sec.concreto is None or not modelo.es_columna(item[1]):
+        if (sec is None or sec.concreto is None or sec.concreto.forma == "T"     # la T no tiene diagrama
+                or not modelo.es_columna(item[1])):
             return None
         return sec
 

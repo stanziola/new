@@ -15,6 +15,9 @@ operaciones sobre el modelo, que no son fórmulas de ingeniería).
     Iz = h·b³/12
     J  (torsión de Saint-Venant, aproximada; Roark): con a el lado mayor y t el menor,
        J = a·t³·[1/3 − 0.21·(t/a)·(1 − t⁴/(12·a⁴))]
+- Sección T (vigas y viguetas con su losa): alma bw × (h − hf) y ala bf × hf arriba. A, centroide yb
+  e Iy con Steiner respecto al centroide real; Iz de las dos partes; J como suma de las J de Roark
+  del ala y del alma (aproximada). El ancho bf lo da el usuario (ACI 318-19 Tabla 6.3.2.1, PDF p. 74).
 - Peso unitario del concreto reforzado (para el peso propio): ASCE 7-05, Tabla C3-2 (PDF p. 295),
   "Concrete, reinforced — Stone (including gravel)": 150 lb/ft³. Convertido: 23.56 kN/m³.
 - Inercia para el análisis elástico con cargas mayoradas: ACI 318-19 §6.6.3.1.1, Tabla 6.6.3.1.1(a)
@@ -49,6 +52,31 @@ def propiedades_rectangulo(b, h):
     a, t = max(b, h), min(b, h)
     j = a * t ** 3 * (1 / 3 - 0.21 * (t / a) * (1 - t ** 4 / (12 * a ** 4)))
     return b * h, b * h ** 3 / 12, h * b ** 3 / 12, j
+
+
+def propiedades_T(bw, h, bf, hf):
+    """(A, Iy, Iz, J, yb) de una sección T: alma bw × (h − hf) y ala bf × hf arriba (bw y bf en y
+    local, h en z local, el ala hacia +z). En m² y m⁴; yb es la altura del centroide desde abajo.
+
+    Iy (flexión en el plano x-z, la vertical de una viga con α = 0) se toma respecto al centroide
+    real (Steiner con las dos partes). Iz: las dos partes comparten el eje vertical de simetría.
+    J: suma de la J de Roark de cada rectángulo (ala bf × hf y alma bw × (h − hf)), la aproximación
+    usual de una sección abierta formada por rectángulos; no cuenta el refuerzo de la unión."""
+    if bw <= 0 or h <= 0 or bf <= 0 or hf <= 0:
+        raise ValueError("bw, h, bf y hf deben ser positivos")
+    if bf < bw:
+        raise ValueError("bf debe ser mayor o igual que bw")
+    if hf >= h:
+        raise ValueError("hf debe ser menor que h")
+    hw = h - hf
+    a_alma, a_ala = bw * hw, bf * hf
+    area = a_alma + a_ala
+    yb = (a_alma * hw / 2 + a_ala * (hw + hf / 2)) / area
+    iy = (bw * hw ** 3 / 12 + a_alma * (yb - hw / 2) ** 2
+          + bf * hf ** 3 / 12 + a_ala * (hw + hf / 2 - yb) ** 2)
+    iz = hf * bf ** 3 / 12 + hw * bw ** 3 / 12
+    j = propiedades_rectangulo(bf, hf)[3] + propiedades_rectangulo(bw, hw)[3]
+    return area, iy, iz, j, yb
 
 
 def factor_inercia(es_columna):

@@ -9,8 +9,10 @@ Todo se muestra en las unidades de pantalla y se devuelve en las internas. Los n
 CampoNumero (paneles/comunes.py): la unidad va al lado, sin flechas.
 Las medidas de la sección (b, h, d) usan la magnitud "seccion" (cm por defecto), no la longitud.
 """
+import math
+
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
 
 from configuracion import colores, formato
@@ -58,25 +60,36 @@ class VistaSeccion(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.fillRect(self.rect(), QColor(colores.INTERFAZ_FONDO))
         c = self.concreto
-        if c is None or c.forma != "rectangular" or c.b <= 0 or c.h <= 0:
+        es_t = c is not None and c.forma == "T"
+        if (c is None or c.forma not in ("rectangular", "T") or c.b <= 0 or c.h <= 0
+                or (es_t and not (c.bf >= c.b and 0 < c.hf < c.h))):
             p.end()
             return
         margen = 34
-        escala = min((self.width() - 2 * margen) / c.b, (self.height() - 2 * margen) / c.h)
-        ancho, alto = c.b * escala, c.h * escala
+        total = c.bf if es_t else c.b                     # ancho total (el ala, en la T)
+        escala = min((self.width() - 2 * margen) / total, (self.height() - 2 * margen) / c.h)
+        ancho, alto = total * escala, c.h * escala
         x0, y0 = (self.width() - ancho) / 2, (self.height() - alto) / 2
+        centro_x, abajo = x0 + ancho / 2, y0 + alto        # eje de simetría y borde inferior, en pantalla
+        zc = cc.centroide(c)
         p.setPen(QPen(QColor(colores.INTERFAZ_TEXTO), 1.5))
         p.setBrush(QColor(colores.INTERFAZ_HOVER))
-        p.drawRect(QRectF(x0, y0, ancho, alto))
-        if c.nx >= 1 and c.ny >= 1 and 0 < c.d < min(c.b, c.h) / 2:
+        p.drawPolygon(QPolygonF([QPointF(centro_x + y * escala, abajo - (z + zc) * escala)
+                                 for y, z in cc.contorno(c)]))
+        con_barras = (c.nx >= 1 and 0 < c.d < min(c.b / 2, c.h - c.hf)) if es_t else \
+                     (c.nx >= 1 and c.ny >= 1 and 0 < c.d < min(c.b, c.h) / 2)
+        if con_barras:
             radio = max(diametro_barra(c.barra) * escala / 2, 2.0)
             p.setBrush(QColor(colores.INTERFAZ_TEXTO))
             p.setPen(Qt.NoPen)
             for x, y in posiciones_barras(c):
-                p.drawEllipse(QPointF(x0 + x * escala, y0 + (c.h - y) * escala), radio, radio)
+                p.drawEllipse(QPointF(centro_x + (x - c.b / 2) * escala, abajo - y * escala), radio, radio)
         p.setPen(QPen(QColor(colores.INTERFAZ_DESHABILITADO), 1))
         p.drawText(QRectF(x0, y0 + alto + 4, ancho, margen - 8), Qt.AlignHCenter | Qt.AlignTop,
-                   f"b = {formato.cantidad(c.b, 'seccion')}")
+                   f"{'bw' if es_t else 'b'} = {formato.cantidad(c.b, 'seccion')}")
+        if es_t:
+            p.drawText(QRectF(x0, y0 - margen + 4, ancho, margen - 8), Qt.AlignHCenter | Qt.AlignBottom,
+                       f"bf = {formato.cantidad(c.bf, 'seccion')}  ·  hf = {formato.cantidad(c.hf, 'seccion')}")
         p.save()
         p.translate(x0 - 6, y0 + alto / 2)
         p.rotate(-90)
@@ -295,6 +308,113 @@ class FormularioSeccion(QWidget):
         self.vista.mostrar(self.concreto())
 
 
+class FormularioSeccionT(QWidget):
+    """Sección T de concreto (vigas y viguetas con su losa): material, bw, h, bf, hf, d (desde abajo
+    al centro de las barras), barra, cantidad de barras abajo y fy; nombre, propiedades (con el
+    centroide yb) y el dibujo debajo. Sin diagrama de interacción ni aviso de cuantía (es de vigas)."""
+
+    def __init__(self, modelo, parent=None):
+        super().__init__(parent)
+        self.modelo = modelo
+        self.material = Lista()
+        self.bw, self.h, self.bf, self.hf = campo_seccion(), campo_seccion(), campo_seccion(), campo_seccion()
+        self.d = campo_seccion(0.005, 1.0)
+        self.barra = Lista()
+        for n in BARRAS:
+            self.barra.addItem(f"#{n}", n)
+        self.n = CampoNumero(minimo=1, maximo=30, entero=True)
+        self.fy = campo("esfuerzo", 100000, 1000000)
+        self.fy.poner(FY_DEFECTO)
+        self.nombre = QLabel()
+        self.datos = QLabel()
+        self.datos.setTextFormat(Qt.RichText)
+        self.vista = VistaSeccion()
+        forma = QFormLayout()
+        forma.addRow("Material", self.material)
+        forma.addRow("bw (alma, eje local y)", self.bw)
+        forma.addRow("h (total, eje local z)", self.h)
+        forma.addRow("bf (ancho del ala)", self.bf)
+        forma.addRow("hf (espesor del ala)", self.hf)
+        forma.addRow("d (de abajo al centro de las barras)", self.d)
+        forma.addRow("Barra", self.barra)
+        forma.addRow("Barras abajo", self.n)
+        forma.addRow("fy (acero)", self.fy)
+        forma.addRow("Nombre", self.nombre)
+        forma.addRow(self.datos)
+        diseno = QVBoxLayout(self)
+        diseno.setContentsMargins(0, 0, 0, 0)
+        diseno.addLayout(forma)
+        diseno.addWidget(self.vista, 1)
+        for caja in (self.bw, self.h, self.bf, self.hf, self.d, self.n, self.fy):
+            caja.cambiado.connect(self._actualizar)
+        for combo in (self.material, self.barra):
+            combo.currentIndexChanged.connect(self._actualizar)
+        self.llenar_materiales()
+        self.cargar_concreto(cc.concreto_T(0.0, 0.15, 0.45, 0.50, 0.10, 0.04, 6, 1), None)
+
+    llenar_materiales = FormularioSeccion.llenar_materiales
+
+    def cargar(self, sec):
+        self.cargar_concreto(sec.concreto, sec.material)
+
+    def cargar_concreto(self, c, material):
+        for combo in (self.barra, self.material):
+            combo.blockSignals(True)
+        for caja, valor in ((self.bw, c.b), (self.h, c.h), (self.bf, c.bf), (self.hf, c.hf), (self.d, c.d),
+                            (self.n, c.nx), (self.fy, c.fy)):
+            caja.poner(valor)
+        i = self.barra.findData(c.barra)
+        self.barra.setCurrentIndex(i if i >= 0 else BARRAS.index(6))
+        if material is not None and self.material.findData(material) >= 0:
+            self.material.setCurrentIndex(self.material.findData(material))
+        for combo in (self.barra, self.material):
+            combo.blockSignals(False)
+        self._actualizar()
+
+    def valores(self):
+        return {"material": self.material.currentData(), "bw": self.bw.valor(), "h": self.h.valor(),
+                "bf": self.bf.valor(), "hf": self.hf.valor(), "d": self.d.valor(),
+                "barra": self.barra.currentData(), "n": self.n.valor(), "fy": self.fy.valor()}
+
+    def concreto(self):
+        v = self.valores()
+        mat = self.modelo.materiales.get(v["material"])
+        return cc.concreto_T(mat.fc if mat else 0.0, v["bw"], v["h"], v["bf"], v["hf"], v["d"], v["barra"],
+                             v["n"], v["fy"])
+
+    def error(self):
+        v = self.valores()
+        if v["material"] is None:
+            return "Primero crea un material de concreto"
+        try:
+            cc.propiedades_T(v["bw"], v["h"], v["bf"], v["hf"])
+        except ValueError as e:
+            return str(e)
+        if not 0 < v["d"] < min(v["bw"] / 2, v["h"] - v["hf"]):
+            return "d debe ser menor que bw/2 y que la altura del alma (h − hf)"
+        return None
+
+    def refrescar(self):
+        self.llenar_materiales()
+        self._actualizar()
+
+    def _actualizar(self, *_):
+        v = self.valores()
+        self.nombre.setText(textos.nombre_T(v["bw"], v["h"], v["bf"], v["hf"], v["n"], v["barra"], v["fy"]))
+        error = self.error()
+        if error is None:
+            a, iy, iz, j, yb = cc.propiedades_T(v["bw"], v["h"], v["bf"], v["hf"])
+            as_total = v["n"] * math.pi * diametro_barra(v["barra"]) ** 2 / 4
+            self.datos.setText(
+                f"A = {formato.cantidad(a, 'area')}<br>yb = {formato.cantidad(yb, 'seccion')} (centroide, desde abajo)"
+                f"<br>Iy = {formato.cantidad(iy, 'inercia')}<br>Iz = {formato.cantidad(iz, 'inercia')}"
+                f"<br>J = {formato.cantidad(j, 'inercia')} (aproximada)"
+                f"<br>As = {formato.cantidad(as_total, 'area')}  ·  h − d = {formato.cantidad(v['h'] - v['d'], 'seccion')}")
+        else:
+            self.datos.setText(f"<span style='color:{colores.INTERFAZ_DESHABILITADO}'>{error}</span>")
+        self.vista.mostrar(self.concreto())
+
+
 class FormularioOtraSeccion(QWidget):
     """Sección dada por A, Iy, Iz y J (familia "otros": las viejas, sin refuerzo)."""
 
@@ -340,5 +460,6 @@ FORMULARIOS = {
     ("material", "concreto"): FormularioConcreto,
     ("material", "otros"): FormularioOtroMaterial,
     ("seccion", "concreto"): FormularioSeccion,
+    ("seccion", "concreto", "T"): FormularioSeccionT,
     ("seccion", "otros"): FormularioOtraSeccion,
 }

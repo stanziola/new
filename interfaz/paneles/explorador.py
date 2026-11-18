@@ -119,7 +119,7 @@ class Explorador(QDockWidget):
             self._hoja(matrices, f"Elemento {eid}", ("matriz", eid))
         diagramas = self._grupo(self.arbol_tablas, "Diagramas de interacción", "diagramas")
         for sid, sec in modelo.secciones.items():
-            if sec.concreto is not None:
+            if sec.concreto is not None and sec.concreto.forma != "T":     # la T (vigas) no tiene diagrama
                 self._hoja(diagramas, f"{textos.nombre(sec, modelo)} ({sec.concreto.forma})", ("seccion", sid))
 
     @staticmethod

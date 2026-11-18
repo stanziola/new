@@ -4,7 +4,8 @@ Las fórmulas (Ec, G, A, I y J) están en calculo/concreto.py (sagrado); aquí s
 módulo arma, busca y cambia materiales y secciones del modelo.
 Todo en unidades internas: m y kN/m².
 """
-from calculo.concreto import GAMMA_CONCRETO, POISSON, PSI, modulos, propiedades_rectangulo   # noqa: F401
+from calculo.concreto import (GAMMA_CONCRETO, POISSON, PSI, modulos, propiedades_rectangulo,   # noqa: F401
+                              propiedades_T)
 from modelo.estructura import FY_DEFECTO, Concreto
 
 TOL = 1e-9
@@ -60,6 +61,89 @@ def buscar_o_crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy=FY_DEFEC
     if sid is not None:
         return sid, False
     return crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy), True
+
+
+# ---------------------------------------------------------------- Sección T (vigas y viguetas)
+# Se guarda en un Concreto con forma "T": b es el ancho del alma (bw), h la altura total, bf y hf el
+# ala, nx las barras de abajo en el alma (ny = 1) y d, del borde inferior al centro de las barras.
+def nombre_seccion_T(bw, h, bf, hf, n, barra, fy=FY_DEFECTO):
+    """Nombre automático, siempre en cm y MPa: "Concreto T 15x45 bf50 hf10 1#6"."""
+    nombre = f"Concreto T {_cm(bw)}x{_cm(h)} bf{_cm(bf)} hf{_cm(hf)} {n}#{barra}"
+    return nombre if abs(fy - FY_DEFECTO) < 1e-6 * FY_DEFECTO else f"{nombre} fy {round(fy / 1000):g} MPa"
+
+
+def concreto_T(fc, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
+    """El Concreto de una T (sin validar)."""
+    return Concreto(forma="T", fc=fc, d=d, barra=barra, b=bw, h=h, nx=n, ny=1, fy=fy, bf=bf, hf=hf)
+
+
+def _validar_T(modelo, material, bw, h, bf, hf, d, n, fy):
+    mat = modelo.materiales.get(material)
+    if mat is None or mat.fc is None:
+        raise ValueError("Elige un material de concreto")
+    propiedades_T(bw, h, bf, hf)                     # revisa las medidas (bf ≥ bw, hf < h)
+    if not 0 < d < min(bw / 2, h - hf):
+        raise ValueError("d debe ser positivo y menor que bw/2 y que la altura del alma (h − hf)")
+    if n < 1:
+        raise ValueError("Pon al menos una barra abajo")
+    _positivos(fy=fy)
+    return mat
+
+
+def _igual_T(c, bw, h, bf, hf, d, barra, n, fy):
+    return (c is not None and c.forma == "T" and c.barra == barra and c.nx == n
+            and all(abs(x - y) < TOL for x, y in ((c.b, bw), (c.h, h), (c.bf, bf), (c.hf, hf), (c.d, d)))
+            and abs(c.fy - fy) < 1e-6 * fy)
+
+
+def buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
+    """ID de una sección T con exactamente esos datos y ese material, o None."""
+    for sid, sec in modelo.secciones.items():
+        if sec.material == material and _igual_T(sec.concreto, bw, h, bf, hf, d, barra, n, fy):
+            return sid
+    return None
+
+
+def crear_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
+    """Crea la sección T de concreto (con nombre y propiedades) y devuelve su ID."""
+    mat = _validar_T(modelo, material, bw, h, bf, hf, d, n, fy)
+    a, iy, iz, j, _ = propiedades_T(bw, h, bf, hf)
+    return modelo.agregar_seccion(nombre_seccion_T(bw, h, bf, hf, n, barra, fy), a, iy, iz, j,
+                                  concreto_T(mat.fc, bw, h, bf, hf, d, barra, n, fy), material)
+
+
+def cambiar_seccion_T(modelo, sid, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
+    """Cambia una sección en su lugar por una T (todas sus barras la toman, con su material).
+    Devuelve las barras que la usan."""
+    mat = _validar_T(modelo, material, bw, h, bf, hf, d, n, fy)
+    otra = buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy)
+    if otra is not None and otra != sid:
+        raise ValueError(f"Ya existe una sección igual: {modelo.secciones[otra].nombre}")
+    sec = modelo.secciones[sid]
+    sec.concreto = concreto_T(mat.fc, bw, h, bf, hf, d, barra, n, fy)
+    sec.material = material
+    sec.nombre = nombre_seccion_T(bw, h, bf, hf, n, barra, fy)
+    sec.a, sec.iy, sec.iz, sec.j, _ = propiedades_T(bw, h, bf, hf)
+    barras = uso_seccion(modelo, sid)
+    for eid in barras:
+        modelo.elementos[eid].material = material
+    return barras
+
+
+def centroide(c):
+    """Altura del centroide desde el borde inferior de la sección (m): h/2, o el yb de la T."""
+    return propiedades_T(c.b, c.h, c.bf, c.hf)[4] if c.forma == "T" else c.h / 2
+
+
+def contorno(c):
+    """Contorno de la sección en ejes locales (y, z), en m, con el centroide en el origen y el ala de
+    la T hacia +z: lista de vértices en orden antihorario. Rectángulo de b × h o T."""
+    if c.forma == "T":
+        yb = centroide(c)
+        abajo, alma, arriba = -yb, c.h - c.hf - yb, c.h - yb
+        w, f = c.b / 2, c.bf / 2
+        return [(-w, abajo), (w, abajo), (w, alma), (f, alma), (f, arriba), (-f, arriba), (-f, alma), (-w, alma)]
+    return [(-c.b / 2, -c.h / 2), (c.b / 2, -c.h / 2), (c.b / 2, c.h / 2), (-c.b / 2, c.h / 2)]
 
 
 # ---------------------------------------------------------------- Familias, uso y cambios

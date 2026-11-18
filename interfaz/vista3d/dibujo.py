@@ -41,6 +41,7 @@ from calculo.rigidez.ensamble import indices_nodos
 from configuracion import colores
 from configuracion import interfaz as ui
 from modelo.apoyos import tipo_de
+from modelo.concreto import centroide, contorno
 from modelo.interaccion import diametro_barra, posiciones_barras
 
 PARALELA = 0.999                   # |coseno| desde el cual una barra va "a lo largo" de un eje del nudo
@@ -172,6 +173,23 @@ def caja_barra(pi, pj, alfa_grados, b, h, recorte_i=0.0, recorte_j=0.0):
     return _caja(pi + r[0] * recorte_i, pj - r[0] * recorte_j, r[1] * b / 2, r[2] * h / 2)
 
 
+def solido_barra(pi, pj, alfa_grados, c, recorte_i=0.0, recorte_j=0.0):
+    """El concreto de una barra con su sección c, con el centroide sobre el eje de la barra.
+    Rectángulo: la caja de caja_barra. T: dos cajas, el alma y el ala (hacia +z local), cada una
+    convexa (así VTK no tiene que partir un polígono cóncavo)."""
+    if c.forma != "T":
+        return caja_barra(pi, pj, alfa_grados, c.b, c.h, recorte_i, recorte_j)
+    pi, pj = np.asarray(pi, float), np.asarray(pj, float)
+    beta, gamma, _ = angulos(pi, pj)
+    r = rotacion(np.radians(alfa_grados), beta, gamma)
+    a, b = pi + r[0] * recorte_i, pj - r[0] * recorte_j
+    yb, alma = centroide(c), c.h - c.hf
+    partes = []
+    for ancho, alto, z in ((c.b, alma, alma / 2 - yb), (c.bf, c.hf, alma + c.hf / 2 - yb)):
+        partes.append(_caja(a + r[2] * z, b + r[2] * z, r[1] * ancho / 2, r[2] * alto / 2))
+    return _unir(partes)
+
+
 def nudos(modelo, con_caja):
     """Bloque de concreto de cada nudo y lo que se recorta cada barra que llega a él.
 
@@ -226,11 +244,22 @@ def _unir(mallas):
     return pv.wrap(union.GetOutput())
 
 
-def seccion_rectangular(modelo, el):
-    """El Concreto rectangular de la sección de la barra, o None."""
+def seccion_dibujable(modelo, el):
+    """El Concreto de la sección de la barra si se puede dibujar como sólido (rectangular o T), o None."""
     sec = modelo.secciones.get(el.seccion) if el.seccion is not None else None
     c = sec.concreto if sec is not None else None
-    return c if c is not None and c.forma == "rectangular" and c.b > 0 and c.h > 0 else None
+    if c is None or c.b <= 0 or c.h <= 0:
+        return None
+    if c.forma == "rectangular" or (c.forma == "T" and c.bf > 0 and 0 < c.hf < c.h):
+        return c
+    return None
+
+
+def media_hacia(c, r, u):
+    """Lo que hay del eje de la barra a la cara de su sección c, del lado de −u (m): hasta donde
+    llega una flecha que apunta en u. r: ejes locales de la barra (filas). Sale del contorno, así que
+    vale para el rectángulo y para la T (que no es simétrica en z)."""
+    return max(-(u @ (r[1] * y + r[2] * z)) for y, z in contorno(c))
 
 
 def acero_longitudinal(modelo, barras):
@@ -243,12 +272,16 @@ def acero_longitudinal(modelo, barras):
     sección: en los nudos, el acero de unas barras y otras se cruza sin anclarse."""
     por_radio = {}                                   # radio -> (puntos, líneas): un filtro tube por diámetro
     for eid, c in barras.items():
-        if c.nx < 2 or c.ny < 2 or not 0 < c.d < min(c.b, c.h) / 2:
+        if c.forma == "T":
+            if c.nx < 1 or not 0 < c.d < min(c.b / 2, c.h - c.hf):
+                continue
+        elif c.nx < 2 or c.ny < 2 or not 0 < c.d < min(c.b, c.h) / 2:
             continue
         pi, pj, r, _largo = _ejes_barra(modelo, modelo.elementos[eid])
         puntos, lineas = por_radio.setdefault(diametro_barra(c.barra) / 2, ([], []))
+        zc = centroide(c)                            # h/2, o el centroide de la T
         for y, z in posiciones_barras(c):
-            desplazado = r[1] * (y - c.b / 2) + r[2] * (z - c.h / 2)
+            desplazado = r[1] * (y - c.b / 2) + r[2] * (z - zc)
             n = len(puntos)
             puntos += [pi + desplazado, pj + desplazado]
             lineas += [2, n, n + 1]
@@ -276,14 +309,16 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
     # Barras con sección real: una caja por barra (recortada en sus nudos) y un bloque por nudo,
     # todo en una malla
     con_caja = {eid: c for eid, el in modelo.elementos.items()
-                if seccion_real and (c := seccion_rectangular(modelo, el)) is not None}
+                if seccion_real and (c := seccion_dibujable(modelo, el)) is not None}
     if con_caja:
-        bloques, recortes = nudos(modelo, con_caja)
+        # Las T (vigas y viguetas) no entran a los nudos: llegan hasta el nodo, y una vigueta en
+        # línea se ve continua. Su centroide no está a media altura, así que el bloque no calzaría.
+        bloques, recortes = nudos(modelo, {e: c for e, c in con_caja.items() if c.forma != "T"})
         cajas, inicio = [], 0
         for eid, c in con_caja.items():
             el = modelo.elementos[eid]
-            caja = caja_barra(modelo.nodos[el.ni].coords, modelo.nodos[el.nj].coords, el.alfa, c.b, c.h,
-                              recortes.get((eid, el.ni), 0.0), recortes.get((eid, el.nj), 0.0))
+            caja = solido_barra(modelo.nodos[el.ni].coords, modelo.nodos[el.nj].coords, el.alfa, c,
+                                recortes.get((eid, el.ni), 0.0), recortes.get((eid, el.nj), 0.0))
             d.indice_solido[eid] = (inicio, inicio + caja.n_cells)
             inicio += caja.n_cells
             cajas.append(caja)
@@ -375,9 +410,10 @@ def dibujar_ejes_locales(vista, modelo, eid, tamano, seccion_real=False):
     el = modelo.elementos[eid]
     pi, _pj, r, largo = _ejes_barra(modelo, el)
     origen = pi + r[0] * POSICION_EJES_LOCALES * largo
-    c = seccion_rectangular(modelo, el) if seccion_real else None
+    c = seccion_dibujable(modelo, el) if seccion_real else None
     if c is not None:
-        origen = origen + r[1] * c.b / 2 + r[2] * c.h / 2
+        vertices = contorno(c)
+        origen = origen + r[1] * max(y for y, _ in vertices) + r[2] * max(z for _, z in vertices)
     lado = min(ui.TAMANO_CARGA * tamano, 0.5 * largo)
     flechas = []
     for eje, color in zip(r, (colores.EJE_X, colores.EJE_Y, colores.EJE_Z)):

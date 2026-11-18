@@ -1,9 +1,8 @@
 {
-  "aprobado": "2026-11-12",
+  "aprobado": "2026-11-17",
   "archivos": {
     "calculo/__init__.py": "36f0aa08a207ec5d91ccc664d50f88ca76081013fcd7dbd3f8bb8a4bc799cd16",
-    "calculo/acero.py": "647562acea60c69c06097d53780b719d6647401bb79f5bc541e95ef7c43ce63c",
-    "calculo/concreto.py": "37290055b516bae696fd24efe3d54543d92406ecd643e6738dd239ad07c2fec1",
+    "calculo/concreto.py": "288bcd8a63566009b25b9536f6145950ca5961095d8d52c7afe017d0a1de147f",
     "calculo/interaccion/__init__.py": "1135f810c04dc98373bf1425f0659e5a61a16e9b545711d1bfa86dc0eda23c71",
     "calculo/interaccion/biaxial.py": "afed04c2353330249314029bb5a0070dadba85b2ffcf7bde998b0c6e5ccd5d21",
     "calculo/interaccion/circular.py": "0b724afeefbce274d2fd9551f835d724f73124f8b6fde05335dae0fa84854b7b",

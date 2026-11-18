@@ -490,6 +490,73 @@ def verificar_demandas():
                   dentro == esperado)
 
 
+def verificar_seccion_T():
+    """Propiedades de la sección T (calculo/concreto.propiedades_T) contra otra forma de calcularlas:
+    el rectángulo lleno bf × h menos los dos huecos bajo el ala, (bf − bw) × (h − hf), con las
+    inercias tomadas respecto al borde inferior (b·h³/3) y pasadas al centroide (Steiner al revés).
+    Vigueta de la hoja del usuario: bw 15, h 45, bf 50, hf 10 cm."""
+    from calculo.concreto import propiedades_T
+    print("\n===== SECCIÓN T =====")
+    bw, h, bf, hf = 0.15, 0.45, 0.50, 0.10
+    hueco_b, hueco_h = bf - bw, h - hf
+    area = bf * h - hueco_b * hueco_h
+    yb = (bf * h ** 2 / 2 - hueco_b * hueco_h ** 2 / 2) / area
+    iy = bf * h ** 3 / 3 - hueco_b * hueco_h ** 3 / 3 - area * yb ** 2
+    iz = (h * bf ** 3 - hueco_h * (bf ** 3 - bw ** 3)) / 12
+    a_t, iy_t, iz_t, j_t, yb_t = propiedades_T(bw, h, bf, hf)
+    comprobar(f"A = {a_t * 1e4:.1f} cm² (lleno − huecos: {area * 1e4:.1f})", np.isclose(a_t, area))
+    comprobar(f"yb = {yb_t * 100:.3f} cm desde abajo ({yb * 100:.3f})", np.isclose(yb_t, yb))
+    comprobar(f"Iy = {iy_t * 1e8:.0f} cm⁴ ({iy * 1e8:.0f}; la hoja de SMath: 187 410)", np.isclose(iy_t, iy))
+    comprobar(f"Iz = {iz_t * 1e8:.0f} cm⁴ ({iz * 1e8:.0f})", np.isclose(iz_t, iz))
+    comprobar(f"J = {j_t * 1e8:.0f} cm⁴ (suma de ala y alma, positiva)", j_t > 0)
+    # Con bf = bw la T es un rectángulo bw × h
+    from calculo.concreto import propiedades_rectangulo
+    comprobar("T con bf = bw = rectángulo (A, Iy, Iz)",
+              np.allclose(propiedades_T(0.3, 0.5, 0.3, 0.1)[:3], propiedades_rectangulo(0.3, 0.5)[:3]))
+
+
+def verificar_vigueta_continua():
+    """Vigueta T de 3 claros (7.65, 7.55 y 7.60 m) sobre apoyos simples (ejemplos/vigueta.py) con
+    1.2D + 1.6L, contra la ecuación de los tres momentos resuelta aquí:
+        M_(i−1)·L_i + 2·M_i·(L_i + L_(i+1)) + M_(i+1)·L_(i+1) = −w·(L_i³ + L_(i+1)³)/4
+    con M = 0 en los extremos. Momento positivo de cada claro: con su reacción izquierda
+    R = w·L/2 + (M_der − M_izq)/L, M+ = M_izq + R²/(2w). Además, ΣRz = w·ΣL, y la restricción de φx
+    del nodo 1 (que evita el giro de la línea sobre su eje) no cambia los momentos."""
+    from ejemplos.vigueta import CLAROS, MUERTA_ADICIONAL, VIVA, crear_vigueta
+    print("\n===== VIGUETA T CONTINUA, 3 CLAROS =====")
+    m = crear_vigueta()
+    resultados = analizar(m)
+    c2 = comb.todas(m)["C2"]                                   # 1.2D + 1.6L (+ 0.5Lr, que no hay)
+    rc = combinar(m, resultados, c2)
+    sec, mat = m.secciones[1], m.materiales[1]
+    w = 1.2 * (sec.a * mat.gamma + MUERTA_ADICIONAL) + 1.6 * VIVA
+    L = CLAROS
+    a = np.array([[2 * (L[0] + L[1]), L[1]], [L[1], 2 * (L[1] + L[2])]])
+    b = -w * np.array([(L[0] ** 3 + L[1] ** 3) / 4, (L[1] ** 3 + L[2] ** 3) / 4])
+    mb, mc = np.linalg.solve(a, b)
+    apoyos = (0.0, mb, mc, 0.0)
+    comprobar(f"wu = 1.2D + 1.6L = {w:.3f} kN/m", w > 0)
+    barras = sorted(m.elementos)
+    for k, eid in enumerate(barras):
+        my = np.asarray(fuerzas_en(m, rc, eid)["My"])
+        izq, der = apoyos[k], apoyos[k + 1]
+        r = w * L[k] / 2 + (der - izq) / L[k]
+        positivo = izq + r ** 2 / (2 * w)
+        comprobar(f"Claro {k + 1} ({L[k]} m): M i = {my[0]:.2f}, M j = {my[-1]:.2f}, M+ = {my.max():.2f} kN·m "
+                  f"(a mano: {izq:.2f}, {der:.2f}, {positivo:.2f})",
+                  np.isclose(my[0], izq, atol=1e-6) and np.isclose(my[-1], der, atol=1e-6)
+                  and np.isclose(my.max(), positivo, rtol=1e-3))
+    rz = sum(v[2] for v in rc.res.reacciones.values())
+    comprobar(f"ΣRz = {rz:.3f} kN (w·ΣL = {w * sum(L):.3f})", np.isclose(rz, w * sum(L)))
+    # Con φx restringido en los 4 nodos (en vez de solo el 1) los momentos no cambian
+    m2 = crear_vigueta()
+    for nid in m2.nodos:
+        m2.nodos[nid].apoyo[3] = True
+    rc2 = combinar(m2, analizar(m2), comb.todas(m2)["C2"])
+    iguales = all(np.allclose(fuerzas_en(m, rc, e)["My"], fuerzas_en(m2, rc2, e)["My"]) for e in barras)
+    comprobar("φx en un solo nodo o en los 4: los mismos momentos (no hay torsión aplicada)", iguales)
+
+
 if __name__ == "__main__":
     from pruebas.integridad import revisar
     configurar()
@@ -502,5 +569,7 @@ if __name__ == "__main__":
     verificar_interaccion()
     verificar_combinaciones()
     verificar_demandas()
+    verificar_seccion_T()
+    verificar_vigueta_continua()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()
