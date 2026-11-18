@@ -20,6 +20,9 @@
   - las combinaciones de la versión 3 pasan de factores por caso a factores por tipo.
 - Versión 5: las secciones de concreto pueden ser T ("forma": "T", con "bf" y "hf" del ala). Se lee
   igual que la 4 (los campos nuevos tienen valor por defecto).
+- E y G de los materiales de concreto (los que tienen f'c) se recalculan al abrir con f'c y γ
+  (calculo/concreto.modulos): el E guardado no se usa. Así, los archivos guardados cuando E era
+  57 000·√f'c pasan a la Ec. 19.2.2.1.a como los nuevos (decisión del usuario, noviembre de 2026).
 - Acero estructural: entre noviembre de 2026 y su retiro, los archivos podían traer secciones de acero
   ("acero": tubo o perfil I) y materiales de acero ("familia": "acero"). El programa ya es solo de
   concreto (el acero quedó en la copia "utp"): esos datos se descartan al abrir y la sección y el
@@ -29,7 +32,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from calculo.concreto import GAMMA_CONCRETO
+from calculo.concreto import GAMMA_CONCRETO, modulos
 from modelo.estructura import (NOMBRE_MUERTA_ADICIONAL, NOMBRE_PESO_PROPIO, CargaBarra, CargaNodal, Caso,
                                Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
 
@@ -83,11 +86,14 @@ def _seccion(d):
 
 
 def _material(d):
-    """Material desde su diccionario. Los de concreto viejos (sin "gamma") reciben el del concreto."""
+    """Material desde su diccionario. Los de concreto viejos (sin "gamma") reciben el del concreto, y
+    todos los de concreto recalculan E y G con su f'c y su γ (el E guardado no se usa)."""
     d = dict(d)
     d.pop("familia", None)                       # material de acero de archivos viejos: queda como "Otros"
     if "gamma" not in d:
         d["gamma"] = GAMMA_CONCRETO if d.get("fc") is not None else 0.0
+    if d.get("fc") is not None:
+        d["e"], d["g"] = modulos(d["fc"], d["gamma"])
     return Material(**d)
 
 

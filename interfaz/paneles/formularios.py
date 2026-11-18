@@ -115,15 +115,19 @@ class FormularioConcreto(QWidget):
         self.fc.poner(28000)
         self.gamma = campo("peso_unitario", 0.0, 100.0)            # peso propio (F/L³)
         self.gamma.poner(cc.GAMMA_CONCRETO)
-        self.gamma.setToolTip("Peso unitario para el peso propio. Concreto reforzado: 150 lb/ft³ = "
-                              "23.56 kN/m³ (ASCE 7-05, Tabla C3-2)")
+        self.gamma.setToolTip("Peso unitario para el peso propio y para Ec (es el wc de la Ec. 19.2.2.1.a).\n"
+                              "Concreto reforzado: 150 lb/ft³ = 23.56 kN/m³ (ASCE 7-05, Tabla C3-2)")
         self.e, self.g = QLabel(), QLabel()
         self.fc.cambiado.connect(self._actualizar)
+        self.gamma.cambiado.connect(self._actualizar)
         forma = QFormLayout(self)
         forma.setContentsMargins(0, 0, 0, 0)
         forma.addRow("Nombre", self.nombre)
         forma.addRow("f'c", self.fc)
-        forma.addRow("E (ACI 318-19 §19.2.2.1b)", self.e)
+        etiqueta_e = QLabel("E (ACI 318-19 §19.2.2.1)")
+        etiqueta_e.setToolTip("Ec = wc^1.5·33·√f'c (psi), con wc = γ entre 90 y 160 lb/ft³ (Ec. 19.2.2.1.a);\n"
+                              "fuera de ese rango, 57 000·√f'c (Ec. 19.2.2.1.b)")
+        forma.addRow(etiqueta_e, self.e)
         forma.addRow("G (ν = 0.2)", self.g)
         forma.addRow("γ (peso propio)", self.gamma)
         self._actualizar()
@@ -136,7 +140,7 @@ class FormularioConcreto(QWidget):
         self._actualizar()
 
     def _actualizar(self, *_):
-        e, g = cc.modulos(self.fc.valor())
+        e, g = cc.modulos(self.fc.valor(), self.gamma.valor())
         self.e.setText(formato.cantidad(e, "esfuerzo"))
         self.g.setText(formato.cantidad(g, "esfuerzo"))
         self.nombre.setPlaceholderText(textos.nombre_concreto(self.fc.valor()))

@@ -18,7 +18,7 @@
 | Tabla 19.2.1.1 (p. 357) | f'c mínimo: **general 2500 psi** [17 MPa]. **Pórticos especiales** y muros especiales con barras Grado 60/80: **3000 psi** [21 MPa]. Cimentaciones en CDS D–F: 3000 psi. Pilotes perforados: 4000 psi. Muros especiales con Grado 100: 5000 psi. |
 | 19.2.1.1(d) | Concreto liviano en pórticos o muros especiales: f'c ≤ 5000 psi, salvo ensayos. |
 | 19.2.1.3 | f'c a 28 días, salvo que los planos indiquen otra edad. |
-| 19.2.2.1 (p. 358) | Ec = wc^1.5 · 33 · √f'c (psi), con wc entre 90 y 160 lb/ft³. Para concreto de peso normal: **Ec = 57 000 √f'c** (psi) [**4700 √f'c** MPa]. |
+| 19.2.2.1 (p. 358) | Ec = wc^1.5 · 33 · √f'c (psi), con wc entre 90 y 160 lb/ft³. Para concreto de peso normal: **Ec = 57 000 √f'c** (psi) [**4700 √f'c** MPa]. Las dos están permitidas ("shall be permitted… (a) or (b)"). El programa usa la (a) con wc = γ del material desde noviembre de 2026 (antes, la (b)); con 150 lb/ft³ da 6 % más. |
 | 19.2.3.1 | Módulo de rotura fr = 7.5 λ √f'c (psi) [0.62 λ √f'c MPa]. |
 | 19.2.4 (p. 359) | λ = 1.0 en concreto de peso normal; 0.75 a 0.85 en liviano. |
 

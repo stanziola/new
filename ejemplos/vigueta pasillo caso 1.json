@@ -20,7 +20,7 @@
       ]
     },
     "2": {
-      "x": 7.65,
+      "x": 7.55,
       "y": 0,
       "z": 0,
       "apoyo": [
@@ -33,20 +33,7 @@
       ]
     },
     "3": {
-      "x": 15.2,
-      "y": 0,
-      "z": 0,
-      "apoyo": [
-        true,
-        true,
-        true,
-        false,
-        false,
-        false
-      ]
-    },
-    "4": {
-      "x": 22.799999999999997,
+      "x": 14.98,
       "y": 0,
       "z": 0,
       "apoyo": [
@@ -62,8 +49,8 @@
   "materiales": {
     "1": {
       "nombre": "Concreto f'c 27.6 MPa",
-      "e": 24855576.134935018,
-      "g": 10356490.056222925,
+      "e": 26390553.696026973,
+      "g": 10996064.04001124,
       "fc": 27579.029172673443,
       "gamma": 23.53596
     }
@@ -107,13 +94,6 @@
       "material": 1,
       "seccion": 1,
       "alfa": 0.0
-    },
-    "3": {
-      "ni": 3,
-      "nj": 4,
-      "material": 1,
-      "seccion": 1,
-      "alfa": 0.0
     }
   },
   "casos": {
@@ -145,28 +125,28 @@
     },
     "2": {
       "clase": "barra",
-      "caso": 1,
-      "barra": 2,
+      "caso": 3,
+      "barra": 1,
       "tipo": "uniforme",
-      "valor": -2.3256578348150003,
+      "valor": -2.3940129490167923,
       "direccion": "Z",
       "a": 0.0
     },
     "3": {
       "clase": "barra",
-      "caso": 3,
+      "caso": 1,
       "barra": 2,
       "tipo": "uniforme",
-      "valor": -0.9576051796067169,
+      "valor": -2.3256578348150003,
       "direccion": "Z",
       "a": 0.0
     },
     "4": {
       "clase": "barra",
-      "caso": 1,
-      "barra": 3,
+      "caso": 3,
+      "barra": 2,
       "tipo": "uniforme",
-      "valor": -2.3256578348150003,
+      "valor": -2.3940129490167923,
       "direccion": "Z",
       "a": 0.0
     }
@@ -178,8 +158,8 @@
     "portico_especial": true
   },
   "siguiente_id": {
-    "nodo": 5,
-    "elem": 4,
+    "nodo": 4,
+    "elem": 3,
     "mat": 2,
     "sec": 2,
     "caso": 4,

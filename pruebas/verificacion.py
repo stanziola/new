@@ -306,10 +306,17 @@ def verificar_combinaciones():
        - 1.2D + 1.6Lr + L: w = 12 + 6.4 + 5 = 23.4 → 105.3 kN·m y 70.2 kN;
        - 1.2D + 1.6Lr + 0.8W: w = 18.4 y P = 8 → 94.8 kN·m y 59.2 kN;
        - 1.2D + 1.6W + L + 0.5Lr: w = 19 y P = 16 → 109.5 kN·m y 65 kN (el viento del REP es de
-         servicio: va con 1.6, REP 2021 §8.4). L va con 1.0: no se usa la opción de 0.5L."""
+         servicio: va con 1.6, REP 2021 §8.4). L va con 1.0: no se usa la opción de 0.5L.
+    4. Las de servicio (ASCE 7-05 Apéndice C, ec. CC-1a, CC-2 y CC-3, PDF p. 413–414), en la misma viga:
+       - D + L: w = 15 → 67.5 kN·m y 45 kN;
+       - D + 0.5L: w = 12.5 → 56.25 kN·m y 37.5 kN;
+       - D + 0.5L + 0.7W: w = 12.5 y P = 7 → 66.75 kN·m y 41 kN.
+       No entran en la envolvente ni en los puntos Pu–Mu (comb.aplicables: solo las 13 de resistencia)."""
     print("\n===== COMBINACIONES (SUPERPOSICIÓN) =====")
     pre = comb.predeterminadas(0.5, 1.3)
-    comprobar(f"ASCE 7-05: 13 combinaciones, más la carga muerta total: {len(pre) - 1}", len(pre) == 14)
+    norma = comb.resistencia(0.5, 1.3)
+    comprobar(f"ASCE 7-05: 13 de resistencia y 4 de servicio, más la carga muerta total: {len(pre) - 1}",
+              len(norma) == 13 and len(comb.servicio()) == 4 and len(pre) == 18)
     comprobar(f"3 con L (sin reducir): {pre['C3'].nombre}", pre["C3"].factores == {"D": 1.2, "Lr": 1.6, "L": 1.0})
     comprobar(f"5 con SDS = 0.5 y ρ = 1.3: {pre['C5a'].nombre}  (1.2 + 0.2·SDS = 1.3)",
               pre["C5a"].factores == {"D": 1.3, "E": 1.3, "L": 1.0})
@@ -367,12 +374,20 @@ def verificar_combinaciones():
         comprobar(f"{pre[clave].nombre}: M centro = {centro['My']:.3f} (a mano {momento:.3f}), "
                   f"V apoyo = {apoyo['Vz']:.3f} (a mano {cortante:.3f})",
                   np.isclose(centro["My"], momento) and np.isclose(apoyo["Vz"], cortante))
+    for clave, w, p in (("S1", 15.0, 0.0), ("S2", 12.5, 0.0), ("S3a", 12.5, 7.0)):
+        r = combinar(v, resultados, pre[clave])
+        centro, apoyo = fuerzas_en_x(v, r, 1, 3.0), fuerzas_en_x(v, r, 1, 0.0)
+        momento, cortante = w * 6 ** 2 / 8 + p * 6 / 4, w * 6 / 2 + p / 2
+        comprobar(f"{pre[clave].nombre}: M centro = {centro['My']:.3f} (a mano {momento:.3f}), "
+                  f"V apoyo = {apoyo['Vz']:.3f} (a mano {cortante:.3f})",
+                  np.isclose(centro["My"], momento) and np.isclose(apoyo["Vz"], cortante))
+    comprobar("Las de servicio no están entre las aplicables (envolvente y Pu–Mu): solo las 13 de resistencia",
+              set(comb.aplicables(v)) == set(norma) and not any(comb.es_servicio(k) for k in comb.aplicables(v)))
 
     # Envolvente de la misma viga: M al centro = 4.5w + 1.5P en cada combinación de la norma.
     # El mayor es 1.2D + 1.6W + L + 0.5Lr (w = 19, P = 16): 109.5. El menor, 0.9D − 1.6W (w = 9,
     # P = −16, el viento hacia arriba): 40.5 − 24 = 16.5. Y la envolvente no queda por debajo de
     # ninguna combinación en ningún punto, ni por encima en el mínimo.
-    norma = {k: c for k, c in pre.items() if k != comb.MUERTA}
     env = envolvente(v, resultados, norma)
     vmax, vmin, cmax, cmin = envolvente_en_x(env, 1, "My", 3.0)
     comprobar(f"Envolvente al centro: máx {vmax:.3f} ({cmax}), a mano 109.500 (1.2D + 1.6W + L + 0.5Lr)",
@@ -516,21 +531,24 @@ def verificar_seccion_T():
 
 
 def verificar_vigueta_continua():
-    """Vigueta T de 3 claros (7.65, 7.55 y 7.60 m) sobre apoyos simples (ejemplos/vigueta.py) con
-    1.2D + 1.6L, contra la ecuación de los tres momentos resuelta aquí:
+    """Vigueta T del salón, de 3 claros (7.60, 7.55 y 7.43 m), sobre apoyos simples (ejemplos/vigueta.py)
+    con 1.2D + 1.6L, contra la ecuación de los tres momentos resuelta aquí:
         M_(i−1)·L_i + 2·M_i·(L_i + L_(i+1)) + M_(i+1)·L_(i+1) = −w·(L_i³ + L_(i+1)³)/4
     con M = 0 en los extremos. Momento positivo de cada claro: con su reacción izquierda
     R = w·L/2 + (M_der − M_izq)/L, M+ = M_izq + R²/(2w). Además, ΣRz = w·ΣL, y la restricción de φx
-    del nodo 1 (que evita el giro de la línea sobre su eje) no cambia los momentos."""
-    from ejemplos.vigueta import CLAROS, MUERTA_ADICIONAL, VIVA, crear_vigueta
+    del nodo 1 (que evita el giro de la línea sobre su eje) no cambia los momentos. La del pasillo, de
+    2 claros (7.55 y 7.43 m, 100 psf): con M = 0 en los extremos la misma ecuación da
+    M = −w·(L1³ + L2³) / (8·(L1 + L2)) en el apoyo del medio."""
+    from ejemplos.vigueta import (CLAROS_PASILLO, CLAROS_SALON, MUERTA_ADICIONAL, VIVA_PASILLO, VIVA_SALON,
+                                  crear_vigueta)
     print("\n===== VIGUETA T CONTINUA, 3 CLAROS =====")
     m = crear_vigueta()
     resultados = analizar(m)
     c2 = comb.todas(m)["C2"]                                   # 1.2D + 1.6L (+ 0.5Lr, que no hay)
     rc = combinar(m, resultados, c2)
     sec, mat = m.secciones[1], m.materiales[1]
-    w = 1.2 * (sec.a * mat.gamma + MUERTA_ADICIONAL) + 1.6 * VIVA
-    L = CLAROS
+    w = 1.2 * (sec.a * mat.gamma + MUERTA_ADICIONAL) + 1.6 * VIVA_SALON
+    L = CLAROS_SALON
     a = np.array([[2 * (L[0] + L[1]), L[1]], [L[1], 2 * (L[1] + L[2])]])
     b = -w * np.array([(L[0] ** 3 + L[1] ** 3) / 4, (L[1] ** 3 + L[2] ** 3) / 4])
     mb, mc = np.linalg.solve(a, b)
@@ -555,6 +573,15 @@ def verificar_vigueta_continua():
     rc2 = combinar(m2, analizar(m2), comb.todas(m2)["C2"])
     iguales = all(np.allclose(fuerzas_en(m, rc, e)["My"], fuerzas_en(m2, rc2, e)["My"]) for e in barras)
     comprobar("φx en un solo nodo o en los 4: los mismos momentos (no hay torsión aplicada)", iguales)
+
+    p = crear_vigueta(CLAROS_PASILLO, VIVA_PASILLO)
+    rp = combinar(p, analizar(p), comb.todas(p)["C2"])
+    wp = 1.2 * (sec.a * mat.gamma + MUERTA_ADICIONAL) + 1.6 * VIVA_PASILLO
+    l1, l2 = CLAROS_PASILLO
+    medio = -wp * (l1 ** 3 + l2 ** 3) / (8 * (l1 + l2))
+    mp = np.asarray(fuerzas_en(p, rp, min(p.elementos))["My"])
+    comprobar(f"Pasillo, 2 claros, wu = {wp:.3f} kN/m: M en el apoyo del medio = {mp[-1]:.2f} kN·m "
+              f"(a mano {medio:.2f})", np.isclose(mp[-1], medio, atol=1e-6))
 
 
 if __name__ == "__main__":

@@ -191,8 +191,8 @@ def crear_material(modelo, nombre, fc=None, e=None, g=None, gamma=None):
     (con E y G). Devuelve el ID."""
     if fc is not None:
         _positivos(**{"f'c": fc})
-        e, g = modulos(fc)
         gamma = GAMMA_CONCRETO if gamma is None else gamma
+        e, g = modulos(fc, gamma)               # Ec con wc = γ (ACI 318-19 Ec. 19.2.2.1.a)
         return modelo.agregar_material(nombre.strip() or nombre_material(fc), e, g, fc=fc, gamma=gamma)
     _positivos(E=e, G=g)
     return modelo.agregar_material(nombre.strip() or "Material", e, g)
@@ -211,10 +211,10 @@ def cambiar_material(modelo, mid, nombre, fc=None, e=None, g=None, gamma=None):
     if familia_material(mat) == "concreto":
         _positivos(**{"f'c": fc})
         mat.fc = fc
-        mat.e, mat.g = modulos(fc)
-        mat.nombre = nombre.strip() or nombre_material(fc)
         if gamma is not None:
             mat.gamma = gamma
+        mat.e, mat.g = modulos(fc, mat.gamma)   # E depende de f'c y de γ
+        mat.nombre = nombre.strip() or nombre_material(fc)
         for sec in modelo.secciones.values():
             if sec.material == mid and sec.concreto is not None:
                 sec.concreto.fc = fc

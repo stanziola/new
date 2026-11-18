@@ -61,6 +61,21 @@
   - H (empuje de tierras): 1.6 si se suma; 0.9 si se opone y es permanente; no se incluye si se opone y no es permanente.
 - **5.2.2 y 5.2.3:** las cargas, la CDS y la reducción de viva se toman del reglamento general, que en Panamá es el REP → ASCE 7-05.
 
+## ASCE 7-05 Apéndice C: combinaciones de servicio (p. 413–414, leídas en la imagen de la página)
+
+El ACI 318-19 no trae combinaciones de servicio: pide las deflexiones con cargas de servicio (Ma, §24.2.3.5) y sus límites (Tabla 24.2.2). El ASCE 7-05 las **sugiere** en el Apéndice C, que es comentario (no obligatorio):
+
+| Ec. | Combinación | Para qué |
+|---|---|---|
+| CC-1a (§CC.1.1) | D + L | deformaciones de corto plazo, fisuras reparables, daño a acabados |
+| CC-1b (§CC.1.1) | D + 0.5S | lo mismo con nieve (no aplica en Panamá) |
+| CC-2 (§CC.1.1) | D + 0.5L | fluencia lenta, asentamiento y otros efectos de largo plazo |
+| CC-3 (§CC.1.2) | D + 0.5L + 0.7W | deriva por viento (corto plazo); el viento no entra en los efectos de largo plazo |
+
+- La D de CC-1 y CC-2 puede ser solo la parte que se aplica **después** de colocar los elementos no estructurales (p. 414).
+- Límites usuales que cita el comentario: ℓ/360 en pisos con la viva completa, ℓ/240 en techos; deriva de h/600 a h/400; unos 10 mm para no dañar tabiques.
+- En el programa: `modelo/combinaciones.py` (`servicio`), claves S1, S2, S3a y S3b. No entran en la envolvente ni en los puntos Pu–Mu.
+
 ## Diferencias o contradicciones encontradas
 
 1. **No hay contradicción ACI–ASCE–REP:** con viento a nivel de servicio (REP 4.2), las combinaciones de ACI 5.3 con el 5.3.5 dan lo mismo que ASCE 7-05 2.3.2: 1.6W en lugar de 1.0W y 0.8W en lugar de 0.5W. **Error típico:** usar 1.0W de ACI 318-19 con el viento del REP, que da un 37.5 % menos de viento.

@@ -5,9 +5,10 @@
   muerta adicional", donde van las cargas muertas puestas a mano. Las cargas se ponen en el caso
   activo con las herramientas de carga.
 - Combinaciones: arriba, los datos del sismo, SDS y ρ (por ahora escritos a mano). En la tabla, un
-  factor por TIPO de caso: D, L, Lr, W y E. Las predeterminadas (modelo/combinaciones.py: ASCE 7-05
-  §2.3.2 y §12.4.2.3) van con fondo gris y no se editan: salen de la norma, con el SDS y el ρ de
-  arriba; al pasar el mouse dicen de qué cláusula vienen. Debajo, las propias del usuario.
+  factor por TIPO de caso: D, L, Lr, W y E. Las predeterminadas (modelo/combinaciones.py: las de
+  resistencia de ASCE 7-05 §2.3.2 y §12.4.2.3, y las de servicio de su Apéndice C) van con fondo gris
+  y no se editan: salen de la norma, con el SDS y el ρ de arriba; al pasar el mouse dicen de qué
+  cláusula vienen. Debajo, las propias del usuario.
   Solo sirven para VER resultados (dibujo y diagramas): su resultado es la suma de los casos por sus
   factores (superposición), así que cambiarlas no obliga a volver a analizar.
 Los cambios se aplican con Aceptar, todos juntos, en un solo paso de Deshacer. Primero se prueban

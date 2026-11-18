@@ -3,9 +3,12 @@
 Movidas sin cambios desde modelo/concreto.py (allí quedan los nombres, las familias y las
 operaciones sobre el modelo, que no son fórmulas de ingeniería).
 
-- E del concreto: ACI 318-19 §19.2.2.1(b), Ec. 19.2.2.1.b (PDF p. 358), para concreto de peso
-  normal: Ec = 57 000·√f'c, con f'c y Ec en psi. Se usa tal cual, convirtiendo unidades: en MPa da
-  Ec ≈ 4733·√f'c (el 4700 del ACI 318M es la misma fórmula redondeada).
+- E del concreto: ACI 318-19 §19.2.2.1(a), Ec. 19.2.2.1.a (PDF p. 358): Ec = wc^1.5·33·√f'c, con
+  wc en lb/ft³ (entre 90 y 160), f'c y Ec en psi. wc es el peso unitario γ del material (el mismo
+  del peso propio; el de por defecto, 150 lb/ft³, incluye el acero, así que da un Ec ~3 % mayor que
+  con el concreto simple de 145). Con wc ≈ 144 da lo mismo que la (b), 57 000·√f'c. Si γ queda fuera
+  de 90–160 lb/ft³ (por ejemplo γ = 0, sin peso propio), se usa la (b), la de concreto de peso
+  normal. Se usan tal cual, convirtiendo unidades (en MPa la (b) da Ec ≈ 4733·√f'c).
 - ν: el ACI 318-19 no lo da (remite a ensayos ASTM C469). Se usa ν = 0.2, el valor usual, y
   G = E / (2·(1 + ν)), que es mecánica de materiales.
 - Sección rectangular con su inercia bruta Ig. Los factores de agrietamiento no se aplican aquí sino
@@ -37,11 +40,19 @@ INERCIA_COLUMNA = 0.70       # I = 0.70·Ig en columnas, ACI 318-19 Tabla 6.6.3.
 INERCIA_VIGA = 0.35          # I = 0.35·Ig en vigas, misma tabla
 
 
-def modulos(fc):
-    """(E, G) del concreto de peso normal, en kN/m², para f'c en kN/m²."""
+WC_MIN, WC_MAX = 90.0, 160.0    # lb/ft³: rango de la Ec. 19.2.2.1.a
+
+
+def modulos(fc, gamma=GAMMA_CONCRETO):
+    """(E, G) del concreto, en kN/m², para f'c en kN/m² y su peso unitario γ en kN/m³: E con la
+    Ec. 19.2.2.1.a (wc = γ en lb/ft³) o, si wc queda fuera de 90–160 lb/ft³, con la 19.2.2.1.b."""
     if fc <= 0:
         raise ValueError("f'c debe ser positivo")
-    e = 57000.0 * math.sqrt(fc / PSI) * PSI
+    wc = gamma / LB_FT3
+    if WC_MIN <= wc <= WC_MAX:
+        e = wc ** 1.5 * 33.0 * math.sqrt(fc / PSI) * PSI
+    else:
+        e = 57000.0 * math.sqrt(fc / PSI) * PSI
     return e, e / (2 * (1 + POISSON))
 
 

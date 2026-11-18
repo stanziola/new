@@ -8,7 +8,7 @@ def crear_portico():
     """Pórtico 3D de prueba: 5 nodos, 4 barras de concreto, un empotramiento y una articulación."""
     m = Modelo()
 
-    # Concreto de f'c = 4 ksi (27.6 MPa): E y G se calculan con el ACI 318-19 (19.2.2.1b) y ν = 0.2
+    # Concreto de f'c = 4 ksi (27.6 MPa) y γ = 150 lb/ft³: E con el ACI 318-19 (Ec. 19.2.2.1.a) y ν = 0.2
     concreto = cc.crear_material(m, "", fc=4 * KSI)
     # Secciones con refuerzo DE EJEMPLO (para ver el dibujo y el diagrama de interacción), d = 6 cm:
     # viga 30x50 con 6 barras #6 y columna 40x40 con 8 barras #6. Nombre automático.

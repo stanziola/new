@@ -502,8 +502,9 @@ class Ventana(QMainWindow):
         self.selector_combinacion.addItem("Envolvente", ENVOLVENTE)
         self.selector_combinacion.setItemData(
             self.selector_combinacion.count() - 1,
-            "Máximo y mínimo de cada fuerza entre las combinaciones de ASCE 7-05 (sin las propias ni la "
-            "carga muerta). Solo fuerzas internas: sin deformada ni reacciones", Qt.ToolTipRole)
+            "Máximo y mínimo de cada fuerza entre las 13 combinaciones de resistencia de ASCE 7-05 (sin las "
+            "de servicio, las propias ni la carga muerta). Solo fuerzas internas: sin deformada ni reacciones",
+            Qt.ToolTipRole)
         i = self.selector_combinacion.findData(actual)
         self.selector_combinacion.setCurrentIndex(max(i, 0))
         self.selector_combinacion.blockSignals(False)
@@ -595,8 +596,7 @@ class Ventana(QMainWindow):
         if not self.modo_resultados or not self.resultados or not self.viendo_envolvente():
             return None
         if ENVOLVENTE not in self._combinados:
-            norma = {k: c for k, c in comb.predeterminadas(self.modelo.sds, self.modelo.rho).items()
-                     if k != comb.MUERTA}
+            norma = comb.aplicables(self.modelo)            # las 13 de resistencia
             self._combinados[ENVOLVENTE] = envolvente(self.modelo, self.resultados, norma)
         return self._combinados[ENVOLVENTE]
 
