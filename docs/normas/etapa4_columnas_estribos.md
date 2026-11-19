@@ -35,7 +35,7 @@
 - **25.7.2.3 Arreglo:**
   - (a) **cada esquina y barra por medio** apoyada en una esquina de estribo de **≤ 135°**;
   - (b) **ninguna barra sin apoyo a más de 6 in libres** de una barra apoyada.
-- **25.7.2.3.1:** anclaje con ganchos estándar (25.3.2).
+- **25.7.2.3.1:** anclaje con ganchos estándar (25.3.2). La geometría de los ganchos (Tabla 25.3.2: doblez y extensión), el gancho sísmico y las trabas están en `etapa5_vigas.md`, sección "Ganchos de estribos, aros y ganchos sísmicos".
 - **25.7.2.4:** estribos circulares con traslape ≥ 6 in, ganchos y traslapes alternados.
 - **25.7.3 Espirales:**
   - paso libre entre max(1 in, 4/3·dagg) y 3 in;

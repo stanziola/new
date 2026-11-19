@@ -22,8 +22,9 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
 - **Materiales y secciones de concreto** (`calculo/concreto.py`, `modelo/concreto.py`): E, G, A, I, J y γ, con su refuerzo.
 - **Interfaz 3D** (`interfaz/`, PySide6 y PyVista): dibujo, explorador, propiedades, herramientas (nodo, elemento, asignar sección, apoyo y cargas) y tres estados: editar, resultados de un caso y resultados de una combinación (deformada, diagramas y reacciones en 3D, y lo mismo para una barra en el panel Diagrama, con un corte que se desliza: los desplazamientos en ejes globales, total o por componente, y las fuerzas internas en los ejes locales, que se dibujan sobre la barra seleccionada). Con la sección real, los nudos se rellenan con un bloque de concreto y el concreto se puede ver transparente, con el acero de columnas y vigas (esquemático).
 - **Diagramas de interacción de columnas** (`calculo/interaccion/`): rectangular, circular y biaxial. Se ven desde Propiedades (Ver 2D y Ver 3D, y la pestaña Interacción de una columna) y con los scripts de `scripts/`. El 2D es el corte en la dirección del momento, con un deslizador; con resultados, los puntos Pu–Mu de las 13 combinaciones y un aviso si alguno queda fuera.
+- **Losas de viguetas** (`modelo/losas.py`, `modelo/diseno_vigueta.py`, `calculo/diseno/viga.py`): paños entre vigas (también en L), franjas (sistemas de vigueta) con sus casos de viva, carga a las vigas por las reacciones de la vigueta, diseño de la vigueta (flexión, cortante, Ie y deflexiones) y la pestaña Comprobaciones, con la vigueta editable.
 - **Comprobaciones automáticas** (`pruebas/verificacion.py`) e **integridad del cálculo** (`pruebas/integridad.py`).
-- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita y el código de las funciones clave. Por ahora, la matriz de rigidez y su transformación y los diagramas de interacción. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
+- **Memoria de cálculo en Word** (`python -m scripts.memoria` → `docs/memoria/Memoria de cálculo.docx`): fórmulas con su cita y el código de las funciones clave. Por ahora, la matriz de rigidez y su transformación, los diagramas de interacción y la vigueta T. Faltan los demás temas que el programa ya calcula: ensamble y solución, fuerzas de empotramiento, diagramas N, V, M y T, propiedades del concreto, peso propio y combinaciones.
 - Combinaciones predeterminadas en `modelo/combinaciones.py` (`scripts/combinaciones_asce7.py` las imprime).
 
 ## Hoja de ruta (orden acordado)
@@ -252,6 +253,7 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
   - punzonamiento de una columna interior;
   - límites de nervios (4 in, 3.5×, 30 in);
   - tablas del fabricante del metal deck.
+- **Avance (noviembre de 2026, adelantada a pedido del usuario):** las **viguetas** en lo principal (ver "Noviembre de 2026: losas de viguetas", al final). Faltan la losa maciza en una y dos direcciones, el punzonamiento, el metal deck y el refuerzo de temperatura de la losa de las viguetas.
 - **Preguntas abiertas:** ver al final.
 
 ## Etapa 7: Sismo (con deriva)
@@ -364,7 +366,7 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
 ## Preguntas abiertas
 
 1. **Unidades del programa:** ¿todo en SI (kN, m, MPa) por dentro, con conversión solo en la entrada y la salida?
-2. **Viguetas:** ¿se trata de losas nervadas coladas en sitio o de viguetas pretensadas prefabricadas con bloques (sistemas de fabricante)?
+2. ~~**Viguetas:** ¿losas nervadas coladas en sitio o viguetas pretensadas prefabricadas?~~ Respondida (noviembre de 2026): nervadas coladas en sitio, en una dirección (ACI 318-19 §9.8), las de la tarea del usuario.
 3. **Metal deck:** ¿losa compuesta o la lámina solo como encofrado? ¿Las vigas de apoyo son de acero (AISC 360-10)? Hacen falta SDI C, AISI S100 y AISC 360 en `docs/codigos/`.
 4. **Sistema estructural objetivo:** ¿solo pórticos especiales de concreto, o también muros y sistemas duales?
 5. **Análisis sísmico:** ¿basta con la FLE al principio, o se quiere el modal desde el inicio?
@@ -380,6 +382,24 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
   - los puntos Pu–Mu salen de las **13 combinaciones**, aunque falte una carga, que vale cero (decisión del usuario; también 1.2D ± 0.8W sin Lr);
   - un **aviso en rojo**, en 2D y en 3D, dice qué puntos quedan fuera del diagrama de diseño. Cada uno se revisa contra la curva de su dirección (a 1°) con `modelo/interaccion.dentro_del_diagrama`. Como φPn nunca baja a lo largo de la curva (comprobado en varias secciones y direcciones), un punto está dentro si Pu está entre la tracción y el techo y Mu ≤ φMn a esa altura;
   - el aviso es para la pantalla; la relación demanda/capacidad del diseño sigue pendiente (etapa 4).
+
+### Noviembre de 2026: losas de viguetas
+
+- **Hecho:**
+  - `calculo/diseno/viga.py` (sagrado, autorizado): flexión de la T (también con el bloque en el alma), As,min, As requerido, Mcr, Icr, Ie, λΔ, Vc de la Tabla 22.5.5.1 con λs, Av,min, Vs, ancho efectivo, límites de §9.8, h mínima y wu·ℓn²/24. Reproduce **todos** los números de la hoja de SMath del usuario (yb, Ig, fr, Mcr, d, c, εt, φMn+ y φMn−, Icr e Ie);
+  - la sección T con acero arriba, recubrimiento y estribos (archivo v6);
+  - las losas (archivo v7): paños entre vigas, franjas, casos de viva automáticos y propios, carga a las vigas (comprobado: lo que llega a las vigas es q × área en cada caso), sistemas de vigueta en la lista Sistema, diseño con las envolventes de todas las franjas y la pestaña Comprobaciones;
+  - Medir (con snap a vértices, puntos medios y la perpendicular), la lista Combinación en dos columnas con la envolvente de servicio, el panel Diagrama abierto al iniciar y la transparencia sin saltos (depth peeling).
+- **Hallazgos de la hoja de SMath** (se corrigen en el programa; la hoja es del usuario y no se toca):
+  1. **Ma es por nivel de carga** (Tabla 24.2.3.5, p. 459): un Ie con Ma(D) para Δ(D) y otro con Ma(D + L) para Δ(D + L). Con un solo Ma, el mayor, ΔL = Δ(D+L) − Δ(D) sale menor que la del ACI.
+  2. **ℓ/480, no ℓ/240**, si la losa sostiene tabiques que se dañan (Tabla 24.2.2, p. 458); la hoja tiene 300 kgf/m² de paredes. Y falta el ℓ/360 de la viva inmediata, y la ΔL en la suma de lo diferido.
+  3. **Tabla 9.3.1.1** (p. 130–131): usa ℓ, no ℓn, y solo exime de calcular la deflexión si la viga no sostiene elementos que se dañen.
+  4. **Faltaba**: la sección **controlada por tracción** (§9.3.3.1, p. 132) y el **cortante**. Sin estribos, Vc es la ecuación (c) de la Tabla 22.5.5.1 (p. 406), con λs y ρw^(1/3): en la vigueta de la tarea da unas 0.58 veces el 2√f'c·bw·d. Con estribos que cumplan Av,min vale la (a) más Vs. En viguetas, Av,min no hace falta si Vu ≤ φVc (Tabla 9.6.3.1, p. 138).
+  5. **Vu en la cara**, no a d: la vigueta llega al costado de la viga (figura R9.4.3.2(e), p. 134).
+  6. **Apoyo exterior**: el modelo con apoyos simples da M− = 0, pero una vigueta monolítica con su viga de borde tiene wu·ℓn²/24 (Tabla 6.5.2, p. 76): se revisa como recomendada.
+  7. **Peso propio**: h_eq = A/bf solo vale si bf = s; con bf < s, la losa entre alas también pesa.
+- **Con el ejemplo de la tarea** (`ejemplos/losa_viguetas.py`, 15 viguetas en el salón: s = 48.7 cm): Mu+ = 42.64, Mu− = 56.76 kN·m y Vu = 41.90 kN, todos en el pasillo (franja B); la flexión cumple con 1 #6 abajo y 2 #5 arriba. Con ψ = 0.5 la deflexión diferida no cumple ℓ/480 en los claros extremos (31.7 mm contra 15.7 mm en el pasillo).
+- **Falta:** el refuerzo de temperatura de la losa (§9.8.1.7 y 24.4), la vigueta de borde sin viga lateral como L, el corte de barras diseñado, la redistribución (§6.6.5) y los patrones de viva de las vigas del 3D (etapa 5).
 
 ### Noviembre de 2026: el acero estructural salió del programa
 

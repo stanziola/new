@@ -6,6 +6,7 @@ Todo en unidades internas: m y kN/m².
 """
 from calculo.concreto import (GAMMA_CONCRETO, POISSON, PSI, modulos, propiedades_rectangulo,   # noqa: F401
                               propiedades_T)
+from calculo.diseno.viga import area_barra, diametro_barra
 from modelo.estructura import FY_DEFECTO, Concreto
 
 TOL = 1e-9
@@ -65,69 +66,154 @@ def buscar_o_crear_seccion(modelo, material, b, h, d, barra, nx, ny, fy=FY_DEFEC
 
 # ---------------------------------------------------------------- Sección T (vigas y viguetas)
 # Se guarda en un Concreto con forma "T": b es el ancho del alma (bw), h la altura total, bf y hf el
-# ala, nx las barras de abajo en el alma (ny = 1) y d, del borde inferior al centro de las barras.
-def nombre_seccion_T(bw, h, bf, hf, n, barra, fy=FY_DEFECTO):
-    """Nombre automático, siempre en cm y MPa: "Concreto T 15x45 bf50 hf10 1#6"."""
+# ala, nx barras #barra abajo y n_sup barras #barra_sup arriba (en el ancho del alma), con su
+# recubrimiento libre y su estribo (#estribo a s_estribo; 0 = sin estribos). d, del borde inferior
+# al centro de las barras de abajo, sale del recubrimiento: d = rec + d_estribo + db/2 (como en el
+# SMath del usuario). Los datos extra van por nombre (refuerzo_T): barra_sup, n_sup, rec, estribo y
+# s_estribo.
+def nombre_seccion_T(bw, h, bf, hf, n, barra, fy=FY_DEFECTO, barra_sup=0, n_sup=0, estribo=0, s_estribo=0.0):
+    """Nombre automático, siempre en cm y MPa: "Concreto T 15x45 bf50 hf10 1#6", y con acero arriba y
+    estribos, "Concreto T 15x45 bf50 hf10 1#6 sup 2#5 E#3@20"."""
     nombre = f"Concreto T {_cm(bw)}x{_cm(h)} bf{_cm(bf)} hf{_cm(hf)} {n}#{barra}"
+    if n_sup:
+        nombre += f" sup {n_sup}#{barra_sup}"
+    if estribo:
+        nombre += f" E#{estribo}@{_cm(s_estribo)}"
     return nombre if abs(fy - FY_DEFECTO) < 1e-6 * FY_DEFECTO else f"{nombre} fy {round(fy / 1000):g} MPa"
 
 
-def concreto_T(fc, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
-    """El Concreto de una T (sin validar)."""
-    return Concreto(forma="T", fc=fc, d=d, barra=barra, b=bw, h=h, nx=n, ny=1, fy=fy, bf=bf, hf=hf)
+def _d_estribo(estribo):
+    return diametro_barra(estribo) if estribo else 0.0
 
 
-def _validar_T(modelo, material, bw, h, bf, hf, d, n, fy):
+def concreto_T(fc, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO, barra_sup=0, n_sup=0, rec=None, estribo=0,
+               s_estribo=0.0):
+    """El Concreto de una T (sin validar). Con rec (recubrimiento libre), d se calcula; sin rec (las T
+    de antes, que daban d), el recubrimiento sale de d."""
+    if not estribo:
+        estribo, s_estribo = 0, 0.0
+    if not n_sup:
+        barra_sup, n_sup = 0, 0
+    if rec is None:
+        rec = d - _d_estribo(estribo) - diametro_barra(barra) / 2
+    else:
+        d = rec + _d_estribo(estribo) + diametro_barra(barra) / 2
+    return Concreto(forma="T", fc=fc, d=d, barra=barra, b=bw, h=h, nx=n, ny=1, fy=fy, bf=bf, hf=hf,
+                    barra_sup=barra_sup, n_sup=n_sup, recubrimiento=rec, estribo=estribo, s_estribo=s_estribo)
+
+
+def d_superior(c):
+    """De arriba al centro de las barras de arriba de una T (m): rec + d_estribo + db_sup/2."""
+    return c.recubrimiento + _d_estribo(c.estribo) + (diametro_barra(c.barra_sup) / 2 if c.n_sup else 0.0)
+
+
+def peralte_positivo(c):
+    """d para el momento positivo (barras de abajo en tracción): h − d desde abajo."""
+    return c.h - c.d
+
+
+def peralte_negativo(c):
+    """d para el momento negativo (barras de arriba en tracción): h − (rec + d_estribo + db_sup/2)."""
+    return c.h - d_superior(c)
+
+
+def area_inferior(c):
+    """As de las barras de abajo (m²)."""
+    return area_barra(c.barra, c.nx)
+
+
+def area_superior(c):
+    """As de las barras de arriba (m²); 0 si no tiene."""
+    return area_barra(c.barra_sup, c.n_sup) if c.n_sup else 0.0
+
+
+def _validar_T(modelo, material, c):
     mat = modelo.materiales.get(material)
     if mat is None or mat.fc is None:
         raise ValueError("Elige un material de concreto")
-    propiedades_T(bw, h, bf, hf)                     # revisa las medidas (bf ≥ bw, hf < h)
-    if not 0 < d < min(bw / 2, h - hf):
-        raise ValueError("d debe ser positivo y menor que bw/2 y que la altura del alma (h − hf)")
-    if n < 1:
+    propiedades_T(c.b, c.h, c.bf, c.hf)              # revisa las medidas (bf ≥ bw, hf < h)
+    if c.recubrimiento <= 0:
+        raise ValueError("El recubrimiento debe ser positivo")
+    if not 0 < c.d < min(c.b / 2, c.h - c.hf):
+        raise ValueError("Las barras de abajo no caben: rec + estribo + db/2 debe ser menor que bw/2 y que "
+                         "la altura del alma (h − hf)")
+    if c.nx < 1:
         raise ValueError("Pon al menos una barra abajo")
-    _positivos(fy=fy)
+    if c.n_sup and not 0 < d_superior(c) < c.h / 2:
+        raise ValueError("Las barras de arriba no caben: rec + estribo + db/2 debe ser menor que h/2")
+    if c.estribo and c.s_estribo <= 0:
+        raise ValueError("La separación de los estribos debe ser positiva")
+    _positivos(fy=c.fy)
     return mat
 
 
-def _igual_T(c, bw, h, bf, hf, d, barra, n, fy):
-    return (c is not None and c.forma == "T" and c.barra == barra and c.nx == n
-            and all(abs(x - y) < TOL for x, y in ((c.b, bw), (c.h, h), (c.bf, bf), (c.hf, hf), (c.d, d)))
-            and abs(c.fy - fy) < 1e-6 * fy)
+def _igual_T(c, otra):
+    return (c is not None and c.forma == "T" and c.barra == otra.barra and c.nx == otra.nx
+            and c.barra_sup == otra.barra_sup and c.n_sup == otra.n_sup and c.estribo == otra.estribo
+            and all(abs(x - y) < TOL for x, y in ((c.b, otra.b), (c.h, otra.h), (c.bf, otra.bf), (c.hf, otra.hf),
+                                                  (c.d, otra.d), (c.recubrimiento, otra.recubrimiento),
+                                                  (c.s_estribo, otra.s_estribo)))
+            and abs(c.fy - otra.fy) < 1e-6 * otra.fy)
 
 
-def buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
-    """ID de una sección T con exactamente esos datos y ese material, o None."""
+def _nombre_de_T(c):
+    return nombre_seccion_T(c.b, c.h, c.bf, c.hf, c.nx, c.barra, c.fy, c.barra_sup, c.n_sup, c.estribo,
+                            c.s_estribo)
+
+
+def buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO, **refuerzo):
+    """ID de una sección T con exactamente esos datos y ese material, o None. refuerzo: barra_sup,
+    n_sup, rec, estribo y s_estribo (los de concreto_T)."""
+    buscada = concreto_T(0.0, bw, h, bf, hf, d, barra, n, fy, **refuerzo)
     for sid, sec in modelo.secciones.items():
-        if sec.material == material and _igual_T(sec.concreto, bw, h, bf, hf, d, barra, n, fy):
+        if sec.material == material and _igual_T(sec.concreto, buscada):
             return sid
     return None
 
 
-def crear_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
-    """Crea la sección T de concreto (con nombre y propiedades) y devuelve su ID."""
-    mat = _validar_T(modelo, material, bw, h, bf, hf, d, n, fy)
+def crear_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO, **refuerzo):
+    """Crea la sección T de concreto (con nombre y propiedades) y devuelve su ID. refuerzo: barra_sup,
+    n_sup, rec, estribo y s_estribo (los de concreto_T)."""
+    mat = modelo.materiales.get(material)
+    c = concreto_T(mat.fc if mat is not None and mat.fc else 0.0, bw, h, bf, hf, d, barra, n, fy, **refuerzo)
+    _validar_T(modelo, material, c)
     a, iy, iz, j, _ = propiedades_T(bw, h, bf, hf)
-    return modelo.agregar_seccion(nombre_seccion_T(bw, h, bf, hf, n, barra, fy), a, iy, iz, j,
-                                  concreto_T(mat.fc, bw, h, bf, hf, d, barra, n, fy), material)
+    return modelo.agregar_seccion(_nombre_de_T(c), a, iy, iz, j, c, material)
 
 
-def cambiar_seccion_T(modelo, sid, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO):
+def buscar_o_crear_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO, **refuerzo):
+    """La T con esos datos: la que ya existe o una nueva. Devuelve (ID, True si es nueva)."""
+    sid = buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy, **refuerzo)
+    if sid is not None:
+        return sid, False
+    return crear_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy, **refuerzo), True
+
+
+def cambiar_seccion_T(modelo, sid, material, bw, h, bf, hf, d, barra, n, fy=FY_DEFECTO, **refuerzo):
     """Cambia una sección en su lugar por una T (todas sus barras la toman, con su material).
     Devuelve las barras que la usan."""
-    mat = _validar_T(modelo, material, bw, h, bf, hf, d, n, fy)
-    otra = buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy)
+    mat = modelo.materiales.get(material)
+    c = concreto_T(mat.fc if mat is not None and mat.fc else 0.0, bw, h, bf, hf, d, barra, n, fy, **refuerzo)
+    _validar_T(modelo, material, c)
+    otra = buscar_seccion_T(modelo, material, bw, h, bf, hf, d, barra, n, fy, **refuerzo)
     if otra is not None and otra != sid:
         raise ValueError(f"Ya existe una sección igual: {modelo.secciones[otra].nombre}")
     sec = modelo.secciones[sid]
-    sec.concreto = concreto_T(mat.fc, bw, h, bf, hf, d, barra, n, fy)
+    sec.concreto = c
     sec.material = material
-    sec.nombre = nombre_seccion_T(bw, h, bf, hf, n, barra, fy)
+    sec.nombre = _nombre_de_T(c)
     sec.a, sec.iy, sec.iz, sec.j, _ = propiedades_T(bw, h, bf, hf)
     barras = uso_seccion(modelo, sid)
     for eid in barras:
         modelo.elementos[eid].material = material
     return barras
+
+
+def refuerzo_T(c):
+    """Los datos extra de una T, por nombre, para crear otra igual: barra_sup, n_sup, rec, estribo y
+    s_estribo."""
+    return {"barra_sup": c.barra_sup, "n_sup": c.n_sup, "rec": c.recubrimiento, "estribo": c.estribo,
+            "s_estribo": c.s_estribo}
 
 
 def centroide(c):

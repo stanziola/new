@@ -10,6 +10,7 @@ DECIMALES_INERCIA = 1
 DECIMALES_FUERZA = 2
 DECIMALES_MOMENTO = 2
 DECIMALES_CARGA_LINEAL = 2
+DECIMALES_CARGA_AREA = 2
 DECIMALES_ESFUERZO = 2
 DECIMALES_PESO_UNITARIO = 2   # magnitud derivada (F/L³): no tiene fila en Configuración
 DECIMALES_TABLAS = 3          # tablas de numpy y pandas en la consola (no se configura)

@@ -6,11 +6,11 @@ Organización (como ETABS y Civil 3D):
 - Izquierda: las herramientas que cambian lo que hace el clic (Seleccionar, Nodo, Elemento, Asignar
   sección, Apoyo y cargas) y el Explorador del modelo (pestañas Modelo y Tablas).
 - Derecha: Propiedades de lo seleccionado (y, con una columna, la pestaña Interacción).
-- Abajo del dibujo: el panel Diagrama (Ver → Diagrama), que muestra para la barra elegida lo mismo
-  que está prendido en la barra de arriba.
+- Abajo del dibujo: el panel Diagrama (abierto al iniciar; se cierra y se abre desde Ver), que
+  muestra para la barra elegida lo mismo que está prendido en la barra de arriba.
 - Abajo de todo: la barra de comandos (activa solo con Nodo o Elemento) y la barra de estado, con
-  la posición del puntero a la izquierda y Rejilla, Snap, Etiquetas, Sección real, Transparencia,
-  Cargas, Reacciones y Encuadre a la derecha.
+  la posición del puntero a la izquierda y Rejilla, Snap, Etiquetas, Sección real con el deslizador
+  de transparencia, Cargas, Reacciones y Encuadre a la derecha.
 Los paneles se pueden agrandar, mover de lado, cerrar y volver a abrir desde el menú Ver (no se
 desacoplan como ventanas sueltas).
 
@@ -38,7 +38,7 @@ import numpy as np
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (QApplication, QDockWidget, QFileDialog, QLabel, QLineEdit, QMainWindow, QMenu,
-                               QMessageBox, QSizePolicy, QSlider, QToolBar, QToolButton)
+                               QMessageBox, QSizePolicy, QSlider, QToolBar, QToolButton, QWidget)
 from pyvistaqt import QtInteractor
 
 from configuracion import colores
@@ -59,9 +59,11 @@ from interfaz.paneles.diagrama import PanelDiagrama
 from interfaz.paneles.explorador import Explorador
 from interfaz.historial import Historial
 from interfaz.herramientas import (AgregarApoyo, AgregarCargaBarra, AgregarCargaNodo, AgregarElemento,
-                                   AgregarNodo, AsignarSeccion, Seleccionar)
+                                   AgregarLosa, AgregarNodo, AsignarSeccion, Seleccionar)
+from interfaz.vista3d.losas import cortes_superiores, resumenes as resumenes_losas
+from interfaz.vista3d.medicion import Medicion
 from interfaz.iconos import icono
-from interfaz.paneles.comunes import Lista, MenuPersistente, poner_titulo
+from interfaz.paneles.comunes import Lista, ListaDosColumnas, MenuPersistente, poner_titulo
 from interfaz.vista3d.rejilla import Candidato, candidato, geometria_rejilla, interpretar, texto_coordenadas
 from interfaz.paneles.propiedades import Propiedades
 from interfaz.vista3d.seleccion import elemento_en
@@ -70,10 +72,15 @@ from interfaz.tema import aplicar_tema
 from modelo import Modelo, archivo
 from modelo import combinaciones as comb
 from modelo import concreto as cc
-from modelo.analisis import analizar, combinar, demandas_columna, envolvente
+from modelo import losas as ml
+from modelo.analisis import analizar, cargas_de_losas, combinar, demandas_columna, envolvente
 from modelo.apoyos import TIPOS
+from modelo.diseno_vigueta import disenar_losa
 
-ENVOLVENTE = "ENV"            # clave de la envolvente en la lista Combinación (y en la caché _combinados)
+ENVOLVENTE = "ENV"            # clave de la envolvente de diseño en la lista Combinación (y en la caché _combinados)
+ENVOLVENTE_SERVICIO = "ENVS"  # la de servicio (las 4 combinaciones sin mayorar: de ahí sale Ma)
+ENVOLVENTES = (ENVOLVENTE, ENVOLVENTE_SERVICIO)
+DISENO, SERVICIO = 0, 1       # columnas de la lista Combinación
 TECLAS_A_COMANDOS = set("0123456789.-@")   # escritas sobre la vista, van a la barra de comandos
 HERRAMIENTAS_DE_CARGA = ("carga_nodo", "carga_barra")
 
@@ -119,19 +126,32 @@ class Ventana(QMainWindow):
         self.factor_deformada = None               # cuánto se amplificó la deformada dibujada
         self._combinados = {}                      # {clave de combinación: ResultadoCaso} (caché)
         self.opacidad_concreto = 1.0               # de las cajas de la sección real (deslizador de abajo)
-        self._transparencia_anterior = 60          # % al que vuelve un clic en el ícono de transparencia
         self._ancho_normal = None                  # ancho de Propiedades antes de ensancharlo (pestaña Interacción)
         self._seccion_real_antes = None            # cómo estaba Sección real antes de analizar (None: editando)
         self._cambiando_seccion_real = False       # la está cambiando el programa: no redibujar dos veces
+        # Sistemas de vigueta (lista Sistema): con uno a la vista, self.modelo es el modelo generado de su
+        # franja (no se edita) y el modelo 3D espera en _principal, con sus resultados
+        self.sistema = None                        # (ID de losa, letra de la franja) que se ve, o None
+        self._sv = None                            # su SistemaVigueta (con un caso por cada caso de viva)
+        self._principal = None
+        self._resultados_principal = None
+        self._cache = {}                           # cálculos de las losas: "resumenes", "cargas", ("diseno", ID)
 
         # Tres luces blancas: los grises se ven grises (las de pyvista por defecto los tiñen)
         self.vista = QtInteractor(self, lighting="three lights")
         self.setCentralWidget(self.vista)
+        # Transparencia bien ordenada (depth peeling). Sin esto VTK dibuja lo translúcido sin ordenar:
+        # con 1 % de transparencia el acero y las caras interiores de los nudos aparecían de golpe
+        try:
+            self.vista.enable_depth_peeling(number_of_peels=6, occlusion_ratio=0.0)
+        except Exception:                          # tarjetas que no lo soportan: se ve igual, menos preciso
+            pass
         # Ejes X (rojo), Y (verde) y Z (azul) abajo a la izquierda: los mismos colores de los ejes
         # locales x, y, z de la barra seleccionada
         self.vista.add_axes(x_color=colores.EJE_X, y_color=colores.EJE_Y, z_color=colores.EJE_Z)
         self.animador = AnimadorCamara(self.vista)  # giro suave de la cámara (cubo y Encuadre)
         self.previsualizacion = Previsualizacion(self.vista)
+        self.medicion = Medicion(self)              # Medir (barra de arriba, a la derecha)
         self.ventana_matriz = VentanaMatriz(self)
 
         self._crear_paneles()
@@ -190,7 +210,7 @@ class Ventana(QMainWindow):
             panel.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetMovable)
             poner_titulo(panel)                                            # la x sola, sin recuadro
         self.resizeDocks([self.explorador, self.propiedades], [260, 300], Qt.Horizontal)
-        self.diagrama.hide()                                               # se abre desde Ver → Diagrama
+        self.diagrama.setVisible(ui.DIAGRAMA_VISIBLE)                      # se cierra y se abre desde Ver
         self.diagrama.visibilityChanged.connect(lambda visible: visible and self._refrescar_diagrama())
         self.explorador.elegido.connect(self._elegido_en_explorador)
         self.explorador.vaciado.connect(lambda: self.seleccionar(None))
@@ -199,6 +219,11 @@ class Ventana(QMainWindow):
         self.propiedades.editar_seccion.connect(self._editar_seccion)
         self.propiedades.interaccion_a_la_vista.connect(self._ancho_propiedades)
         self.propiedades.seccion_columna_editada.connect(self._editar_seccion_columna)
+        self.propiedades.losa_editada.connect(self._editar_losa)
+        self.propiedades.pano_editado.connect(self._editar_pano)
+        self.propiedades.vigueta_editada.connect(self._editar_vigueta)
+        self.explorador.menu_losa.connect(self._menu_losa)
+        self.explorador.franja_abierta.connect(self.abrir_sistema)
         # Materiales y secciones desde el Explorador: se muestran y se editan en Propiedades
         self.destino = Destino(self, self.propiedades.panel, self._ver_en_propiedades)
         self.propiedades.cancelar_definicion.connect(lambda: self._mostrar_propiedades(self._en_propiedades))
@@ -227,10 +252,53 @@ class Ventana(QMainWindow):
         if not self.herramienta.mostrar_panel():
             caso = None if self.modo_combinaciones else self.caso_activo()
             self.propiedades.mostrar(self.modelo, item, caso=caso, rc=self._rc(),
-                                     editable=not self.modo_resultados,
+                                     editable=not self.modo_resultados and self.sistema is None,
                                      puntos=self._puntos_columna if self.modo_resultados and self.resultados else None,
-                                     activa=self._combinacion_a_la_vista())
+                                     activa=self._combinacion_a_la_vista(), losa=self._losa_de(item),
+                                     diseno=self._diseno)
         self._refrescar_diagrama()
+
+    # ---------- Losas: lo calculado se guarda hasta que cambie el modelo ----------
+    def _modelo_real(self):
+        """El modelo 3D, aunque se esté viendo un sistema de vigueta."""
+        return self._principal if self._principal is not None else self.modelo
+
+    def _calculado(self, clave, funcion):
+        if clave not in self._cache:
+            self._cache[clave] = funcion()
+        return self._cache[clave]
+
+    def _resumenes(self):
+        """{ID de losa: resumen} de las losas del modelo 3D (modelo/losas.resumen)."""
+        return self._calculado("resumenes", lambda: resumenes_losas(self._modelo_real()))
+
+    def _cargas_losas(self):
+        """{ID de caso: {ID de barra: w}}: la carga de las losas sobre sus vigas (vacío si no se puede armar)."""
+        def calcular():
+            try:
+                return ml.cargas_a_vigas(self._modelo_real())
+            except ValueError:
+                return {}
+        return self._calculado("cargas", calcular)
+
+    def _diseno(self, lid):
+        """El DisenoLosa de la losa (Comprobaciones), calculado una vez por cambio del modelo."""
+        return self._calculado(("diseno", lid), lambda: disenar_losa(self._modelo_real(), lid))
+
+    def _losa_de(self, item):
+        """(modelo 3D, ID de losa) que se revisa en Comprobaciones: la del sistema a la vista, o la de la
+        losa o el paño elegidos; None si no hay."""
+        if self.sistema is not None:
+            return self._principal, self.sistema[0]
+        modelo = self.modelo
+        if not item or not getattr(modelo, "losas", None):
+            return None
+        if item[0] == "losa" and item[1] in modelo.losas:
+            return modelo, item[1]
+        if item[0] == "pano":
+            lid = modelo.losa_de_pano(item[1])
+            return (modelo, lid) if lid is not None else None
+        return None
 
     def _combinacion_a_la_vista(self):
         """Clave de la combinación que se ve (Σ y la lista Combinación), o None con un caso o la envolvente."""
@@ -405,6 +473,17 @@ class Ventana(QMainWindow):
         self.barra_definir.addAction(self.accion_deshacer)
         self.barra_definir.addAction(self.accion_rehacer)
         self.barra_definir.addSeparator()
+        # Sistema: el modelo 3D o un sistema de vigueta de una losa (la vigueta continua de una franja)
+        self.etiqueta_sistema = QLabel(" Sistema ")
+        self.barra_definir.addWidget(self.etiqueta_sistema)
+        self.selector_sistema = Lista()
+        self.selector_sistema.setToolTip(
+            "Qué se ve y se analiza: el modelo 3D, o un sistema de vigueta de una losa (la vigueta continua de "
+            "una franja, con apoyos simples en las vigas y sus casos de viva). Los sistemas los arman solas las "
+            "losas; no se editan: se ven y se analizan")
+        self.selector_sistema.currentIndexChanged.connect(self._cambio_sistema)
+        self.barra_definir.addWidget(self.selector_sistema)
+        self.barra_definir.addSeparator()
         # Caso, Σ (ver una combinación) y Combinación; lo que no se usa queda en gris
         self.etiqueta_caso = QLabel(" Caso ")
         self.barra_definir.addWidget(self.etiqueta_caso)
@@ -421,8 +500,9 @@ class Ventana(QMainWindow):
         self.barra_definir.addAction(self.accion_ver_combinaciones)
         self.etiqueta_combinacion = QLabel(" Combinación ")
         self.barra_definir.addWidget(self.etiqueta_combinacion)
-        self.selector_combinacion = Lista()
-        self.selector_combinacion.setToolTip("Combinación cuyos resultados se muestran (con Σ marcado)")
+        self.selector_combinacion = ListaDosColumnas(("Diseño", "Servicio"))
+        self.selector_combinacion.setToolTip("Combinación cuyos resultados se muestran (con Σ marcado): a la "
+                                             "izquierda las de diseño (resistencia), a la derecha las de servicio")
         self.selector_combinacion.currentIndexChanged.connect(self._cambio_combinacion)
         self.barra_definir.addWidget(self.selector_combinacion)
         self.barra_definir.addSeparator()
@@ -464,7 +544,18 @@ class Ventana(QMainWindow):
                 boton.clicked.connect(lambda *_, c=clave: self.ver_resultado(c))
             self.barra_definir.addWidget(boton)
             self.botones_resultado[clave] = boton
+        # Medir, a la derecha (decisión del usuario): no cambia el modelo y sirve en todos los estados
+        espacio = QWidget()
+        espacio.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.barra_definir.addWidget(espacio)
+        self.accion_medir = self._accion(
+            "medir", "Medir", "Medir: distancia entre dos puntos, con snap a nodos, esquinas, puntos medios, la "
+            "perpendicular (la distancia libre entre caras de vigas) y los ejes. Dos clics; Esc la borra",
+            activable=True)
+        self.accion_medir.toggled.connect(self._cambio_medir)
+        self.barra_definir.addAction(self.accion_medir)
         self.addToolBar(Qt.TopToolBarArea, self.barra_definir)
+        self._llenar_sistemas()
         self._llenar_casos()
         self._llenar_combinaciones()
 
@@ -476,11 +567,14 @@ class Ventana(QMainWindow):
 
     def _llenar_casos(self):
         """La lista Caso, con el modelo vigente. Si lo elegido ya no existe, queda el caso inicial
-        (Carga muerta adicional), que es donde van las cargas."""
+        (Carga muerta adicional), que es donde van las cargas. En un sistema de vigueta: el peso propio,
+        la muerta adicional y sus casos de viva (no las vivas por claro, que son internas)."""
         actual = self.selector_caso.currentData()
         self.selector_caso.blockSignals(True)
         self.selector_caso.clear()
         for cid, caso in self.modelo.casos.items():
+            if self._sv is not None and self._sv.es_caso_interno(cid):
+                continue
             self.selector_caso.addItem(f"{caso.nombre} ({caso.tipo})", cid)
         i = self.selector_caso.findData(actual)
         if i < 0:
@@ -488,26 +582,122 @@ class Ventana(QMainWindow):
         self.selector_caso.setCurrentIndex(max(i, 0))
         self.selector_caso.blockSignals(False)
 
+    def _llenar_sistemas(self):
+        """La lista Sistema: el modelo 3D y, por cada losa, sus franjas (los sistemas de vigueta)."""
+        lista = self.selector_sistema
+        lista.blockSignals(True)
+        lista.clear()
+        lista.addItem("Modelo 3D", None)
+        principal = self._modelo_real()
+        for lid, r in self._resumenes().items():
+            for f in r.get("franjas", []):
+                lista.addItem(f"{principal.losas[lid].nombre} · {f.nombre}", (lid, f.letra))
+                lista.setItemData(lista.count() - 1, "Claros " + ", ".join(f"{c:.2f}" for c in f.claros) + " m",
+                                  Qt.ToolTipRole)
+        # findData de Qt no compara bien las tuplas de Python: se busca a mano
+        datos = [lista.itemData(k) for k in range(lista.count())]
+        i = next((k for k, d in enumerate(datos) if d is not None and tuple(d) == self.sistema), 0)
+        lista.setCurrentIndex(i)
+        lista.blockSignals(False)
+        lista.setEnabled(lista.count() > 1)
+        self.etiqueta_sistema.setEnabled(lista.count() > 1)
+
+    def _cambio_sistema(self, *_):
+        clave = self.selector_sistema.currentData()
+        clave = tuple(clave) if clave is not None else None
+        if clave == self.sistema:
+            return
+        if clave is None:
+            self.salir_de_sistema()
+        else:
+            self.abrir_sistema(clave)
+
+    def abrir_sistema(self, clave):
+        """Muestra el sistema de vigueta (ID de losa, letra de la franja): su modelo generado, con un caso
+        por cada caso de viva. Se ve y se analiza; no se edita (la vigueta se cambia en Comprobaciones)."""
+        clave = tuple(clave)
+        principal = self._modelo_real()
+        try:
+            losa = principal.losas[clave[0]]
+            geos = ml.geometrias(principal, losa)
+            franja = next(f for f in ml.franjas(principal, losa, geos) if f.letra == clave[1])
+            sv = ml.sistema(principal, clave[0], franja, geos, con_patrones=True)
+        except (KeyError, StopIteration, ValueError) as e:
+            self.mensaje(f"No se puede abrir ese sistema: {e}")
+            self._llenar_sistemas()
+            return
+        if self.modo_resultados:
+            self.salir_de_resultados()
+        self.herramienta.cancelar()
+        self.usar_herramienta(self._por_nombre["seleccionar"][1])
+        if self._principal is None:                     # se entra desde el modelo 3D: se guardan sus resultados
+            self._principal, self._resultados_principal = self.modelo, self.resultados
+        self.modelo, self._sv, self.sistema = sv.modelo, sv, clave
+        self.resultados, self._combinados = None, {}
+        self.seleccion = self.resaltado = self._en_propiedades = None
+        self.marcados = []
+        self._llenar_sistemas()
+        self._llenar_casos()
+        self._llenar_combinaciones()
+        self._actualizar_modo()
+        self._actualizar_deshacer()
+        self.redibujar(reiniciar_camara=True)
+        self._refrescar_paneles()
+        self.mensaje(f"{losa.nombre} · {franja.nombre}: la vigueta con apoyos simples en las vigas. ▶ la analiza; "
+                     "la lista Caso tiene sus casos de viva. Comprobaciones, a la derecha")
+
+    def salir_de_sistema(self, redibujar=True):
+        """Vuelve al modelo 3D (con sus resultados, si seguían vigentes)."""
+        if self.sistema is None:
+            return
+        if self.modo_resultados:
+            self.salir_de_resultados()
+        self.modelo, self.resultados = self._principal, self._resultados_principal
+        self._principal = self._resultados_principal = self._sv = self.sistema = None
+        self._combinados = {}
+        self.seleccion = self.resaltado = self._en_propiedades = None
+        if redibujar:
+            self._llenar_sistemas()
+            self._llenar_casos()
+            self._llenar_combinaciones()
+            self._actualizar_modo()
+            self._actualizar_deshacer()
+            self.redibujar(reiniciar_camara=True)
+            self._refrescar_paneles()
+            self.mensaje("Modelo 3D")
+
+    def _patron_activo(self):
+        """En un sistema: el índice del caso de viva elegido en la lista Caso (si se eligió uno de D, el
+        primero: todos los claros cargados)."""
+        caso = self.caso_activo()
+        for i, cid in self._sv.casos_patron.items():
+            if cid == caso:
+                return i
+        return 0
+
     def _llenar_combinaciones(self):
-        """La lista Combinación: las predeterminadas (con el SDS y el ρ del modelo) y las propias."""
-        actual = self.selector_combinacion.currentData()
-        self.selector_combinacion.blockSignals(True)
-        self.selector_combinacion.clear()
+        """La lista Combinación, en dos columnas. Diseño: la carga muerta, las 13 de resistencia (con el
+        SDS y el ρ del modelo), las propias y la envolvente de diseño. Servicio: las 4 de servicio y su
+        envolvente, de donde sale Ma (el momento de servicio de las deflexiones)."""
+        lista = self.selector_combinacion
+        actual = lista.currentData()
+        lista.blockSignals(True)
+        lista.clear()
         for clave, co in comb.todas(self.modelo).items():
-            self.selector_combinacion.addItem(co.nombre, clave)
-            if comb.es_predeterminada(clave):
-                self.selector_combinacion.setItemData(self.selector_combinacion.count() - 1,
-                                                      comb.referencia(clave), Qt.ToolTipRole)
-        # La envolvente, al final: máximos y mínimos de las combinaciones de la norma (no las propias)
-        self.selector_combinacion.addItem("Envolvente", ENVOLVENTE)
-        self.selector_combinacion.setItemData(
-            self.selector_combinacion.count() - 1,
-            "Máximo y mínimo de cada fuerza entre las 13 combinaciones de resistencia de ASCE 7-05 (sin las "
-            "de servicio, las propias ni la carga muerta). Solo fuerzas internas: sin deformada ni reacciones",
-            Qt.ToolTipRole)
-        i = self.selector_combinacion.findData(actual)
-        self.selector_combinacion.setCurrentIndex(max(i, 0))
-        self.selector_combinacion.blockSignals(False)
+            columna = SERVICIO if comb.es_servicio(clave) else DISENO
+            lista.agregar(co.nombre, clave, columna, comb.referencia(clave) if comb.es_predeterminada(clave) else None)
+        # Las envolventes, al final de cada columna: máximos y mínimos (solo fuerzas internas)
+        lista.agregar("Envolvente de diseño", ENVOLVENTE, DISENO,
+                      "Máximo y mínimo de cada fuerza entre las 13 combinaciones de resistencia de ASCE 7-05 (sin "
+                      "las de servicio, las propias ni la carga muerta). Solo fuerzas internas: sin deformada ni "
+                      "reacciones")
+        lista.agregar("Envolvente de servicio", ENVOLVENTE_SERVICIO, SERVICIO,
+                      "Máximo y mínimo de cada fuerza entre las 4 combinaciones de servicio (sin mayorar). De aquí "
+                      "sale Ma, el momento de servicio de las deflexiones (ACI 318-19 Tabla 24.2.3.5). Solo fuerzas "
+                      "internas: sin deformada ni reacciones")
+        i = lista.findData(actual)
+        lista.setCurrentIndex(max(i, 0))
+        lista.blockSignals(False)
 
     def caso_activo(self):
         caso = self.selector_caso.currentData()
@@ -516,17 +706,22 @@ class Ventana(QMainWindow):
     def combinacion_activa(self):
         """Clave de la combinación elegida ("D", "C1", "C3a"… o el ID de una propia), o None."""
         clave = self.selector_combinacion.currentData()
-        return clave if clave == ENVOLVENTE or clave in comb.todas(self.modelo) else None
+        return clave if clave in ENVOLVENTES or clave in comb.todas(self.modelo) else None
 
     def viendo_envolvente(self):
-        """True si lo que se ve son los resultados de la envolvente."""
-        return self.modo_combinaciones and self.combinacion_activa() == ENVOLVENTE
+        """True si lo que se ve son los resultados de una envolvente (de diseño o de servicio)."""
+        return self.modo_combinaciones and self.combinacion_activa() in ENVOLVENTES
 
     def _cambio_caso(self, *_):
         self.redibujar()
         self._refrescar_paneles()
-        if not self.modo_resultados and self.modelo.es_automatico(self.caso_activo()):
-            self.mensaje("Peso propio: automático (A·γ de cada barra). Las cargas a mano van en otro caso")
+        caso = self.modelo.casos.get(self.caso_activo())
+        if not self.modo_resultados and self.sistema is None and caso is not None and caso.viva_losas:
+            self.mensaje("Viva de losas: automática (la reacción de las viguetas con todos los paños cargados). "
+                         "La viva de cada paño se escribe en el paño")
+        elif not self.modo_resultados and self.sistema is None and self.modelo.es_automatico(self.caso_activo()):
+            self.mensaje("Peso propio: automático (A·γ de cada barra y el de las losas). Las cargas a mano van en "
+                         "otro caso")
         else:
             self._aviso_deformada()
 
@@ -556,11 +751,13 @@ class Ventana(QMainWindow):
         """Aplica el estado vigente (ver la tabla del principio): habilita lo que se usa en él y deja
         en gris lo demás."""
         resultados, combos = self.modo_resultados, self.modo_combinaciones
+        en_sistema = self.sistema is not None
         self.accion_analizar.setChecked(resultados)
         self.accion_ver_combinaciones.setEnabled(resultados)
         self.accion_ver_combinaciones.setChecked(combos)
+        # En un sistema de vigueta, con Σ la lista Caso elige el caso de viva de la combinación
         for widget in (self.etiqueta_caso, self.selector_caso):
-            widget.setEnabled(not combos)
+            widget.setEnabled(not combos or en_sistema)
         for widget in (self.etiqueta_combinacion, self.selector_combinacion):
             widget.setEnabled(combos)
         self._actualizar_resultados()
@@ -568,10 +765,14 @@ class Ventana(QMainWindow):
         self.accion_reacciones.setEnabled(resultados and not self.viendo_envolvente())   # sin envolvente
         # Herramientas: con resultados quedan todas en gris, también Seleccionar (el clic sobre un
         # nodo o una barra sigue seleccionando: es la herramienta activa, aunque su botón no se
-        # pueda tocar). En el caso de peso propio (automático) no se ponen cargas a mano
+        # pueda tocar). En los casos automáticos (peso propio, viva de losas) no se ponen cargas a
+        # mano. Un sistema de vigueta no se edita: como con resultados
         automatico = self.modelo.es_automatico(self.caso_activo())
         for nombre, (accion, _h) in self._por_nombre.items():
-            accion.setEnabled(not resultados and not (automatico and nombre in HERRAMIENTAS_DE_CARGA))
+            accion.setEnabled(not resultados and not en_sistema
+                              and not (automatico and nombre in HERRAMIENTAS_DE_CARGA))
+        for accion in (self.accion_material, self.accion_seccion, self.accion_casos, self.accion_combinaciones):
+            accion.setEnabled(not en_sistema)
         actual = next(accion for accion, h in self._herramientas if h is self.herramienta)
         if not actual.isEnabled():
             self.usar_herramienta(self._por_nombre["seleccionar"][1])
@@ -583,22 +784,42 @@ class Ventana(QMainWindow):
             return None
         if self.ver_combinaciones:
             clave = self.combinacion_activa()
-            if clave is None or clave == ENVOLVENTE:
+            if clave is None or clave in ENVOLVENTES:
                 return None
+            if self._sv is not None:                    # en un sistema: con el caso de viva elegido
+                i = self._patron_activo()
+                guardada = (clave, "caso de viva", i)
+                if guardada not in self._combinados:
+                    co = comb.todas(self.modelo)[clave]
+                    rc = combinar(self.modelo, self.resultados, co, self._sv.casos_vista(i))
+                    rc.nombre = f"{co.nombre} con {self._sv.patrones[i][0]}"
+                    self._combinados[guardada] = rc
+                return self._combinados[guardada]
             if clave not in self._combinados:
                 self._combinados[clave] = combinar(self.modelo, self.resultados, comb.todas(self.modelo)[clave])
             return self._combinados[clave]
         return self.resultados.get(self.caso_activo())
 
     def _env(self):
-        """La envolvente (de las combinaciones de la norma) si es lo que se ve; si no, None. Se calcula
-        la primera vez y se guarda con las combinaciones, hasta que cambie el análisis o SDS y ρ."""
+        """La envolvente que se ve (de diseño: las 13 de resistencia; de servicio: las 4 de servicio),
+        o None. Se calcula la primera vez y se guarda con las combinaciones, hasta que cambie el
+        análisis o SDS y ρ."""
         if not self.modo_resultados or not self.resultados or not self.viendo_envolvente():
             return None
-        if ENVOLVENTE not in self._combinados:
-            norma = comb.aplicables(self.modelo)            # las 13 de resistencia
-            self._combinados[ENVOLVENTE] = envolvente(self.modelo, self.resultados, norma)
-        return self._combinados[ENVOLVENTE]
+        clave = self.combinacion_activa()
+        if clave not in self._combinados:
+            if clave == ENVOLVENTE:
+                combos, nombre = comb.aplicables(self.modelo), "Envolvente de diseño"
+            else:
+                combos, nombre = comb.servicio(), "Envolvente de servicio"
+            if self._sv is not None:                    # en un sistema: todas × todos sus casos de viva
+                nombre += " (todos los casos de viva)"
+                combos = {(c, i): (f"{co.nombre} · {self._sv.patrones[i][0]}", co, self._sv.casos_vista(i))
+                          for c, co in combos.items() for i in self._sv.casos_patron}
+            env = envolvente(self.modelo, self.resultados, combos)
+            env.nombre = nombre
+            self._combinados[clave] = env
+        return self._combinados[clave]
 
     def _alternar_resultados(self, marcado):
         """▶: entra a los resultados (analizando si hace falta) o vuelve a editar."""
@@ -709,6 +930,8 @@ class Ventana(QMainWindow):
                  "haz clic sobre cada barra (lleva también su material)", AsignarSeccion),
                 ("apoyo", "Apoyo", "Apoyo: elige el tipo en Propiedades y haz clic sobre un nodo",
                  AgregarApoyo),
+                ("losa", "Agregar losa", "Agregar losa de viguetas: elige la losa, la vigueta y las cargas en "
+                 "Propiedades; clic en la primera viga de apoyo y en la de enfrente", AgregarLosa),
                 ("carga_nodo", "Carga en nodo", "Carga en nodo: escribe los valores en Propiedades y haz clic "
                  "sobre un nodo", AgregarCargaNodo),
                 ("carga_barra", "Carga en barra", "Carga en barra: elige el tipo y el valor en Propiedades y "
@@ -726,6 +949,9 @@ class Ventana(QMainWindow):
         self.propiedades.panel_apoyo.cambiado.connect(self._tipo_apoyo)
         self.propiedades.panel_asignar.cambiado.connect(self._seccion_a_asignar)
         self.propiedades.panel_asignar.definir.connect(lambda: self.abrir_definir("seccion"))
+        self.propiedades.panel_losa.definir.connect(lambda: self.abrir_definir("seccion"))
+        self.propiedades.panel_losa.losa.currentIndexChanged.connect(
+            lambda *_: setattr(self._por_nombre["losa"][1], "losa", self.propiedades.panel_losa.losa.currentData()))
         self.accion_seleccionar.setChecked(True)   # herramienta por defecto
 
     def usar_herramienta(self, herramienta):
@@ -808,8 +1034,22 @@ class Ventana(QMainWindow):
         self.actualizar_indicacion()
         self._actualizar_puntero()
 
+    def _cambio_medir(self, activa):
+        """Medir prendido: los clics miden (no seleccionan ni editan). Apagado: se borra la medición."""
+        if activa:
+            self.previsualizacion.ocultar()
+            self.mensaje("Medir: clic en el primer punto y en el segundo (con snap). Esc borra; otro Esc apaga Medir")
+        else:
+            self.medicion.cancelar()
+            self._actualizar_puntero()
+
     def cancelar(self):
-        """Esc: cancela lo que esté a medias; si no hay nada, vuelve a Seleccionar o deselecciona."""
+        """Esc: cancela lo que esté a medias; si no hay nada, vuelve a Seleccionar o deselecciona. Con
+        Medir: borra la medición y, si no había, apaga Medir."""
+        if self.accion_medir.isChecked():
+            if not self.medicion.cancelar():
+                self.accion_medir.setChecked(False)
+            return
         self.comando.clear()
         seleccionar = self._por_nombre["seleccionar"][1]
         if self.herramienta.cancelar():
@@ -878,20 +1118,13 @@ class Ventana(QMainWindow):
                                                 "analizar se apaga sola (se puede prender) y vuelve al editar",
                                                 activable=True, activa=ui.SECCION_REAL_VISIBLE)
         self.accion_seccion_real.toggled.connect(self._cambio_seccion_real)
-        # Transparencia del concreto: ícono (un clic: opaco ↔ transparente) y deslizador, como el del volumen
-        self.boton_transparencia = QToolButton()
-        self.boton_transparencia.setIcon(icono("transparencia"))
-        self.boton_transparencia.setIconSize(tamano)
-        self.boton_transparencia.setToolTip("Transparencia del concreto: deja ver el acero de columnas y vigas. "
-                                            "Un clic alterna entre opaco y transparente")
-        self.boton_transparencia.clicked.connect(self._alternar_transparencia)
+        # Transparencia del concreto: un deslizador junto a Sección real (deja ver el acero)
         self.deslizador_transparencia = QSlider(Qt.Horizontal)
         self.deslizador_transparencia.setRange(0, round((1 - ui.OPACIDAD_MINIMA) * 100))
         self.deslizador_transparencia.setFixedWidth(ui.ANCHO_DESLIZADOR_PX)
         self.deslizador_transparencia.setToolTip("Transparencia del concreto: 0 % (opaco)")
         self.deslizador_transparencia.valueChanged.connect(self._cambio_transparencia)
-        for control in (self.boton_transparencia, self.deslizador_transparencia):
-            control.setEnabled(ui.SECCION_REAL_VISIBLE)
+        self.deslizador_transparencia.setEnabled(ui.SECCION_REAL_VISIBLE)
         self.accion_cargas = self._accion("cargas", "Cargas",
                                           "Cargas: muestra u oculta las cargas del caso activo (al editar)",
                                           activable=True, activa=ui.CARGAS_VISIBLES)
@@ -908,7 +1141,6 @@ class Ventana(QMainWindow):
         barra.addAction(self.accion_snap)
         barra.addWidget(self.boton_etiquetas)
         barra.addAction(self.accion_seccion_real)
-        barra.addWidget(self.boton_transparencia)
         barra.addWidget(self.deslizador_transparencia)
         barra.addAction(self.accion_cargas)
         barra.addAction(self.accion_reacciones)
@@ -945,8 +1177,7 @@ class Ventana(QMainWindow):
 
     def _cambio_seccion_real(self, activa):
         """Sección real: las barras como cajas b × h o como líneas. La transparencia es de las cajas."""
-        for control in (self.boton_transparencia, self.deslizador_transparencia):
-            control.setEnabled(bool(activa))
+        self.deslizador_transparencia.setEnabled(bool(activa))
         if not self._cambiando_seccion_real:
             self.redibujar()
 
@@ -964,26 +1195,17 @@ class Ventana(QMainWindow):
             self._seccion_real_antes = None
 
     def _cambio_transparencia(self, porcentaje):
-        """Deslizador: opacidad de las cajas de concreto. Solo se redibuja al pasar de opaco a
-        transparente o al revés (aparece o desaparece el acero); si no, basta cambiar la opacidad."""
-        nueva = 1.0 - porcentaje / 100
-        cruza = (nueva < 1) != (self.opacidad_concreto < 1)
-        self.opacidad_concreto = nueva
-        if porcentaje:
-            self._transparencia_anterior = porcentaje
+        """Deslizador: opacidad de las cajas de concreto. No se redibuja: el acero ya está dibujado
+        dentro (lo tapa el concreto opaco) y basta cambiar la opacidad. Con depth peeling el acero
+        aparece poco a poco, sin saltos."""
+        self.opacidad_concreto = 1.0 - porcentaje / 100
         self.deslizador_transparencia.setToolTip(f"Transparencia del concreto: {porcentaje} %"
                                                  + (" (opaco)" if not porcentaje else ""))
-        actor = self.dibujado.actores.get("solidos")
-        if cruza:
-            self.redibujar()
-        elif actor is not None:
-            actor.GetProperty().SetOpacity(nueva)
-            self.vista.render()
-
-    def _alternar_transparencia(self):
-        """Clic en el ícono: de opaco a la última transparencia usada, y de vuelta."""
-        self.deslizador_transparencia.setValue(0 if self.deslizador_transparencia.value()
-                                               else self._transparencia_anterior)
+        for nombre in ("solidos", "losas"):
+            actor = self.dibujado.actores.get(nombre)
+            if actor is not None:
+                actor.GetProperty().SetOpacity(self.opacidad_concreto)
+        self.vista.render()
 
     def encuadre(self):
         """Ajusta la vista al modelo sin cambiar la dirección, con el mismo giro suave del cubo."""
@@ -998,7 +1220,10 @@ class Ventana(QMainWindow):
         if tipo == "apoyo":
             nodo = self.modelo.nodos.get(ident)
             return item if nodo is not None and any(nodo.apoyo) else None
-        coleccion = {"nodo": self.modelo.nodos, "barra": self.modelo.elementos, "carga": self.modelo.cargas}
+        if tipo == "pano":
+            return item if getattr(self.modelo, "losas", None) and self.modelo.losa_de_pano(ident) is not None else None
+        coleccion = {"nodo": self.modelo.nodos, "barra": self.modelo.elementos, "carga": self.modelo.cargas,
+                     "losa": getattr(self.modelo, "losas", {})}
         return item if ident in coleccion.get(tipo, {}) else None
 
     def _tamano(self):
@@ -1016,7 +1241,14 @@ class Ventana(QMainWindow):
             self.vista.remove_actor(actor, render=False)
         self.vista.set_background(colores.FONDO_VISTA)
         real = self.accion_seccion_real.isChecked()
-        self.dibujado = dibujar_modelo(self.vista, self.modelo, real, self.opacidad_concreto if real else 1.0)
+        # Las losas se dibujan solo al editar el modelo 3D: con resultados (también la deformada) se ven
+        # vigas y columnas (decisión del usuario). En un sistema de vigueta, el acero de arriba va
+        # solo sobre los apoyos
+        losas = self._resumenes() if (not self.modo_resultados and self.sistema is None
+                                      and getattr(self.modelo, "losas", None)) else None
+        cortes = cortes_superiores(self._sv.franja, self.modelo) if self._sv is not None else None
+        self.dibujado = dibujar_modelo(self.vista, self.modelo, real, self.opacidad_concreto if real else 1.0,
+                                       losas=losas, cortes=cortes)
         self.rejilla = geometria_rejilla(self.modelo)
         self.dibujado.actores["rejilla"] = dibujar_rejilla(self.vista, self.rejilla,
                                                            cuenta_para_camara=not self.modelo.nodos)
@@ -1024,8 +1256,11 @@ class Ventana(QMainWindow):
         rc = self._rc()
         self.factor_deformada = None
         if not self.modo_resultados:
+            extra = None
+            if self.sistema is None and getattr(self.modelo, "losas", None):
+                extra = list(cargas_de_losas(self.modelo, self.caso_activo(), self._cargas_losas()).values())
             self.dibujado.actores.update(dibujar_cargas(self.vista, self.modelo, self.caso_activo(), tamano,
-                                                        seccion_real=real))
+                                                        seccion_real=real, extra=extra))
         elif rc is not None:
             if self.resultado_visible in DEFORMADAS:
                 actores, self.factor_deformada = dibujar_deformada(self.vista, self.modelo, rc, tamano,
@@ -1105,6 +1340,14 @@ class Ventana(QMainWindow):
         if tipo == "barra":
             el = self.modelo.elementos[ident]
             return cargas("barra", ident), [("nodo", el.ni), ("nodo", el.nj)] + apoyos([el.ni, el.nj])
+        if tipo == "losa":                             # sus paños, y las vigas en que se apoya
+            losa = self.modelo.losas[ident]
+            vigas = {e for p in losa.panos.values() for e in p.apoyo_a + p.apoyo_b}
+            return [("pano", p) for p in losa.panos], [("barra", e) for e in sorted(vigas)]
+        if tipo == "pano":                             # su losa y sus dos vigas de apoyo
+            lid = self.modelo.losa_de_pano(ident)
+            pano = self.modelo.losas[lid].panos[ident]
+            return [], [("losa", lid)] + [("barra", e) for e in pano.apoyo_a + pano.apoyo_b]
         c = self.modelo.cargas[ident]
         return [], [("nodo", c.nodo) if hasattr(c, "nodo") else ("barra", c.barra)]
 
@@ -1115,10 +1358,11 @@ class Ventana(QMainWindow):
         return seleccion
 
     def _enlazados(self):
-        """Lo que se pinta como relacionado en 3D junto con la selección (sin las cargas)."""
+        """Lo que se pinta como relacionado en 3D junto con la selección (sin las cargas; de un paño,
+        sus vigas y no toda su losa)."""
         if self.seleccion is None or self.seleccion[0] == "carga":
             return []
-        return [r for r in self._relacionados(self.seleccion)[1] if r[0] != "carga"]
+        return [r for r in self._relacionados(self.seleccion)[1] if r[0] not in ("carga", "losa")]
 
     def pintar(self):
         """Colores vigentes: gris; un gris intermedio lo relacionado y lo que está bajo el mouse;
@@ -1133,11 +1377,14 @@ class Ventana(QMainWindow):
         self._actualizar_deshacer()
 
     def _actualizar_deshacer(self):
-        self.accion_deshacer.setEnabled(self.historial.puede_deshacer())
-        self.accion_rehacer.setEnabled(self.historial.puede_rehacer())
+        en_sistema = self.sistema is not None             # un sistema no se edita: tampoco se deshace
+        self.accion_deshacer.setEnabled(self.historial.puede_deshacer() and not en_sistema)
+        self.accion_rehacer.setEnabled(self.historial.puede_rehacer() and not en_sistema)
 
     def _volver(self, modelo, guardado, texto):
         """Pone una copia del historial como modelo actual."""
+        self.salir_de_sistema(redibujar=False)
+        self._cache = {}
         self.modelo, self.modificado = modelo, not guardado
         self._invalidar_resultados()
         self.herramienta.cancelar()
@@ -1169,11 +1416,28 @@ class Ventana(QMainWindow):
         if self.modo_resultados:
             self.mensaje("Con resultados a la vista no se edita: vuelve a editar con ▶")
             return
+        if self.sistema is not None:
+            self.mensaje("Un sistema de vigueta no se edita: vuelve al Modelo 3D (lista Sistema)")
+            return
         if self.seleccion is None:
-            self.mensaje("Selecciona un nodo, un apoyo, una barra o una carga para eliminar")
+            self.mensaje("Selecciona un nodo, un apoyo, una barra, una carga, un paño o una losa para eliminar")
             return
         tipo, ident = self.seleccion
         self.antes_de_cambiar()
+        if tipo == "pano":
+            lid = self.modelo.losa_de_pano(ident)
+            nombre = self.modelo.losas[lid].nombre
+            self.modelo.eliminar_pano(ident)
+            texto = f"Paño {ident} de {nombre} eliminado" + ("" if lid in self.modelo.losas else " (y su losa)")
+            self.seleccion = None
+            self.modelo_cambiado(texto)
+            return
+        if tipo == "losa":
+            nombre = self.modelo.losas[ident].nombre
+            self.modelo.eliminar_losa(ident)
+            self.seleccion = None
+            self.modelo_cambiado(f"{nombre} eliminada")
+            return
         if tipo == "carga":
             self.modelo.eliminar_carga(ident)
             texto = f"Carga {ident} eliminada"
@@ -1253,6 +1517,125 @@ class Ventana(QMainWindow):
         texto = f"Elemento {eid}: {textos.nombre(self.modelo.secciones[sid], self.modelo)}"
         self.modelo_cambiado(texto + (" (sección nueva)" if nueva else ""))
 
+    # ---------- Losas: cambios desde Propiedades, Comprobaciones y el Explorador ----------
+    def _cambiar_losas(self, funcion, texto):
+        """Aplica funcion(modelo 3D), un cambio de una losa, con un paso de Deshacer. Se prueba antes en
+        una copia: si no sirve, se avisa y nada cambia. Con un sistema de vigueta a la vista, se vuelve a
+        abrir (la vigueta cambió) y, si se veían resultados, se vuelve a analizar."""
+        import copy
+        try:
+            funcion(copy.deepcopy(self._modelo_real()))
+        except (ValueError, KeyError) as e:
+            self.mensaje(f"No se pudo: {e}")
+            self._mostrar_propiedades(self._en_propiedades)
+            return False
+        sistema, resultados, combos = self.sistema, self.modo_resultados, self.ver_combinaciones
+        visible = self.resultado_visible or self._ultimo_resultado
+        self.salir_de_sistema(redibujar=False)
+        self.antes_de_cambiar()
+        funcion(self.modelo)
+        self.modelo_cambiado(texto)
+        if sistema is not None and sistema in [tuple(d) for d in (self.selector_sistema.itemData(i)
+                                                                  for i in range(self.selector_sistema.count()))
+                                               if d is not None]:
+            self.abrir_sistema(sistema)
+            if resultados:
+                self._ultimo_resultado, self.ver_combinaciones = visible, combos
+                self.analizar()
+        return True
+
+    def _editar_losa(self, lid, cambios):
+        """Datos de la losa desde Propiedades: n, paño de referencia, ξ, ψ o si sostiene elementos frágiles."""
+        def cambiar(m):
+            losa = m.losas[lid]
+            for clave, valor in cambios.items():
+                setattr(losa, clave, valor)
+            if "n_viguetas" in cambios or "referencia" in cambios:
+                ml.actualizar_seccion(m, losa)                 # s cambia: bf también
+        self._cambiar_losas(cambiar, f"{self._modelo_real().losas[lid].nombre}: datos cambiados")
+
+    def _editar_pano(self, pid, muerta, viva):
+        def cambiar(m):
+            pano = m.losas[m.losa_de_pano(pid)].panos[pid]
+            pano.muerta, pano.viva = muerta, viva
+        self._cambiar_losas(cambiar, f"Paño {pid}: cargas cambiadas")
+
+    def _editar_vigueta(self, lid, v):
+        """La vigueta nueva desde Comprobaciones: una T con esos datos y el bf que le toca por s."""
+        def cambiar(m):
+            losa = m.losas[lid]
+            sec = m.secciones[losa.seccion]
+            geos = ml.geometrias(m, losa)
+            bf = ml.ala_efectiva(geos, losa, v["bw"], v["hf"])
+            if bf <= v["bw"] + 1e-6:
+                raise ValueError("con esa separación no queda ala: pon menos viguetas o un alma más angosta")
+            sid, _nueva = cc.buscar_o_crear_seccion_T(
+                m, sec.material, v["bw"], v["h"], round(bf, 6), v["hf"], 0.0, v["barra"], v["n"], sec.concreto.fy,
+                barra_sup=v["barra_sup"], n_sup=v["n_sup"], rec=v["rec"], estribo=v["estribo"],
+                s_estribo=v["s_estribo"])
+            losa.seccion = sid
+        self._cambiar_losas(cambiar, f"Vigueta de {self._modelo_real().losas[lid].nombre} cambiada")
+
+    def _menu_losa(self, dato, posicion):
+        """Clic derecho en el Explorador sobre una losa, un paño, una franja o un caso de viva."""
+        tipo, valor = dato
+        menu = QMenu(self)
+        en_sistema = self.sistema is not None
+        if tipo == "franja":
+            menu.addAction("Ver el sistema de vigueta", lambda: self.abrir_sistema(valor))
+            menu.addAction("Nuevo caso de viva…", lambda: self._nuevo_caso_viva(*valor)).setEnabled(not en_sistema)
+        elif tipo == "patron":
+            lid, letra, i, auto = valor
+            menu.addAction("Ver el sistema de vigueta", lambda: self.abrir_sistema((lid, letra)))
+            accion = menu.addAction("Eliminar caso de viva", lambda: self._eliminar_caso_viva(lid, letra, i))
+            accion.setEnabled(not auto and not en_sistema)
+            if auto:
+                accion.setToolTip("Los casos automáticos (§6.4.2) no se eliminan")
+        elif tipo == "pano":
+            lid = self._modelo_real().losa_de_pano(valor)
+            menu.addAction("Hacerlo el paño de referencia (n viguetas)",
+                           lambda: self._editar_losa(lid, {"referencia": valor})).setEnabled(not en_sistema)
+            menu.addAction("Eliminar paño", lambda: (self.seleccionar(("pano", valor)), self.eliminar())
+                           ).setEnabled(not en_sistema)
+        elif tipo == "losa":
+            menu.addAction("Eliminar losa", lambda: (self.seleccionar(("losa", valor)), self.eliminar())
+                           ).setEnabled(not en_sistema)
+        menu.exec(posicion)
+
+    def _nuevo_caso_viva(self, lid, letra):
+        """Un caso de viva propio para la franja: la viva en los claros que se marquen."""
+        from interfaz.ventanas.casos_viva import pedir_claros
+        principal = self._modelo_real()
+        franja = next((f for f in self._resumenes().get(lid, {}).get("franjas", []) if f.letra == letra), None)
+        if franja is None:
+            return
+        claros = pedir_claros(self, franja)
+        if not claros:
+            return
+        existentes = ml.patrones(principal.losas[lid], franja)
+        if any(tuple(c) == tuple(claros) for _n, c, _a in existentes):
+            self.mensaje("Ese caso de viva ya existe")
+            return
+        nombre = f"Caso {len(existentes) + 1}"
+
+        def cambiar(m):
+            m.losas[lid].patrones.setdefault(franja.firma, []).append([nombre, list(claros)])
+        self._cambiar_losas(cambiar, f"{franja.nombre}: {nombre} con viva en {ml.describir_claros(claros)}")
+
+    def _eliminar_caso_viva(self, lid, letra, indice):
+        principal = self._modelo_real()
+        franja = next((f for f in self._resumenes().get(lid, {}).get("franjas", []) if f.letra == letra), None)
+        if franja is None:
+            return
+        nombre, claros, auto = ml.patrones(principal.losas[lid], franja)[indice]
+        if auto:
+            return
+
+        def cambiar(m):
+            lista = m.losas[lid].patrones.get(franja.firma, [])
+            lista[:] = [p for p in lista if tuple(p[1]) != tuple(claros)]
+        self._cambiar_losas(cambiar, f"{franja.nombre}: {nombre} eliminado")
+
     def modelo_cambiado(self, texto, invalida=True):
         """Lo llaman las herramientas y los paneles después de cambiar el modelo.
 
@@ -1260,12 +1643,14 @@ class Ventana(QMainWindow):
         calculan sumando esos resultados); solo se rehacen las combinaciones."""
         self.modificado = True
         self.marcados = []
+        self._cache = {}                           # lo calculado de las losas ya no vale
         if invalida:
             self._invalidar_resultados()
         else:
             self._combinados = {}
         self._actualizar_deshacer()
         self._actualizar_titulo()
+        self._llenar_sistemas()
         self._llenar_casos()
         self._llenar_combinaciones()
         self._actualizar_modo()
@@ -1281,7 +1666,12 @@ class Ventana(QMainWindow):
         self._llenar_casos()
         self._llenar_combinaciones()
         self._actualizar_modo()
-        self.explorador.actualizar(self.modelo, None if self.modo_combinaciones else self.caso_activo())
+        caso = None if self.modo_combinaciones else self.caso_activo()
+        con_losas = self.sistema is None and getattr(self.modelo, "losas", None)
+        self.explorador.actualizar(
+            self.modelo, caso,
+            cargas_losas=cargas_de_losas(self.modelo, caso, self._cargas_losas()) if con_losas and caso else None,
+            resumenes=self._resumenes() if con_losas else None)
         self.explorador.marcar(self.seleccion, *self._relacionados(self.seleccion))
         self._mostrar_propiedades(self._en_propiedades)
         self.modelo_actualizado.emit()
@@ -1314,7 +1704,7 @@ class Ventana(QMainWindow):
         if (self._mouse is not None and isinstance(self.herramienta, Seleccionar)
                 and not self.cubo.contiene(*self._mouse)):
             nuevo = elemento_en(self.vista.renderer, self.modelo, *self._mouse, ui.TOL_SELECCION_PX,
-                                self.dibujado.cajas_apoyo, self.dibujado.cajas_nudo)
+                                self.dibujado.cajas_apoyo, self.dibujado.cajas_nudo, self.dibujado.esquinas_pano)
         if nuevo != self.resaltado:
             self.resaltado = nuevo
             self.pintar()
@@ -1327,6 +1717,10 @@ class Ventana(QMainWindow):
         if self._pos_presion is not None:          # arrastrando para rotar: no se recalcula nada
             return
         self._mouse = self.vista.iren.get_event_position()
+        if self.accion_medir.isChecked():
+            if not self.cubo.contiene(*self._mouse):
+                self.medicion.mover(*self._mouse)
+            return
         self._actualizar_resaltado()               # el cubo se resalta solo (filtra los eventos de la vista)
         self._actualizar_puntero()
 
@@ -1347,6 +1741,9 @@ class Ventana(QMainWindow):
 
     def _clic(self, x, y):
         if self.cubo.contiene(x, y):               # clic en la zona del cubo: lo atiende el propio cubo
+            return
+        if self.accion_medir.isChecked():          # midiendo: el clic pone un punto de la medición
+            self.medicion.clic(x, y)
             return
         self._mouse = (x, y)
         self._actualizar_puntero()
@@ -1420,7 +1817,7 @@ class Ventana(QMainWindow):
 
     def _escribir(self, ruta):
         try:
-            archivo.guardar(self.modelo, ruta)
+            archivo.guardar(self._modelo_real(), ruta)        # el modelo 3D, aunque se vea un sistema
         except OSError as e:
             QMessageBox.warning(self, "Guardar", f"No se pudo guardar {Path(ruta).name}:\n\n{e}")
             return False
@@ -1433,6 +1830,8 @@ class Ventana(QMainWindow):
 
     def _cargar(self, modelo, ruta, vista):
         """Pone otro modelo en la ventana (Nuevo o Abrir)."""
+        self.salir_de_sistema(redibujar=False)
+        self._cache = {}
         self.modelo, self.ruta, self.modificado = modelo, ruta, False
         self.ver_combinaciones = False
         self._ultimo_resultado = "deformada"
@@ -1441,6 +1840,7 @@ class Ventana(QMainWindow):
         self._llenar_combinaciones()
         self.historial.vaciar()
         self._actualizar_deshacer()
+        self._llenar_sistemas()
         for _, herramienta in self._herramientas:
             herramienta.reiniciar()
         self.seleccion = self.resaltado = self._en_propiedades = None
@@ -1468,8 +1868,7 @@ class Ventana(QMainWindow):
             boton.setIconSize(QSize(ui.TAMANO_ICONO, ui.TAMANO_ICONO))
         inferior = QSize(ui.TAMANO_ICONO_INFERIOR, ui.TAMANO_ICONO_INFERIOR)
         self.barra_inferior.setIconSize(inferior)
-        for boton in (self.boton_etiquetas, self.boton_transparencia):
-            boton.setIconSize(inferior)
+        self.boton_etiquetas.setIconSize(inferior)
         self.cubo.actualizar_colores()
         self._ajustar_esquinas()
         self.propiedades.actualizar_unidades()     # campos a medias (cargas, formularios) en las nuevas

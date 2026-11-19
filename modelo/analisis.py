@@ -13,9 +13,14 @@ Peso propio: no es una carga guardada. En los casos con factor de peso propio (e
 propio"), cada barra con material y sección recibe una uniforme de A·γ·factor hacia −Z global
 (peso_propio_de). La interfaz la dibuja y la lista con esa misma función.
 
+Losas: la carga de las losas de viguetas sobre sus vigas (modelo/losas.cargas_a_vigas: la reacción de
+cada vigueta entre s) tampoco se guarda. Entra como una uniforme más hacia −Z global en el peso
+propio, la carga muerta adicional y el caso "Viva de losas" (cargas_de_losas la da para dibujarla).
+
 Combinaciones: no se resuelven otra vez. Como el análisis es lineal (primer orden), el resultado de
 1.2D + 1.6L es 1.2 × (resultados de los casos tipo D) + 1.6 × (resultados de los tipo L):
-superposición (combinar). Los factores van por tipo de caso.
+superposición (combinar). Los factores van por tipo de caso. Con `casos`, solo entran esos casos: así
+se arma una combinación con un caso de viva (patrón) de una vigueta (las vivas de sus claros).
 
 Dos análisis por caso (decisión del usuario):
 - de RESISTENCIA: las barras de concreto (material con f'c) con su inercia agrietada, 0.70·Ig en
@@ -66,9 +71,12 @@ class ModeloAgrietado:
     elementos, materiales, secciones); todo lo demás se toma del modelo original, que no se toca.
 
     Que una barra sea columna lo decide Modelo.es_columna (vertical); las demás, también las
-    inclinadas, van como vigas."""
+    inclinadas, van como vigas.
 
-    def __init__(self, modelo):
+    factores: {ID de barra: factor} para usar otros (por ejemplo Ie/Ig de cada claro de una vigueta,
+    en las deflexiones); las barras que no están ahí no cambian."""
+
+    def __init__(self, modelo, factores=None):
         self._modelo = modelo
         self.elementos, self.secciones = dict(modelo.elementos), dict(modelo.secciones)
         self.cambia = False                       # True si alguna barra cambió (hay concreto)
@@ -76,7 +84,9 @@ class ModeloAgrietado:
             mat, sec = modelo.materiales.get(el.material), modelo.secciones.get(el.seccion)
             if mat is None or sec is None or mat.fc is None:
                 continue
-            f = factor_inercia(modelo.es_columna(eid))
+            if factores is not None and eid not in factores:
+                continue
+            f = factor_inercia(modelo.es_columna(eid)) if factores is None else factores[eid]
             clave = ("agrietada", eid)            # una sección por barra: la misma puede ser viga y columna
             self.secciones[clave] = replace(sec, iy=sec.iy * f, iz=sec.iz * f)
             self.elementos[eid] = replace(el, seccion=clave)
@@ -134,8 +144,9 @@ def cargas_de_peso_propio(modelo, caso):
     return {eid: c for eid, c in cargas.items() if c is not None}
 
 
-def cargas_locales(modelo, eid, caso):
-    """Cargas de la barra en el caso, en ejes locales, más su peso propio."""
+def cargas_locales(modelo, eid, caso, losas=None):
+    """Cargas de la barra en el caso, en ejes locales, más su peso propio y la carga de las losas
+    (losas: {ID de barra: w} de este caso, kN/m hacia abajo; None = sin losas)."""
     r, _t, _l = geometria(modelo, eid)
     lista = []
     for c in modelo.cargas.values():
@@ -144,7 +155,21 @@ def cargas_locales(modelo, eid, caso):
     peso = peso_propio_de(modelo, eid, caso)
     if peso:
         lista.append(("uniforme", r @ np.array([0.0, 0.0, -peso]), None))
+    w = (losas or {}).get(eid, 0.0)
+    if w:
+        lista.append(("uniforme", r @ np.array([0.0, 0.0, -w]), None))
     return lista
+
+
+def cargas_de_losas(modelo, caso, por_caso=None):
+    """{ID de barra: CargaBarra} con la carga de las losas sobre cada viga en el caso (uniforme, −Z
+    global), para dibujarla y listarla. No se guarda en el modelo. por_caso: el resultado de
+    losas.cargas_a_vigas, si ya se calculó (es lo que tarda)."""
+    if por_caso is None:
+        from modelo.losas import cargas_a_vigas
+        por_caso = cargas_a_vigas(modelo)
+    return {eid: CargaBarra(caso, eid, "uniforme", -w, "Z") for eid, w in por_caso.get(caso, {}).items()
+            if abs(w) > 1e-12 and eid in modelo.elementos}
 
 
 def peso_propio_total(modelo, caso):
@@ -153,15 +178,19 @@ def peso_propio_total(modelo, caso):
                for eid, el in modelo.elementos.items())
 
 
-def analizar_caso(modelo, caso):
-    """Resuelve un caso de carga dos veces, con las mismas cargas: con la inercia agrietada de las
-    barras de concreto (res: fuerzas y reacciones) y con la bruta (bruta: desplazamientos). Sin
-    concreto se resuelve una vez. ValueError si falta algo (sección, apoyos) o es inestable."""
+def _cargas_del_caso(modelo, caso, losas=None):
+    """(F, fef, locales) del caso: el vector de cargas, las FEF de cada barra cargada y sus cargas en
+    ejes locales. losas: {ID de barra: w} de este caso (None: se calculan con cargas_a_vigas)."""
     if caso not in modelo.casos:
         raise KeyError(f"El caso {caso} no existe")
     faltan = modelo.sin_asignar()
     if faltan:
         raise ValueError(f"Las barras {', '.join(map(str, faltan))} no tienen material o sección asignados")
+    if losas is None:
+        losas = {}
+        if getattr(modelo, "losas", None):
+            from modelo.losas import cargas_a_vigas
+            losas = cargas_a_vigas(modelo).get(caso, {})
     idx = indices_nodos(modelo)
     F = np.zeros(6 * len(idx))
     for c in modelo.cargas.values():
@@ -169,13 +198,22 @@ def analizar_caso(modelo, caso):
             F[6 * idx[c.nodo]:6 * idx[c.nodo] + 6] += c.fuerzas
     fef, locales = {}, {}
     for eid, el in modelo.elementos.items():
-        lista = cargas_locales(modelo, eid, caso)
+        lista = cargas_locales(modelo, eid, caso, losas)
         if not lista:
             continue
         _r, t, largo = geometria(modelo, eid)
         fef[eid] = empotramiento(largo, lista)
         F[gdl_barra(idx[el.ni], idx[el.nj])] += t.T @ (-fef[eid])
         locales[eid] = lista
+    return F, fef, locales
+
+
+def analizar_caso(modelo, caso, losas=None):
+    """Resuelve un caso de carga dos veces, con las mismas cargas: con la inercia agrietada de las
+    barras de concreto (res: fuerzas y reacciones) y con la bruta (bruta: desplazamientos). Sin
+    concreto se resuelve una vez. ValueError si falta algo (sección, apoyos) o es inestable.
+    losas: la carga de las losas de este caso ({ID de barra: w}), si ya se calculó."""
+    F, fef, locales = _cargas_del_caso(modelo, caso, losas)
     agrietado = ModeloAgrietado(modelo)
     if not agrietado.cambia:
         return ResultadoCaso(caso, resolver(modelo, F, fef), locales, modelo.casos[caso].nombre)
@@ -184,16 +222,34 @@ def analizar_caso(modelo, caso):
 
 
 def analizar(modelo):
-    """Todos los casos: {ID de caso: ResultadoCaso}."""
-    return {caso: analizar_caso(modelo, caso) for caso in modelo.casos}
+    """Todos los casos: {ID de caso: ResultadoCaso}. La carga de las losas se calcula una vez."""
+    por_caso = {}
+    if getattr(modelo, "losas", None):
+        from modelo.losas import cargas_a_vigas
+        por_caso = cargas_a_vigas(modelo)
+    return {caso: analizar_caso(modelo, caso, por_caso.get(caso, {})) for caso in modelo.casos}
 
 
-def combinar(modelo, resultados, combinacion):
+def analizar_con_inercias(modelo, factores):
+    """Todos los casos con Iy e Iz de cada barra por su factor ({ID de barra: factor}; las demás, con
+    Ig): {ID de caso: ResultadoCaso}, con fuerzas y desplazamientos de ese mismo análisis (sin bruta).
+    Sirve para las deflexiones con Ie (ACI 318-19 §24.2.3): factor = Ie/Ig de cada claro."""
+    vista = ModeloAgrietado(modelo, factores)
+    salida = {}
+    for caso in modelo.casos:
+        F, fef, locales = _cargas_del_caso(modelo, caso, {})
+        salida[caso] = ResultadoCaso(caso, resolver(vista, F, fef), locales, modelo.casos[caso].nombre)
+    return salida
+
+
+def combinar(modelo, resultados, combinacion, casos=None):
     """Resultados de una combinación por superposición: Σ factor × (resultados del caso).
 
     combinacion: una Combinacion, con un factor por tipo de caso ({"D": 1.2, "L": 1.6}). Cada caso
     entra con el factor de su tipo (los dos casos tipo D, peso propio y carga muerta adicional, con
     el de D); un tipo sin casos no aporta nada.
+    casos: si se da, solo entran esos casos (un caso de viva de una vigueta: los casos D y las vivas
+    de los claros cargados).
     resultados: {ID de caso: ResultadoCaso} (los de analizar). No se resuelve nada otra vez:
     - U, F, R, desplazamientos, reacciones y fuerzas en los extremos: la suma con los factores
       (K es la misma en todos los casos);
@@ -201,7 +257,7 @@ def combinar(modelo, resultados, combinacion):
       fuerzas_en y deformada_de dan el diagrama combinado, porque internas() y deformada() suman
       el efecto de cada carga por separado (son lineales)."""
     partes = [(combinacion.factores[modelo.casos[cid].tipo], rc) for cid, rc in resultados.items()
-              if modelo.casos[cid].tipo in combinacion.factores]
+              if modelo.casos[cid].tipo in combinacion.factores and (casos is None or cid in casos)]
     primero = next(iter(resultados.values()))     # K y las formas de los arreglos: iguales en todos
     res = _superponer([(f, rc.res) for f, rc in partes], primero.res)
     bruta = None
@@ -246,11 +302,13 @@ class Envolvente:
 def envolvente(modelo, resultados, combinaciones):
     """Envolvente de las fuerzas internas (N, Vy, Vz, T, My, Mz) de las combinaciones dadas.
 
-    combinaciones: {clave: Combinacion}. No se vuelve a resolver: cada combinación sale por
+    combinaciones: {clave: Combinacion}, o {clave: (nombre, Combinacion, casos)} para combinar solo
+    esos casos (los casos de viva de una vigueta). No se vuelve a resolver: cada combinación sale por
     superposición (combinar) y sus diagramas se evalúan en los MISMOS puntos x de cada barra (los de
     todas las cargas de todos los casos juntas, con los dos lados de cada carga puntual). Luego, en
     cada punto, el mayor y el menor valor y de qué combinación salen."""
-    combinados = [combinar(modelo, resultados, co) for co in combinaciones.values()]
+    entradas = [co if isinstance(co, tuple) else (co.nombre, co, None) for co in combinaciones.values()]
+    combinados = [combinar(modelo, resultados, co, casos) for _n, co, casos in entradas]
     barras = {}
     for eid in modelo.elementos:
         _r, _t, largo = geometria(modelo, eid)
@@ -265,7 +323,7 @@ def envolvente(modelo, resultados, combinaciones):
             columnas = np.arange(len(x))
             datos[k] = (tabla[imax, columnas], tabla[imin, columnas], imax, imin)
         barras[eid] = datos
-    return Envolvente([co.nombre for co in combinaciones.values()], barras)
+    return Envolvente([nombre for nombre, _co, _c in entradas], barras)
 
 
 def envolvente_en_x(env, eid, componente, x):
@@ -345,10 +403,11 @@ def fuerzas_en_x(modelo, rc, eid, x):
     return {k: float(d[k][0]) for k in diagramas.NOMBRES}
 
 
-def desplazamientos_locales(modelo, rc, eid, x=None):
+def desplazamientos_locales(modelo, rc, eid, x=None, n_fino=801):
     """Desplazamientos de la barra en sus ejes locales: {"x", "u", "v", "w", "phi"} (u a lo largo
     del eje, v en y local, w en z local y phi el giro alrededor de x). x: los puntos donde se piden
-    (m desde el nodo i); sin x, los mismos de los diagramas.
+    (m desde el nodo i); sin x, los mismos de los diagramas. n_fino: puntos de la integración
+    (diagramas.deformada); menos es más rápido (las deflexiones de las viguetas usan 101).
 
     Salen del análisis con la inercia bruta (rc.deformacion): sus desplazamientos de los nodos, sus
     fuerzas y la sección del modelo (Ig), todo del mismo análisis para que la curva sea coherente."""
@@ -359,15 +418,15 @@ def desplazamientos_locales(modelo, rc, eid, x=None):
     d = rc.deformacion
     u_local = t @ d.U[gdl_barra(idx[el.ni], idx[el.nj])]
     return diagramas.deformada(largo, d.fuerzas[eid], rc.cargas_locales.get(eid, []), u_local,
-                               mat.e, mat.g, sec.a, sec.iy, sec.iz, sec.j, x=x)
+                               mat.e, mat.g, sec.a, sec.iy, sec.iz, sec.j, x=x, n_fino=n_fino)
 
 
-def desplazamientos_globales(modelo, rc, eid, x=None):
+def desplazamientos_globales(modelo, rc, eid, x=None, n_fino=801):
     """Desplazamientos de la barra en ejes GLOBALES: {"x", "Dx", "Dy", "Dz"} (x sigue siendo la
     distancia desde el nodo i, a lo largo de la barra). Son los locales (u, v, w) girados: las
     filas de R son los ejes locales escritos en globales, así que global = Rᵀ · local."""
     r, _t, _largo = geometria(modelo, eid)
-    d = desplazamientos_locales(modelo, rc, eid, x)
+    d = desplazamientos_locales(modelo, rc, eid, x, n_fino)
     g = np.column_stack([d["u"], d["v"], d["w"]]) @ r                    # cada fila: Rᵀ · (u, v, w)
     return {"x": d["x"], "Dx": g[:, 0], "Dy": g[:, 1], "Dz": g[:, 2]}
 

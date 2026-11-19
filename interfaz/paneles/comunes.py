@@ -14,15 +14,17 @@
   caja de texto: deja escribir libremente y revisa el número al terminar.
 - Lista: la lista desplegable de toda la interfaz. Se abre hacia abajo, la opción vigente va
   sombreada y no se puede elegir, y no se estira con el panel.
+- ListaDosColumnas: una Lista que se despliega en dos columnas con título (la lista Combinación:
+  Diseño y Servicio).
 - a_la_izquierda: mete un control en una fila con un espacio que se estira a su derecha, para que
   dentro de una celda (un árbol, una rejilla) conserve su ancho.
 """
 import math
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QMenu, QSizePolicy, QToolButton,
-                               QTreeWidget, QWidget)
+from PySide6.QtWidgets import (QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMenu, QSizePolicy, QToolButton, QTreeWidget, QVBoxLayout, QWidget)
 
 from configuracion import colores, formato, unidades
 from configuracion import interfaz as ui
@@ -194,6 +196,101 @@ class Lista(QComboBox):
     def hidePopup(self):                         # noqa: N802
         super().hidePopup()
         self._marcar_vigente(False)
+
+
+COLUMNA = Qt.UserRole + 1                      # en qué columna de una ListaDosColumnas va cada opción
+
+
+class ListaDosColumnas(Lista):
+    """Una Lista que, al desplegarse, muestra sus opciones en dos columnas con título (la lista
+    Combinación: Diseño y Servicio).
+
+    Por fuera es una Lista como las demás: la misma caja, los mismos datos y las mismas señales
+    (currentData, findData, setCurrentIndex, currentIndexChanged), así que quien la usa no cambia.
+    Solo cambia lo que se despliega: en vez de la lista de Qt, una ventana emergente con dos listas
+    lado a lado, abierta hacia abajo, con la opción vigente sombreada y sin poder elegirse (como en
+    Lista). Cada opción dice su columna con agregar(texto, dato, columna, ayuda)."""
+
+    MAXIMO_FILAS = 24                          # más que esto, la columna lleva barra de desplazamiento
+
+    def __init__(self, titulos, parent=None):
+        super().__init__(parent)
+        self.titulos = tuple(titulos)
+        self._ventana = None
+
+    def agregar(self, texto, dato, columna, ayuda=None):
+        """Agrega una opción en la columna 0 o 1, con su tooltip."""
+        self.addItem(texto, dato)
+        i = self.count() - 1
+        self.setItemData(i, columna, COLUMNA)
+        if ayuda:
+            self.setItemData(i, ayuda, Qt.ToolTipRole)
+
+    def _columna(self, numero):
+        """La lista de una columna, con sus opciones (cada una recuerda su posición en la Lista)."""
+        lista = QListWidget()
+        lista.setFrameShape(QFrame.NoFrame)
+        lista.setFocusPolicy(Qt.NoFocus)
+        lista.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        for i in range(self.count()):
+            if (self.itemData(i, COLUMNA) or 0) != numero:
+                continue
+            item = QListWidgetItem(self.itemText(i))
+            item.setData(Qt.UserRole, i)
+            item.setToolTip(self.itemData(i, Qt.ToolTipRole) or "")
+            if i == self.currentIndex():                         # la vigente: sombreada, no se elige
+                item.setFlags(Qt.NoItemFlags)
+                item.setBackground(QColor(colores.INTERFAZ_SELECCION))
+                item.setForeground(QColor(colores.INTERFAZ_TEXTO))
+            lista.addItem(item)
+        lista.itemClicked.connect(self._elegir)
+        filas = max(1, min(lista.count(), self.MAXIMO_FILAS))
+        alto_fila = lista.sizeHintForRow(0) if lista.count() else self.fontMetrics().height() + 6
+        lista.setFixedHeight(filas * alto_fila + 4)
+        lista.setMinimumWidth(lista.sizeHintForColumn(0) + 28 if lista.count() else 80)
+        return lista
+
+    def showPopup(self):                         # noqa: N802 (nombre de Qt)
+        self.hidePopup()
+        ventana = QFrame(self, Qt.Popup)
+        ventana.setAttribute(Qt.WA_DeleteOnClose)
+        # El clic que la cierra (fuera de ella) no se repite: si fue sobre la caja, no la vuelve a abrir
+        ventana.setAttribute(Qt.WA_NoMouseReplay)
+        ventana.setObjectName("lista_dos_columnas")
+        ventana.setFrameShape(QFrame.Box)
+        fila = QHBoxLayout(ventana)
+        fila.setContentsMargins(1, 1, 1, 1)
+        fila.setSpacing(0)
+        for numero, titulo in enumerate(self.titulos):
+            if numero:
+                separador = QFrame()
+                separador.setFrameShape(QFrame.VLine)
+                separador.setStyleSheet(f"color: {colores.INTERFAZ_BORDE};")
+                fila.addWidget(separador)
+            columna = QVBoxLayout()
+            columna.setSpacing(0)
+            etiqueta = QLabel(f"<b>{titulo}</b>")
+            etiqueta.setContentsMargins(8, 4, 8, 4)
+            columna.addWidget(etiqueta)
+            columna.addWidget(self._columna(numero))
+            columna.addStretch(1)
+            fila.addLayout(columna)
+        ventana.destroyed.connect(lambda *_, v=ventana: self._ventana is v and setattr(self, "_ventana", None))
+        ventana.move(self.mapToGlobal(QPoint(0, self.height())))
+        self._ventana = ventana
+        ventana.show()
+
+    def hidePopup(self):                         # noqa: N802
+        if self._ventana is not None:
+            ventana, self._ventana = self._ventana, None
+            ventana.close()
+
+    def _elegir(self, item):
+        i = item.data(Qt.UserRole)
+        self.hidePopup()
+        if i is not None and i != self.currentIndex():
+            self.setCurrentIndex(i)
+            self.activated.emit(i)
 
 
 def a_la_izquierda(control):

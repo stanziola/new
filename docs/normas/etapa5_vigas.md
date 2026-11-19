@@ -80,6 +80,53 @@
 - **25.4.3.1, gancho:** ldh = el mayor de (fy·ψe·ψr·ψo·ψc/(55·λ√f'c))·db^1.5, 8db y 6 in. Fórmula nueva del 318-19.
 - **25.5.2, traslapes en tracción:** Clase A = 1.0·ld; Clase B = 1.3·ld; ≥ 12 in.
 
+## Ganchos de estribos, aros y ganchos sísmicos: ACI 25.3 y 25.7 (p. 471–472 y 496–506)
+
+Confirmado en el PDF (noviembre de 2026), para dibujar bien los estribos. El gancho se define por el
+**diámetro interior de doblez** y la **extensión recta** ℓext después del doblez (R25.3.1: el diámetro
+interior se mide más fácil que el radio).
+
+**Tabla 25.3.2 (p. 472): estribos, estribos de columna (ties) y aros (hoops).** "Standard hooks shall enclose
+longitudinal reinforcement" (25.3.2, p. 471).
+
+| Gancho | Barra | Diámetro interior de doblez | Extensión recta ℓext |
+|---|---|---|---|
+| 90° | #3 a #5 | 4db | el mayor de 6db y 3 in |
+| 90° | #6 a #8 | 6db | 12db |
+| 135° | #3 a #5 | 4db | el mayor de 6db y 3 in |
+| 135° | #6 a #8 | 6db | el mayor de 6db y 3 in |
+| 180° | #3 a #5 | 4db | el mayor de 4db y 2.5 in |
+| 180° | #6 a #8 | 6db | el mayor de 4db y 2.5 in |
+
+- Una extensión más larga se permite, pero no aumenta el anclaje (nota [1] de la tabla).
+- R25.3.2 (p. 471): los ganchos de estribos llegan hasta la #8, y el de 90° con 6db solo hasta la #5, porque con barras mayores el gancho tiende a botar el recubrimiento al enderezarse. Se recomienda evitar el gancho de 180° en estribos y aros cerrados.
+- **Gancho sísmico** (definición, p. 45, y 25.3.4, p. 472): doblez de al menos **135°** (90° en aros circulares), extensión de al menos **6db y no menos de 3 in**; debe **abrazar una barra longitudinal** y la extensión debe **entrar al núcleo** (hacia adentro del estribo o del aro).
+- **Traba (crosstie)** (definición, p. 38, y 25.3.5, p. 472): barra continua con un **gancho sísmico en un extremo** y un **gancho estándar de al menos 90° en el otro**, ambos sobre barras longitudinales de la periferia; los ganchos de 90° de dos trabas seguidas sobre las mismas barras se **alternan** de extremo (figura R25.3.5).
+
+En cm (db: #3 = 0.9525, #4 = 1.27, #5 = 1.5875 cm):
+
+| Estribo | Diámetro interior | ℓext de 90° y 135° (y sísmico) | ℓext de 180° |
+|---|---|---|---|
+| #3 | 3.81 cm | 7.62 cm (manda 3 in) | 6.35 cm (manda 2.5 in) |
+| #4 | 5.08 cm | 7.62 cm (6db = 3 in) | 6.35 cm |
+| #5 | 6.35 cm | 9.53 cm (manda 6db) | 6.35 cm (4db = 2.5 in) |
+
+**Cómo se anclan (25.7, p. 496–506):**
+- **25.7.1.1:** el estribo llega tan cerca de las caras en compresión y en tracción como lo permitan el recubrimiento y las demás barras, anclado en sus dos extremos; como refuerzo de cortante, llega a d de la fibra más comprimida.
+- **25.7.1.2:** cada doblez de un estribo cerrado o de la parte continua de un estribo en U **encierra una barra longitudinal**.
+- **25.7.1.3:** anclaje: (a) #5 o menor (y #6 a #8 con fyt ≤ 40 ksi): **gancho estándar alrededor de una barra longitudinal**; (b) #6 a #8 con fyt > 40 ksi: gancho más un empotramiento ≥ 0.014·db·fyt/(λ√f'c) entre la media altura y el extremo del gancho; (c) **en viguetas, #4 o menor: un gancho estándar** (sin pedir que abrace una barra).
+- **25.7.1.6:** estribos de **torsión o de integridad**: **cerrados**, con **ganchos de 135° alrededor de una barra longitudinal** (o como 25.7.1.3 si una losa o un ala impide que salte el recubrimiento); 25.7.1.6.1 permite un estribo en U cerrado con una traba cuyo gancho de 90° quede del lado de la losa.
+- **25.7.1.7:** un estribo cerrado puede ser dos U traslapadas 1.3ℓd (no en torsión ni integridad).
+- **25.7.2.3.1:** estribos de columna rectangulares: ganchos estándar (25.3.2) que abracen una barra longitudinal.
+- **25.7.4.1–2 (aros):** estribo cerrado (o de varias piezas) con **ganchos sísmicos en sus dos extremos**, que abracen una barra longitudinal.
+
+**En pórticos especiales (Panamá, CDS D):** vigas, aros en 2h desde la cara de la columna (18.6.4.1, p. 304), que pueden ser un estribo con ganchos sísmicos cerrado con una traba (18.6.4.3, el gancho de 90° de la traba del lado de la losa); en el resto, estribos con **ganchos sísmicos** a ≤ d/2 (18.6.4.6, p. 305). Columnas: aros rectangulares con o sin trabas, cuyos dobleces abracen las barras de la periferia, trabas alternadas y hx ≤ 14 in (18.7.5.2, p. 309–310).
+
+**Para el dibujo:**
+- la línea media del estribo va a rec + db_e/2 de las caras; en las esquinas, un arco de radio de la línea media = D_int/2 + db_e/2 (2.5·db_e con D_int = 4db_e);
+- en la esquina del gancho, cada extremo sigue el doblez hasta 135° y sigue recto ℓext hacia el núcleo (a 45°);
+- la barra de esquina no puede tocar a la vez los dos tramos rectos si el doblez es más grande que ella: queda apoyada en el arco, corrida hacia adentro por la diagonal. Con un estribo #3 (D_int = 3.81 cm) y una barra #6 (1.905 cm) el corrimiento es ≈ 0.28 cm en cada eje: el d de diseño (h − rec − d_estribo − db/2, el del SMath) no cambia de forma apreciable, pero el dibujo sí lo puede mostrar.
+
 ## Requisitos sísmicos de vigas según el tipo de pórtico
 
 | | Ordinario, OMF (18.3.2) | Intermedio, IMF (18.4.2, p. 294–295) | **Especial, SMF (18.6, p. 302–306)** |

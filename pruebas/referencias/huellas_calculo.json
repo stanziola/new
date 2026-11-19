@@ -1,8 +1,10 @@
 {
   "aprobado": "2026-11-18",
   "archivos": {
-    "calculo/__init__.py": "36f0aa08a207ec5d91ccc664d50f88ca76081013fcd7dbd3f8bb8a4bc799cd16",
+    "calculo/__init__.py": "2a99706d42c56ec9e98de708d2d69f8269bbcff1065c2f24eb1da7b813b43912",
     "calculo/concreto.py": "5b8a216e435db09f6edb883996d04aaedd9e9127bd39392e74c37ec2e2cc328a",
+    "calculo/diseno/__init__.py": "90f546d21ff11f120c92370b61cd10c0957ec2645adba4525e6b0603bc80113f",
+    "calculo/diseno/viga.py": "0a0513875887985fbfa7b491906340974839844ca509579d8729372589417f17",
     "calculo/interaccion/__init__.py": "1135f810c04dc98373bf1425f0659e5a61a16e9b545711d1bfa86dc0eda23c71",
     "calculo/interaccion/biaxial.py": "afed04c2353330249314029bb5a0070dadba85b2ffcf7bde998b0c6e5ccd5d21",
     "calculo/interaccion/circular.py": "0b724afeefbce274d2fd9551f835d724f73124f8b6fde05335dae0fa84854b7b",

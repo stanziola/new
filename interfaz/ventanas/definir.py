@@ -162,13 +162,14 @@ def _hacer(modelo, pedido):
         return ("material", ident), texto
     if familia == "concreto" and pedido.get("forma") == "T":
         args = (v["material"], v["bw"], v["h"], v["bf"], v["hf"], v["d"], v["barra"], v["n"], v["fy"])
+        refuerzo = {k: v[k] for k in ("barra_sup", "n_sup", "rec", "estribo", "s_estribo") if k in v}
         if nuevo:
-            existente = cc.buscar_seccion_T(modelo, *args)
+            existente = cc.buscar_seccion_T(modelo, *args, **refuerzo)
             if existente is not None:
                 raise ValueError(f"Ya existe una sección igual: {nombre(modelo.secciones[existente], modelo)}")
-            sid = cc.crear_seccion_T(modelo, *args)
+            sid = cc.crear_seccion_T(modelo, *args, **refuerzo)
             return ("seccion", sid), f"Sección {sid} agregada: {nombre(modelo.secciones[sid], modelo)}"
-        barras = cc.cambiar_seccion_T(modelo, ident, *args)
+        barras = cc.cambiar_seccion_T(modelo, ident, *args, **refuerzo)
     elif familia == "concreto":
         args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"], v["fy"])
         if nuevo:

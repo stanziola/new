@@ -19,11 +19,11 @@ if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
 from scripts.memoria import word                                            # noqa: E402
-from scripts.memoria.capitulos import interaccion, presentacion, rigidez    # noqa: E402
+from scripts.memoria.capitulos import interaccion, presentacion, rigidez, vigueta    # noqa: E402
 from scripts.memoria.documento import Memoria, pedir_actualizacion_al_abrir  # noqa: E402
 
 SALIDA = RAIZ / "docs" / "memoria" / "Memoria de cálculo.docx"
-CAPITULOS = [presentacion.capitulo, rigidez.capitulo, interaccion.capitulo]    # en el orden del documento
+CAPITULOS = [presentacion.capitulo, rigidez.capitulo, interaccion.capitulo, vigueta.capitulo]   # en orden
 MESES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
          "noviembre", "diciembre")
 AUTOR = "Luis Stanziola"

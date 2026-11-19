@@ -6,6 +6,7 @@ Aquí está solo el cálculo estructural: lo que decide los resultados.
 - analisis.py: solución de K·U = F, reacciones y fuerzas en los extremos de las barras.
 - tolerancias.py: tolerancias numéricas y el límite de inestabilidad.
 - interaccion/: diagramas de interacción de columnas (ACI 318-19).
+- diseno/: diseño de vigas y viguetas de concreto (ACI 318-19): flexión, cortante y deflexiones.
 
 Reglas:
 - No se cambia sin un pedido explícito del usuario que nombre esta carpeta.

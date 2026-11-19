@@ -34,6 +34,7 @@ UNIDADES = {
                 "kip·ft": KIP * FT, "kip·in": KIP * PULG, "lbf·ft": LBF * FT},
     "carga_lineal": {"kN/m": 1.0, "N/m": 0.001, "tonf/m": TONF, "kgf/m": KGF, "kip/ft": KIP / FT,
                      "lbf/ft": LBF / FT},
+    "carga_area": {"kN/m²": 1.0, "kgf/m²": KGF, "tonf/m²": TONF, "psf": LBF / FT ** 2, "N/m²": 0.001},
     "esfuerzo": {"MPa": 1000.0, "GPa": 1e6, "kPa": 1.0, "kgf/cm²": KGF / 1e-4, "tonf/m²": TONF,
                  "ksi": KIP / PULG ** 2, "psi": LBF / PULG ** 2},
 }
@@ -41,7 +42,7 @@ UNIDADES = {
 NOMBRES = {"longitud": "Longitud", "seccion": "Dimensiones de sección", "desplazamiento": "Desplazamientos",
            "area": "Área", "inercia": "Inercia",
            "fuerza": "Fuerza", "momento": "Momento", "carga_lineal": "Carga distribuida",
-           "esfuerzo": "Esfuerzo y módulos"}
+           "carga_area": "Carga de área (losas)", "esfuerzo": "Esfuerzo y módulos"}
 
 DERIVADAS = {"peso_unitario": (1, -3)}     # magnitud -> (a, b) de F^a·L^b (ver compuesta)
 
@@ -54,6 +55,7 @@ INERCIA = "cm⁴"
 FUERZA = "kN"
 MOMENTO = "kN·m"
 CARGA_LINEAL = "kN/m"
+CARGA_AREA = "kN/m²"
 ESFUERZO = "MPa"
 
 _SUPERINDICES = str.maketrans("-0123456789", "⁻⁰¹²³⁴⁵⁶⁷⁸⁹")

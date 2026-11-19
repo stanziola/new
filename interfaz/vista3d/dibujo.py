@@ -16,12 +16,15 @@ las barras que NO van a lo largo de ese eje: en un nudo viga–columna queda la 
 por el peralte de la viga, ensanchado si la viga es más ancha. Es parte del nodo: se pinta y se
 selecciona con él. Es solo dibujo: el análisis sigue de nodo a nodo (sin brazos rígidos).
 
-Transparencia y acero: las cajas de la sección real pueden dibujarse transparentes (opacidad < 1).
-Entonces se dibuja también el acero longitudinal de las barras con sección rectangular y refuerzo,
-columnas y vigas: un tubo por barra de refuerzo, con su diámetro real, de nodo a nodo, en las
-posiciones del arreglo Nx × Ny de la sección. Es un dibujo esquemático: sin estribos, traslapes ni
-ganchos, y en los nudos las barras de unas y otras se cruzan sin anclarse. En una viga es el arreglo
-de su sección (Nx arriba y abajo), no un armado diseñado: ese llega con el diseño de vigas.
+Transparencia y acero: con la sección real se dibuja también el acero longitudinal de las barras con
+refuerzo, columnas y vigas: un tubo por barra de refuerzo, con su diámetro real, de nodo a nodo
+(un poco más corto: así no asoma en la cara de un extremo libre), en las posiciones del arreglo
+Nx × Ny de la sección. Con el concreto opaco no se ve; al hacerlo transparente (deslizador, sin
+volver a dibujar) va apareciendo. La vista usa depth peeling: sin él, VTK no ordena lo translúcido
+y el acero aparecía de golpe con 1 % de transparencia. Es un dibujo esquemático: sin estribos,
+traslapes ni ganchos, y en los nudos las barras de unas y otras se cruzan sin anclarse. En una viga
+es el arreglo de su sección (Nx arriba y abajo), no un armado diseñado: ese llega con el diseño de
+vigas.
 
 Ejes locales: los x, y, z de la barra seleccionada, como tres flechas con los colores de los ejes
 globales de la esquina (dibujar_ejes_locales). Los diagramas N, V, M y T están en esos ejes.
@@ -47,6 +50,7 @@ from modelo.interaccion import diametro_barra, posiciones_barras
 PARALELA = 0.999                   # |coseno| desde el cual una barra va "a lo largo" de un eje del nudo
 RECORTE_MAXIMO = 0.45              # el nudo no le quita a una barra más que esta fracción de su largo
 POSICION_EJES_LOCALES = 0.15       # dónde van los ejes locales: fracción del largo, desde el nodo i
+RECORTE_ACERO = 0.005              # m que se acorta cada tubo de acero en sus extremos (no asoma en la cara)
 
 
 class ModeloDibujado:
@@ -63,6 +67,9 @@ class ModeloDibujado:
         self.indice_solido = {}    # ID de barra -> celdas (inicio, fin) en la malla "solidos"
         self.indice_nudo = {}      # ID de nodo -> celdas (inicio, fin) de su bloque en la malla "solidos"
         self.cajas_nudo = {}       # ID de nodo -> caja 3D de su bloque (un clic sobre él elige el nodo)
+        self.indice_pano = {}      # ID de paño -> celdas (inicio, fin) en la malla "losas"
+        self.panos_de_losa = {}    # ID de losa -> sus paños dibujados
+        self.esquinas_pano = {}    # ID de paño -> las 4 esquinas de arriba (para elegirlo con un clic)
 
     def _lugares(self, item):
         """Dónde está pintado un ("nodo", id), ("apoyo", id) o ("barra", id): lista de (malla, índice).
@@ -89,6 +96,10 @@ class ModeloDibujado:
             if ident in self.indice_nudo:
                 lugares.append(("solidos", slice(*self.indice_nudo[ident])))
             return lugares
+        if tipo == "pano":
+            return [("losas", slice(*self.indice_pano[ident]))] if ident in self.indice_pano else []
+        if tipo == "losa":
+            return [("losas", slice(*self.indice_pano[p])) for p in self.panos_de_losa.get(ident, [])]
         return []
 
     def pintar(self, resaltado=None, seleccion=None, enlazados=(), marcados=()):
@@ -262,14 +273,16 @@ def media_hacia(c, r, u):
     return max(-(u @ (r[1] * y + r[2] * z)) for y, z in contorno(c))
 
 
-def acero_longitudinal(modelo, barras):
+def acero_longitudinal(modelo, barras, cortes=None):
     """Malla con el acero longitudinal de las barras (columnas y vigas), o None si ninguna tiene
     refuerzo.
 
     barras: {ID de barra: Concreto} de las barras que se dibujan con su sección. Cada barra de
     refuerzo es un tubo de su diámetro real, de nodo a nodo, a (y − b/2) en el eje local y y
     (z − h/2) en el local z del centro, como las cajas de caja_barra. Es el arreglo Nx × Ny de la
-    sección: en los nudos, el acero de unas barras y otras se cruza sin anclarse."""
+    sección: en los nudos, el acero de unas barras y otras se cruza sin anclarse.
+    cortes: {ID de barra: [(x0, x1)]}: en esas barras (T), las barras de arriba van solo en esos
+    tramos (las de una vigueta, sobre sus apoyos); sin cortes, de nodo a nodo."""
     por_radio = {}                                   # radio -> (puntos, líneas): un filtro tube por diámetro
     for eid, c in barras.items():
         if c.forma == "T":
@@ -277,14 +290,23 @@ def acero_longitudinal(modelo, barras):
                 continue
         elif c.nx < 2 or c.ny < 2 or not 0 < c.d < min(c.b, c.h) / 2:
             continue
-        pi, pj, r, _largo = _ejes_barra(modelo, modelo.elementos[eid])
-        puntos, lineas = por_radio.setdefault(diametro_barra(c.barra) / 2, ([], []))
+        p0, _pj, r, largo = _ejes_barra(modelo, modelo.elementos[eid])
+        corto = min(RECORTE_ACERO, 0.1 * largo)
         zc = centroide(c)                            # h/2, o el centroide de la T
-        for y, z in posiciones_barras(c):
+        tramos_sup = (cortes or {}).get(eid)
+        for y, z, numero in posiciones_barras(c, con_numero=True):     # la T: abajo y arriba
+            puntos, lineas = por_radio.setdefault(diametro_barra(numero) / 2, ([], []))
             desplazado = r[1] * (y - c.b / 2) + r[2] * (z - zc)
-            n = len(puntos)
-            puntos += [pi + desplazado, pj + desplazado]
-            lineas += [2, n, n + 1]
+            # Tramos a lo largo de la barra (x desde el nodo i), un poco más cortos en los extremos
+            xs = [(0.0, largo)]
+            if c.forma == "T" and tramos_sup is not None and z > c.h / 2:      # arriba, solo sobre los apoyos
+                xs = list(tramos_sup)
+            tramos = [(p0 + r[0] * max(x0, corto), p0 + r[0] * min(x1, largo - corto))
+                      for x0, x1 in xs if min(x1, largo - corto) - max(x0, corto) > 1e-6]
+            for a, b in tramos:
+                n = len(puntos)
+                puntos += [a + desplazado, b + desplazado]
+                lineas += [2, n, n + 1]
     tubos = [pv.PolyData(np.array(puntos), lines=np.array(lineas)).tube(radius=radio, n_sides=10, capping=True)
              for radio, (puntos, lineas) in por_radio.items()]
     if not tubos:
@@ -292,15 +314,19 @@ def acero_longitudinal(modelo, barras):
     return tubos[0].merge(tubos[1:]) if len(tubos) > 1 else tubos[0]
 
 
-def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
+def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0, losas=None, cortes=None):
     """Dibuja barras, nodos, apoyos y números de nodo. Devuelve un ModeloDibujado.
 
     Con seccion_real, las barras con sección rectangular se dibujan como cajas de b × h, con un
-    bloque en cada nudo, y con la opacidad dada (1 = opaco). Con opacidad < 1 se dibuja también el
-    acero longitudinal."""
+    bloque en cada nudo, y con la opacidad dada (1 = opaco), con el acero longitudinal adentro (se
+    ve al bajar la opacidad: la ventana la cambia sin volver a dibujar).
+    losas: {ID de losa: resumen} de las losas que se dibujan (None: ninguna; solo al editar).
+    cortes: tramos del acero de arriba de las T (acero_longitudinal), en la vista de una vigueta."""
     d = ModeloDibujado()
     if not modelo.nodos:
         return d
+    if losas:
+        _dibujar_losas(vista, d, modelo, losas, seccion_real, opacidad)
 
     idx = indices_nodos(modelo)                       # ID de nodo -> 0, 1, 2...
     ids = list(idx)
@@ -335,8 +361,8 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
         d.mallas["solidos"] = malla
         d.actores["solidos"] = _agregar(vista, "solidos", malla, por_celda=True)
         d.actores["solidos"].GetProperty().SetOpacity(opacidad)
-        acero = acero_longitudinal(modelo, con_caja) if opacidad < 1 else None
-        if acero is not None:                         # se ve a través del concreto transparente
+        acero = acero_longitudinal(modelo, con_caja, cortes)
+        if acero is not None:                         # dentro del concreto: se ve al hacerlo transparente
             d.actores["acero"] = vista.add_mesh(acero, color=colores.ACERO, pickable=False,
                                                 reset_camera=False, name="acero", render=False)
 
@@ -396,6 +422,31 @@ def dibujar_modelo(vista, modelo, seccion_real=True, opacidad=1.0):
             text_color=colores.ETIQUETA, shape=None, show_points=False, always_visible=True,
             name="numeros_barras", reset_camera=False)
     return d
+
+
+def _dibujar_losas(vista, d, modelo, resumenes, seccion_real, opacidad):
+    """Las losas de viguetas (interfaz/vista3d/losas.py): su concreto en la malla "losas" (cada paño con
+    sus celdas, para pintarlo y elegirlo) y, con la sección real, su acero."""
+    from interfaz.vista3d.losas import OPACIDAD_SIN_SECCION, colores_base, malla_acero, mallas_losas
+    concreto, acero, esquinas = mallas_losas(modelo, resumenes, seccion_real)
+    if not concreto:
+        return
+    inicio = 0
+    for pid, malla in concreto:
+        d.indice_pano[pid] = (inicio, inicio + malla.n_cells)
+        d.panos_de_losa.setdefault(modelo.losa_de_pano(pid), []).append(pid)
+        inicio += malla.n_cells
+    d.esquinas_pano = esquinas
+    malla = _unir([m for _p, m in concreto])
+    d.base["losas"] = colores_base(malla.n_cells)
+    malla.cell_data["color"] = d.base["losas"].copy()
+    d.mallas["losas"] = malla
+    d.actores["losas"] = _agregar(vista, "losas", malla, por_celda=True)
+    d.actores["losas"].GetProperty().SetOpacity(opacidad if seccion_real else OPACIDAD_SIN_SECCION)
+    tubos = malla_acero(acero) if seccion_real else None
+    if tubos is not None:
+        d.actores["acero_losas"] = vista.add_mesh(tubos, color=colores.ACERO, pickable=False, reset_camera=False,
+                                                  name="acero_losas", render=False)
 
 
 def dibujar_ejes_locales(vista, modelo, eid, tamano, seccion_real=False):

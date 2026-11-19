@@ -21,8 +21,6 @@ de concreto con refuerzo seleccionada aparecen dos pestañas, Propiedades e Inte
 de interacción); con cualquier otra cosa no hay pestañas. La ventana Definir usa otro
 PanelPropiedades a su derecha.
 """
-import math
-
 import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QDockWidget, QGridLayout,
@@ -30,12 +28,14 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QDock
                                QScrollArea, QSizePolicy, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
+from calculo.diseno.viga import XI
 from calculo.rigidez.barra import angulos
 from configuracion import colores, formato
 from configuracion import interfaz as ui
 from configuracion.formato import FUERZAS, GDL_PANTALLA
 from interfaz import textos
 from interfaz.iconos import icono
+from interfaz.paneles.comprobaciones import PestanaComprobaciones
 from interfaz.paneles.comunes import CampoNumero, Lista, a_la_izquierda
 from interfaz.paneles.formularios import (BARRAS, FORMULARIOS, VistaSeccion, campo, campo_barras,
                                           campo_seccion)
@@ -46,6 +46,82 @@ from modelo import interaccion as puente
 from modelo.analisis import carga_de_peso_propio
 from modelo.apoyos import NOMBRES, TIPOS, describir, tipo_de
 from modelo.estructura import CargaNodal
+
+
+class PanelLosa(QWidget):
+    """Herramienta Agregar losa: a qué losa va el paño (una nueva o una que ya existe), la vigueta y las
+    viguetas del paño de referencia (si es nueva), y las cargas de área del paño. Después, clic en la
+    primera viga de apoyo y en la de enfrente."""
+    definir = Signal()                         # abrir Definir → Secciones (para crear la T)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        diseno = QVBoxLayout(self)
+        diseno.setContentsMargins(0, 0, 0, 0)
+        self.paso = QLabel()
+        self.paso.setWordWrap(True)
+        diseno.addWidget(self.paso)
+        forma = QGridLayout()
+        self.losa = Lista()
+        self.vigueta = Lista()
+        self.n = CampoNumero(minimo=1, maximo=1000, entero=True)
+        self.n.poner(10)
+        self.n.setToolTip("Viguetas en este paño (el de referencia de la losa nueva): s = ancho libre / n, y\n"
+                          "esa separación vale para toda la losa (bf sale de s)")
+        self.muerta = CampoNumero("carga_area", 0.0, 1e5)
+        self.muerta.setToolTip("Carga muerta adicional sobre la losa: baldosas, topping, tabiques… (el peso\n"
+                               "propio de la losa lo pone el programa con la vigueta)")
+        self.viva = CampoNumero("carga_area", 0.0, 1e5)
+        self.viva.setToolTip("Carga viva del paño (ASCE 7-05 Tabla 4-1): va a los casos de viva de la vigueta y,\n"
+                             "con todos los paños cargados, al caso Viva de losas del modelo 3D")
+        definir = QPushButton("Definir…")
+        definir.setToolTip("Definir → Secciones: crea la T de la vigueta (clic derecho en Concreto → Nueva T…)")
+        definir.clicked.connect(self.definir.emit)
+        filas = (("Losa", self.losa), ("Vigueta (T)", self.vigueta), ("Viguetas en el paño", self.n),
+                 ("Muerta adicional", self.muerta), ("Viva", self.viva))
+        for i, (texto, control) in enumerate(filas):
+            forma.addWidget(QLabel(texto), i, 0)
+            forma.addWidget(a_la_izquierda(control) if isinstance(control, Lista) else control, i, 1)
+        forma.addWidget(definir, 1, 2)
+        diseno.addLayout(forma)
+        diseno.addStretch(1)
+        self.losa.currentIndexChanged.connect(self._cambio_losa)
+
+    def poner(self, modelo, losa, primera):
+        """Llena las listas con el modelo; losa: la elegida (None = nueva); primera: la viga ya elegida."""
+        self._modelo = modelo
+        actual = losa if losa in modelo.losas else None
+        self.losa.blockSignals(True)
+        self.losa.clear()
+        self.losa.addItem("Losa nueva", None)
+        for lid, l in modelo.losas.items():
+            self.losa.addItem(l.nombre, lid)
+        self.losa.setCurrentIndex(max(0, self.losa.findData(actual)))
+        self.losa.blockSignals(False)
+        elegida = self.vigueta.currentData()
+        self.vigueta.clear()
+        for sid, sec in modelo.secciones.items():
+            if sec.concreto is not None and sec.concreto.forma == "T":
+                self.vigueta.addItem(textos.nombre(sec, modelo), sid)
+        self.vigueta.setCurrentIndex(max(0, self.vigueta.findData(elegida)))
+        self._cambio_losa()
+        if not self.vigueta.count():
+            self.paso.setText("Primero define la vigueta: una sección T (Definir → Secciones → clic derecho en "
+                              "Concreto → Nueva T…)")
+        elif primera is None:
+            self.paso.setText("Clic sobre la primera viga de apoyo de las viguetas")
+        else:
+            self.paso.setText(f"Viga {primera} elegida: ahora clic sobre la viga de enfrente (paralela). "
+                              "Esc cancela")
+
+    def _cambio_losa(self, *_):
+        nueva = self.losa.currentData() is None
+        for control in (self.vigueta, self.n):
+            control.setEnabled(nueva)
+
+    def valores(self):
+        return {"losa": self.losa.currentData(), "vigueta": self.vigueta.currentData(), "n": self.n.valor(),
+                "muerta": self.muerta.valor(), "viva": self.viva.valor()}
 
 
 class PanelApoyo(QWidget):
@@ -290,6 +366,8 @@ class PanelPropiedades(QWidget):
     guardar_definicion = Signal(object)        # pedido: tipo, familia, modo, ident y valores
     cancelar_definicion = Signal()
     formulario_abierto = Signal()              # se abrió un formulario (Propiedades lo pone a la vista)
+    losa_editada = Signal(int, object)         # ID de losa y {dato: valor} (n, referencia, ξ, sostenida…)
+    pano_editado = Signal(int, float, float)   # ID de paño, muerta y viva (kN/m²)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -320,12 +398,13 @@ class PanelPropiedades(QWidget):
         self.panel_asignar = PanelAsignar()
         self.panel_carga_nodo = PanelCargaNodo()
         self.panel_carga_barra = PanelCargaBarra()
+        self.panel_losa = PanelLosa()
         self._crear_edicion()
         diseno.addWidget(self.titulo)
         diseno.addWidget(self.dibujo)
         diseno.addWidget(self.arbol, 1)
         for panel in (self.panel_apoyo, self.panel_asignar, self.panel_carga_nodo, self.panel_carga_barra,
-                      self.edicion):
+                      self.panel_losa, self.edicion):
             diseno.addWidget(panel, 1)
         diseno.addWidget(self.botones)
         self._sid = None
@@ -338,10 +417,18 @@ class PanelPropiedades(QWidget):
     def _vaciar(self):
         """Todo oculto: lo que se va a mostrar se vuelve a encender."""
         for w in (self.titulo, self.dibujo, self.arbol, self.panel_apoyo, self.panel_asignar,
-                  self.panel_carga_nodo, self.panel_carga_barra, self.edicion, self.botones):
+                  self.panel_carga_nodo, self.panel_carga_barra, self.panel_losa, self.edicion, self.botones):
             w.hide()
         self.arbol.clear()
         self._sid = None
+
+    def mostrar_panel_losa(self, modelo, losa, primera):
+        """Lo usa la herramienta Agregar losa."""
+        self._vaciar()
+        self.titulo.setText("Agregar losa de viguetas")
+        self.titulo.show()
+        self.panel_losa.poner(modelo, losa, primera)
+        self.panel_losa.show()
 
     def mostrar_panel_apoyo(self, tipo):
         """Lo usa la herramienta Apoyo: en vez de los datos, el panel para elegir el tipo."""
@@ -430,7 +517,102 @@ class PanelPropiedades(QWidget):
             self._material(modelo, ident)
         elif tipo == "seccion" and ident in modelo.secciones:
             self._seccion(modelo, ident)
+        elif tipo == "losa" and ident in getattr(modelo, "losas", {}):
+            self._losa(modelo, ident, editable)
+        elif tipo == "pano" and getattr(modelo, "losas", None) and modelo.losa_de_pano(ident) is not None:
+            self._pano(modelo, ident, editable)
         self.arbol.resizeColumnToContents(0)
+
+    # ---------- Losas ----------
+    def _losa(self, modelo, lid, editable=True):
+        from modelo import losas as ml
+        losa = modelo.losas[lid]
+        self._ver(losa.nombre)
+        r = ml.resumen(modelo, lid)
+        g = self._grupo("Losa de viguetas")
+        sec = modelo.secciones.get(losa.seccion)
+        self._fila(g, "Vigueta", textos.nombre(sec, modelo) if sec else "—")
+        self._fila(g, "Paños", ", ".join(map(str, losa.panos)) or "ninguno")
+        if "error" in r:
+            self._fila(g, "No se puede armar", r["error"])
+            return
+        self._fila(g, "Separación s", formato.cantidad(r["s"], "seccion"))
+        self._fila(g, "bf (de s y la Tabla 6.3.2.1)", formato.cantidad(r["bf"], "seccion"))
+        self._fila(g, "Peso propio de la losa", formato.cantidad(ml.peso_por_area(modelo, losa, r["s"]), "carga_area"))
+        g = self._grupo("Editable")
+        n = CampoNumero(minimo=1, maximo=1000, entero=True)
+        n.poner(losa.n_viguetas)
+        n.setToolTip("Viguetas en el paño de referencia: s = su ancho libre / n vale para toda la losa")
+        n.terminado.connect(lambda: n.valor() != losa.n_viguetas
+                            and self._despues(self.losa_editada, lid, {"n_viguetas": n.valor()}))
+        self._fila_control(g, "Viguetas en el paño de referencia", n).setEnabled(editable)
+        ref = Lista()
+        for pid in losa.panos:
+            ref.addItem(f"Paño {pid}", pid)
+        ref.setCurrentIndex(max(0, ref.findData(ml.paño_referencia(losa))))
+        ref.currentIndexChanged.connect(lambda *_: self._despues(self.losa_editada, lid, {"referencia": ref.currentData()}))
+        self._fila_control(g, "Paño de referencia", ref).setEnabled(editable)
+        xi = Lista()
+        for meses, valor in sorted(XI.items()):
+            xi.addItem(f"{valor:g} ({meses} meses{' o más' if meses == 60 else ''})", valor)
+        xi.setCurrentIndex(max(0, xi.findData(losa.xi)))
+        xi.setToolTip("ξ de la Tabla 24.2.4.1.3: duración de la carga sostenida")
+        xi.currentIndexChanged.connect(lambda *_: self._despues(self.losa_editada, lid, {"xi": xi.currentData()}))
+        self._fila_control(g, "ξ (deflexión diferida)", xi).setEnabled(editable)
+        psi = CampoNumero(minimo=0.0, maximo=1.0, decimales=2)
+        psi.poner(losa.sostenida)
+        psi.setToolTip("Fracción de la viva que es sostenida (la carga de largo plazo es D + ψL).\n"
+                       "0.5: la CC-2 de ASCE 7-05 (la de las combinaciones de servicio); 0: solo D")
+        psi.terminado.connect(lambda: abs(psi.valor() - losa.sostenida) > 1e-12
+                              and self._despues(self.losa_editada, lid, {"sostenida": psi.valor()}))
+        self._fila_control(g, "Viva sostenida ψ", psi).setEnabled(editable)
+        fragiles = QCheckBox("ℓ/480 (si no, ℓ/240)")
+        fragiles.setChecked(losa.fragiles)
+        fragiles.setToolTip("Tabla 24.2.2: si la losa sostiene elementos no estructurales que se dañan con\n"
+                            "deflexiones grandes (tabiques de bloque), el límite es ℓ/480")
+        fragiles.toggled.connect(lambda v: self._despues(self.losa_editada, lid, {"fragiles": bool(v)}))
+        self._fila_control(g, "Sostiene elementos que se dañan", fragiles).setEnabled(editable)
+        g = self._grupo("Franjas (sistemas de vigueta)")
+        for f in r["franjas"]:
+            self._fila(g, f.nombre, ", ".join(formato.cantidad(c, "longitud") for c in f.claros)
+                       + f" · ancho {formato.cantidad(f.ancho, 'longitud')}")
+
+    def _pano(self, modelo, pid, editable=True):
+        from modelo import losas as ml
+        lid = modelo.losa_de_pano(pid)
+        losa = modelo.losas[lid]
+        pano = losa.panos[pid]
+        self._ver(f"Paño {pid} — {losa.nombre}")
+        r = ml.resumen(modelo, lid)
+        g = self._grupo("Paño")
+        self._fila(g, "Losa", losa.nombre + (" (paño de referencia)" if ml.paño_referencia(losa) == pid else ""))
+        self._fila(g, "Vigas de apoyo", f"{', '.join(map(str, pano.apoyo_a))} y {', '.join(map(str, pano.apoyo_b))}")
+        if "error" not in r and pid in r["panos"]:
+            datos = r["panos"][pid]
+            geo = datos["geo"]
+            self._fila(g, "Claro (de eje a eje)", formato.cantidad(geo.claro, "longitud"))
+            self._fila(g, "ℓn (de cara a cara)", formato.cantidad(geo.claro_libre, "longitud"))
+            self._fila(g, "Ancho (a lo largo de las vigas)", formato.cantidad(geo.u1 - geo.u0, "longitud"))
+            laterales = [", ".join(map(str, x)) if x else "no hay (borde libre)" for x in (geo.lateral_0, geo.lateral_1)]
+            self._fila(g, "Vigas laterales", f"{laterales[0]}; {laterales[1]}")
+            self._fila(g, "Viguetas", str(len(datos["viguetas"])))
+            if datos["bordes"] is not None:
+                self._fila(g, "Distancia libre en los bordes",
+                           " y ".join(formato.cantidad(b, "seccion") for b in datos["bordes"]))
+        elif "error" in r:
+            self._fila(g, "No se puede armar", r["error"])
+        g = self._grupo("Cargas de área")
+        muerta, viva = CampoNumero("carga_area", 0.0, 1e5), CampoNumero("carga_area", 0.0, 1e5)
+        muerta.poner(pano.muerta)
+        viva.poner(pano.viva)
+
+        def cambio():
+            if abs(muerta.valor() - pano.muerta) > 1e-12 or abs(viva.valor() - pano.viva) > 1e-12:
+                self._despues(self.pano_editado, pid, muerta.valor(), viva.valor())
+        muerta.terminado.connect(cambio)
+        viva.terminado.connect(cambio)
+        self._fila_control(g, "Muerta adicional", muerta).setEnabled(editable)
+        self._fila_control(g, "Viva", viva).setEnabled(editable)
 
     def _nodo(self, modelo, nid):
         n = modelo.nodos[nid]
@@ -545,6 +727,7 @@ class PanelPropiedades(QWidget):
             self._fila(g, "bw × h", f"{formato.cantidad(c.b, 'seccion', False)} × {formato.cantidad(c.h, 'seccion')}")
             self._fila(g, "bf × hf", f"{formato.cantidad(c.bf, 'seccion', False)} × {formato.cantidad(c.hf, 'seccion')}")
             self._fila(g, "Barras abajo", f"{c.nx} #{c.barra}  (se edita en Definir → Secciones)")
+            self._fila(g, "Barras arriba", f"{c.n_sup} #{c.barra_sup}" if c.n_sup else "ninguna")
         self._fila(g, "A", formato.cantidad(sec.a, "area"))
         for nombre in ("iy", "iz", "j"):
             self._fila(g, nombre.capitalize() if nombre != "j" else "J", formato.cantidad(getattr(sec, nombre), "inercia"))
@@ -621,11 +804,19 @@ class PanelPropiedades(QWidget):
             self._fila(g, "bw × h", f"{formato.cantidad(c.b, 'seccion', False)} × {formato.cantidad(c.h, 'seccion')}")
             self._fila(g, "bf × hf", f"{formato.cantidad(c.bf, 'seccion', False)} × {formato.cantidad(c.hf, 'seccion')}")
             self._fila(g, "yb (centroide, desde abajo)", formato.cantidad(yb, "seccion"))
-            self._fila(g, "d (de abajo al centro de las barras)", formato.cantidad(c.d, "seccion"))
-            self._fila(g, "h − d", formato.cantidad(c.h - c.d, "seccion"))
+            self._fila(g, "Recubrimiento libre", formato.cantidad(c.recubrimiento, "seccion"))
+            self._fila(g, "Estribos", f"#{c.estribo} a {formato.cantidad(c.s_estribo, 'seccion')}"
+                       if c.estribo else "sin estribos")
             self._fila(g, "f'c", formato.cantidad(c.fc, "esfuerzo"))
             self._fila(g, "Barras abajo", f"{c.nx} #{c.barra}")
-            self._fila(g, "As", formato.cantidad(c.nx * math.pi * puente.diametro_barra(c.barra) ** 2 / 4, "area"))
+            self._fila(g, "As abajo", formato.cantidad(cc.area_inferior(c), "area"))
+            self._fila(g, "d+ (momento positivo)", formato.cantidad(cc.peralte_positivo(c), "seccion"))
+            if c.n_sup:
+                self._fila(g, "Barras arriba", f"{c.n_sup} #{c.barra_sup}")
+                self._fila(g, "As arriba", formato.cantidad(cc.area_superior(c), "area"))
+                self._fila(g, "d− (momento negativo)", formato.cantidad(cc.peralte_negativo(c), "seccion"))
+            else:
+                self._fila(g, "Barras arriba", "ninguna")
             self._fila(g, "fy", formato.cantidad(c.fy, "esfuerzo"))
             return
         if c.forma == "circular":
@@ -740,13 +931,18 @@ class Propiedades(QDockWidget):
         self._activa, self._especial = None, True
         # Que la pestaña no ensanche el panel al aparecer: toma el ancho que haya
         self.interaccion.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.comprobaciones = PestanaComprobaciones()
         self.pestanas = QTabWidget()
         self.pestanas.setDocumentMode(True)
         self.pestanas.addTab(self.panel, "Propiedades")
         self.pestanas.addTab(self.interaccion, "Interacción")
+        self.pestanas.addTab(self.comprobaciones, "Comprobaciones")
         self.pestanas.setTabToolTip(1, "Diagrama de interacción (flexocompresión) de la sección de la "
                                        "columna elegida. Solo para columnas de concreto con refuerzo")
+        self.pestanas.setTabToolTip(2, "Diseño de la vigueta de la losa: Mu, Vu, Ma y deflexiones de todos sus "
+                                       "sistemas, y las comprobaciones del ACI 318-19 (verde cumple, rojo no)")
         self.pestanas.setTabVisible(1, False)
+        self.pestanas.setTabVisible(2, False)
         self.pestanas.tabBar().hide()              # una sola pestaña: no hace falta mostrarla
         self.pestanas.currentChanged.connect(self._cambio_pestana)
         self.setWidget(self.pestanas)
@@ -754,34 +950,49 @@ class Propiedades(QDockWidget):
         self._barra = None                         # ID de esa columna
         self._puntos = None                        # función ID de barra -> puntos Pu–Mu (None: editando)
         self._con_interaccion = False              # la pestaña Interacción está a la vista
+        self._losa = None                          # (modelo, ID de losa, función ID -> DisenoLosa, editable) o None
         # Atajos al contenido (la ventana los usa como si fueran del panel acoplable)
         p = self.panel
         self.ver_diagrama, self.asignar_seccion, self.editar_seccion = p.ver_diagrama, p.asignar_seccion, p.editar_seccion
         self.guardar_definicion, self.cancelar_definicion = p.guardar_definicion, p.cancelar_definicion
         self.arbol, self.panel_apoyo, self.panel_asignar, self.titulo = p.arbol, p.panel_apoyo, p.panel_asignar, p.titulo
+        self.panel_losa, self.losa_editada, self.pano_editado = p.panel_losa, p.losa_editada, p.pano_editado
+        self.vigueta_editada = self.comprobaciones.vigueta_editada
         p.formulario_abierto.connect(lambda: self._poner_columna(None))
 
     # ---------- Lo que se muestra (siempre en la pestaña Propiedades, salvo una columna) ----------
-    def mostrar(self, modelo, item, caso=None, rc=None, editable=True, puntos=None, activa=None):
+    def mostrar(self, modelo, item, caso=None, rc=None, editable=True, puntos=None, activa=None, losa=None,
+                diseno=None):
         """puntos: función que da los puntos Pu–Mu de una columna (ID de barra -> lista de Demanda),
         o None si no hay resultados a la vista. Se llama solo con la pestaña Interacción abierta.
-        activa: clave de la combinación que se ve arriba (sus puntos van en rojo), o None."""
+        activa: clave de la combinación que se ve arriba (sus puntos van en rojo), o None.
+        losa: (modelo principal, ID de losa) cuya vigueta se revisa en la pestaña Comprobaciones, o None;
+        diseno: función ID de losa -> DisenoLosa (se llama solo con esa pestaña a la vista)."""
         self.panel.mostrar(modelo, item, caso, rc, editable)
         self._puntos, self._activa, self._especial = puntos, activa, modelo.portico_especial
+        self._losa = (losa[0], losa[1], diseno, editable) if losa is not None and diseno is not None else None
         seccion = self._seccion_columna(modelo, item)
         self._barra = item[1] if seccion is not None else None
         self._poner_columna(seccion)
 
     def mostrar_panel_apoyo(self, tipo):
         self.panel.mostrar_panel_apoyo(tipo)
+        self._losa = None
         self._poner_columna(None)
 
     def mostrar_panel_asignar(self, modelo, sid):
         self.panel.mostrar_panel_asignar(modelo, sid)
+        self._losa = None
         self._poner_columna(None)
 
     def mostrar_panel_carga(self, tipo, nombre_caso):
         self.panel.mostrar_panel_carga(tipo, nombre_caso)
+        self._losa = None
+        self._poner_columna(None)
+
+    def mostrar_panel_losa(self, modelo, losa, primera):
+        self.panel.mostrar_panel_losa(modelo, losa, primera)
+        self._losa = None
         self._poner_columna(None)
 
     def editar(self, modelo, pedido):
@@ -789,8 +1000,10 @@ class Propiedades(QDockWidget):
 
     def actualizar_unidades(self):
         self.panel.actualizar_unidades()
+        self.comprobaciones.actualizar_unidades()
         if self.pestanas.currentIndex() == 1:      # solo si está a la vista (si no, se calcula al abrirla)
             self._ver_interaccion()
+        self._ver_comprobaciones()
 
     # ---------- Pestaña Interacción ----------
     @staticmethod
@@ -805,24 +1018,40 @@ class Propiedades(QDockWidget):
         return sec
 
     def _poner_columna(self, seccion):
-        """Con una columna (su sección), aparecen las pestañas; sin ella, solo se ve Propiedades."""
+        """Con una columna (su sección), aparece la pestaña Interacción; con una losa, Comprobaciones;
+        sin ninguna, solo se ve Propiedades (sin barra de pestañas)."""
         self._columna = seccion
         hay = seccion is not None
-        if not hay:
+        losa = self._losa is not None
+        actual = self.pestanas.currentIndex()
+        if (actual == 1 and not hay) or (actual == 2 and not losa):
             self.pestanas.setCurrentIndex(0)
         self.pestanas.setTabVisible(1, hay)
-        self.pestanas.tabBar().setVisible(hay)
+        self.pestanas.setTabVisible(2, losa)
+        self.pestanas.tabBar().setVisible(hay or losa)
         if hay:
             self._ver_interaccion()
+        if losa:
+            self._ver_comprobaciones()
 
     def _cambio_pestana(self, *_):
         """Otra pestaña: primero se avisa (la ventana ensancha o devuelve el panel) y después se
-        calcula el diagrama, que así se dibuja ya con su tamaño."""
-        visible = self.pestanas.currentIndex() == 1
+        calcula el diagrama, que así se dibuja ya con su tamaño. Comprobaciones también ensancha."""
+        visible = self.pestanas.currentIndex() in (1, 2)
         if visible != self._con_interaccion:
             self._con_interaccion = visible
             self.interaccion_a_la_vista.emit(visible)
         self._ver_interaccion()
+        self._ver_comprobaciones()
+
+    def _ver_comprobaciones(self):
+        """Calcula (si hace falta) el diseño de la vigueta, solo con la pestaña a la vista."""
+        if self.pestanas.currentIndex() != 2 or self._losa is None:
+            return
+        modelo, lid, diseno, editable = self._losa
+        if lid not in modelo.losas:
+            return
+        self.comprobaciones.mostrar(modelo, lid, diseno(lid), editable)
 
     def _ver_interaccion(self):
         """Calcula (si hace falta) el diagrama, solo con la pestaña Interacción a la vista."""

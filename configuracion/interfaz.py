@@ -82,6 +82,7 @@ ANCHO_PANEL_INTERACCION = 560         # personalización base: ancho de Propieda
 EJES_LOCALES_VISIBLES = True          # ejes x, y, z locales de la barra seleccionada (menú Etiquetas)
 
 # ---------- Panel Diagrama ----------
+DIAGRAMA_VISIBLE = True               # personalización base: el panel abierto al iniciar
 PASOS_DESLIZADOR = 400                # posiciones del deslizador a lo largo de la barra
 ALTO_PANEL_DIAGRAMA = 240             # alto inicial del panel, en píxeles
 

@@ -81,6 +81,7 @@ PARAMETROS = [
     P(interfaz, "HISTORIAL_MAXIMO", "Pasos para deshacer", "entero", "Interfaz", 1, 500),
     P(interfaz, "ANCHO_PANEL_INTERACCION", "Ancho de Propiedades con la pestaña Interacción (píxeles)", "entero",
       "Interfaz", 300, 2000),
+    P(interfaz, "DIAGRAMA_VISIBLE", "Panel Diagrama abierto al iniciar", "bool", "Interfaz"),
     # ---------- Colores del dibujo ----------
     P(colores, "ELEMENTO", "Nodos, elementos y apoyos", "color", "Colores"),
     P(colores, "RESALTADO", "Relacionado con lo seleccionado y bajo el mouse", "color", "Colores"),
@@ -96,6 +97,9 @@ PARAMETROS = [
     P(colores, "INTERACCION_SUPERFICIE", "Interacción: superficie 3D", "color", "Colores"),
     P(colores, "INTERACCION_PUNTO", "Interacción: puntos Pu–Mu", "color", "Colores"),
     P(colores, "INTERACCION_ELEGIDO", "Interacción: punto elegido", "color", "Colores"),
+    P(colores, "MEDICION", "Medición: cota y marcas de snap", "color", "Colores"),
+    P(colores, "CUMPLE", "Comprobaciones: cumple", "color", "Colores"),
+    P(colores, "NO_CUMPLE", "Comprobaciones: no cumple", "color", "Colores"),
     P(colores, "REJILLA", "Rejilla", "color", "Colores"),
     P(colores, "FONDO_VISTA", "Fondo de la vista", "color", "Colores"),
     P(colores, "CUBO_CARA", "Cubo: caras", "color", "Colores"),

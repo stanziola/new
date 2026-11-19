@@ -43,6 +43,9 @@ def capitulo(m):
         "unidades del ACI 318-19, y entregan los resultados en **tonf y tonf·m**. Aquí tonf es la tonelada "
         "métrica de fuerza: 1 tonf = 1000 kgf = 9.80665 kN. El programa las pasa a kN y kN·m antes de "
         "mostrarlas (`modelo/interaccion.py`).",
+        "**Vigueta T** (capítulo 4): las fórmulas reciben y devuelven **kN y m**; las que el ACI 318-19 "
+        "escribe con $\\sqrt{f'_c}$ en psi pasan $f'_c$ a psi, calculan el esfuerzo en psi y lo vuelven a "
+        "kN/m² (`calculo/diseno/viga.py`).",
     ])
 
     m.titulo("Convenciones", 2)
@@ -64,8 +67,9 @@ def capitulo(m):
               "así el código que muestra es siempre el que corre (sin docstrings ni comentarios).")
 
     m.titulo("Alcance de esta versión", 2)
-    m.parrafo("Esta versión documenta la matriz de rigidez de la barra y su transformación (capítulo 2) y los "
-              "diagramas de interacción de columnas (capítulo 3). Quedan por documentar, aunque el programa ya "
+    m.parrafo("Esta versión documenta la matriz de rigidez de la barra y su transformación (capítulo 2), los "
+              "diagramas de interacción de columnas (capítulo 3) y el diseño de la vigueta T de las losas "
+              "nervadas (capítulo 4). Quedan por documentar, aunque el programa ya "
               "las calcula: el ensamble y la solución del sistema, las fuerzas de empotramiento de las cargas en "
               "barras, los diagramas N, V, M y T, las propiedades del concreto y de la sección, el peso propio y "
               "las combinaciones de carga.")

@@ -193,7 +193,7 @@ class PanelDiagrama(QDockWidget):
             if DIRECCION[resultado][1] < 0:
                 ax.invert_yaxis()
             ax.set_ylabel(f"{resultado} ({unidades.simbolo(magnitud)})", fontsize=8)
-            self.titulo.setText(f"<b>Elemento {eid}</b> — Envolvente de {NOMBRE[resultado]}")
+            self.titulo.setText(f"<b>Elemento {eid}</b> — {self._env.nombre}: {NOMBRE[resultado]}")
         else:
             magnitud = magnitud_de(resultado)
             d = fuerzas_en(modelo, rc, eid)

@@ -9,8 +9,6 @@ Todo se muestra en las unidades de pantalla y se devuelve en las internas. Los n
 CampoNumero (paneles/comunes.py): la unidad va al lado, sin flechas.
 Las medidas de la sección (b, h, d) usan la magnitud "seccion" (cm por defecto), no la longitud.
 """
-import math
-
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QVBoxLayout, QWidget
@@ -79,11 +77,17 @@ class VistaSeccion(QWidget):
         con_barras = (c.nx >= 1 and 0 < c.d < min(c.b / 2, c.h - c.hf)) if es_t else \
                      (c.nx >= 1 and c.ny >= 1 and 0 < c.d < min(c.b, c.h) / 2)
         if con_barras:
-            radio = max(diametro_barra(c.barra) * escala / 2, 2.0)
             p.setBrush(QColor(colores.INTERFAZ_TEXTO))
             p.setPen(Qt.NoPen)
-            for x, y in posiciones_barras(c):
+            for x, y, numero in posiciones_barras(c, con_numero=True):    # la T: abajo y arriba
+                radio = max(diametro_barra(numero) * escala / 2, 2.0)
                 p.drawEllipse(QPointF(centro_x + (x - c.b / 2) * escala, abajo - y * escala), radio, radio)
+            if es_t and c.estribo and c.recubrimiento > 0:            # el estribo, en el alma (esquemático)
+                r = c.recubrimiento
+                p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(QColor(colores.INTERFAZ_TEXTO), max(diametro_barra(c.estribo) * escala, 1.0)))
+                p.drawRect(QRectF(centro_x + (r - c.b / 2) * escala, abajo - (c.h - r) * escala,
+                                  (c.b - 2 * r) * escala, (c.h - 2 * r) * escala))
         p.setPen(QPen(QColor(colores.INTERFAZ_DESHABILITADO), 1))
         p.drawText(QRectF(x0, y0 + alto + 4, ancho, margen - 8), Qt.AlignHCenter | Qt.AlignTop,
                    f"{'bw' if es_t else 'b'} = {formato.cantidad(c.b, 'seccion')}")
@@ -312,21 +316,40 @@ class FormularioSeccion(QWidget):
         self.vista.mostrar(self.concreto())
 
 
+def lista_barras(con_ninguna=None):
+    """Lista de números de barra (#3 a #11). con_ninguna: el texto de la opción 0 ("Sin estribos"...)."""
+    lista = Lista()
+    if con_ninguna:
+        lista.addItem(con_ninguna, 0)
+    for n in BARRAS:
+        lista.addItem(f"#{n}", n)
+    return lista
+
+
 class FormularioSeccionT(QWidget):
-    """Sección T de concreto (vigas y viguetas con su losa): material, bw, h, bf, hf, d (desde abajo
-    al centro de las barras), barra, cantidad de barras abajo y fy; nombre, propiedades (con el
-    centroide yb) y el dibujo debajo. Sin diagrama de interacción ni aviso de cuantía (es de vigas)."""
+    """Sección T de concreto (vigas y viguetas con su losa): material, bw, h, bf, hf, recubrimiento
+    libre, estribo (número y separación, o sin estribos), barras de abajo (número y cuántas), barras
+    de arriba (número y cuántas; 0 = sin acero arriba) y fy; nombre, propiedades (con el centroide
+    yb y los peraltes d+ y d−) y el dibujo debajo. d sale del recubrimiento, como en el SMath:
+    d = rec + d_estribo + db/2. Sin diagrama de interacción ni aviso de cuantía (es de vigas)."""
 
     def __init__(self, modelo, parent=None):
         super().__init__(parent)
         self.modelo = modelo
         self.material = Lista()
         self.bw, self.h, self.bf, self.hf = campo_seccion(), campo_seccion(), campo_seccion(), campo_seccion()
-        self.d = campo_seccion(0.005, 1.0)
-        self.barra = Lista()
-        for n in BARRAS:
-            self.barra.addItem(f"#{n}", n)
+        self.rec = campo_seccion(0.005, 0.5)
+        self.rec.setToolTip("Recubrimiento libre: del borde de concreto al estribo (o a la barra, sin estribos).\n"
+                            "Viguetas no expuestas a la intemperie, #11 o menor: 3/4 in = 1.9 cm "
+                            "(ACI 318-19 Tabla 20.5.1.3.1)")
+        self.estribo = lista_barras("Sin estribos")
+        self.s_estribo = campo_seccion(0.01, 2.0)
+        self.s_estribo.setToolTip("Separación de los estribos a lo largo de la vigueta")
+        self.barra = lista_barras()
         self.n = CampoNumero(minimo=1, maximo=30, entero=True)
+        self.barra_sup = lista_barras()
+        self.n_sup = CampoNumero(minimo=0, maximo=30, entero=True)
+        self.n_sup.setToolTip("Barras de arriba (momento negativo, sobre los apoyos). 0 = sin acero arriba")
         self.fy = campo("esfuerzo", 100000, 1000000)
         self.fy.poner(FY_DEFECTO)
         self.nombre = QLabel()
@@ -339,9 +362,13 @@ class FormularioSeccionT(QWidget):
         forma.addRow("h (total, eje local z)", self.h)
         forma.addRow("bf (ancho del ala)", self.bf)
         forma.addRow("hf (espesor del ala)", self.hf)
-        forma.addRow("d (de abajo al centro de las barras)", self.d)
-        forma.addRow("Barra", self.barra)
+        forma.addRow("Recubrimiento libre", self.rec)
+        forma.addRow("Estribo", self.estribo)
+        forma.addRow("Separación de estribos", self.s_estribo)
+        forma.addRow("Barra abajo", self.barra)
         forma.addRow("Barras abajo", self.n)
+        forma.addRow("Barra arriba", self.barra_sup)
+        forma.addRow("Barras arriba", self.n_sup)
         forma.addRow("fy (acero)", self.fy)
         forma.addRow("Nombre", self.nombre)
         forma.addRow(self.datos)
@@ -349,12 +376,14 @@ class FormularioSeccionT(QWidget):
         diseno.setContentsMargins(0, 0, 0, 0)
         diseno.addLayout(forma)
         diseno.addWidget(self.vista, 1)
-        for caja in (self.bw, self.h, self.bf, self.hf, self.d, self.n, self.fy):
+        for caja in (self.bw, self.h, self.bf, self.hf, self.rec, self.s_estribo, self.n, self.n_sup, self.fy):
             caja.cambiado.connect(self._actualizar)
-        for combo in (self.material, self.barra):
+        for combo in (self.material, self.barra, self.barra_sup, self.estribo):
             combo.currentIndexChanged.connect(self._actualizar)
         self.llenar_materiales()
-        self.cargar_concreto(cc.concreto_T(0.0, 0.15, 0.45, 0.50, 0.10, 0.04, 6, 1), None)
+        # La vigueta de la tarea: 15 × 45, ala 50 × 10, rec 3/4 in, sin estribos, 1 #6 abajo y 2 #5 arriba
+        self.cargar_concreto(cc.concreto_T(0.0, 0.15, 0.45, 0.50, 0.10, 0.0, 6, 1, barra_sup=5, n_sup=2,
+                                           rec=0.75 * 0.0254), None)
 
     llenar_materiales = FormularioSeccion.llenar_materiales
 
@@ -362,40 +391,55 @@ class FormularioSeccionT(QWidget):
         self.cargar_concreto(sec.concreto, sec.material)
 
     def cargar_concreto(self, c, material):
-        for combo in (self.barra, self.material):
+        combos = (self.barra, self.barra_sup, self.estribo, self.material)
+        for combo in combos:
             combo.blockSignals(True)
-        for caja, valor in ((self.bw, c.b), (self.h, c.h), (self.bf, c.bf), (self.hf, c.hf), (self.d, c.d),
-                            (self.n, c.nx), (self.fy, c.fy)):
+        for caja, valor in ((self.bw, c.b), (self.h, c.h), (self.bf, c.bf), (self.hf, c.hf),
+                            (self.rec, c.recubrimiento), (self.s_estribo, c.s_estribo or 0.20),
+                            (self.n, c.nx), (self.n_sup, c.n_sup), (self.fy, c.fy)):
             caja.poner(valor)
-        i = self.barra.findData(c.barra)
-        self.barra.setCurrentIndex(i if i >= 0 else BARRAS.index(6))
+        for combo, numero, defecto in ((self.barra, c.barra, 6), (self.barra_sup, c.barra_sup or 5, 5),
+                                       (self.estribo, c.estribo, 0)):
+            i = combo.findData(numero)
+            combo.setCurrentIndex(i if i >= 0 else combo.findData(defecto))
         if material is not None and self.material.findData(material) >= 0:
             self.material.setCurrentIndex(self.material.findData(material))
-        for combo in (self.barra, self.material):
+        for combo in combos:
             combo.blockSignals(False)
         self._actualizar()
 
     def valores(self):
+        """Lo escrito, en unidades internas. "d" (de abajo al centro de las barras de abajo) sale del
+        recubrimiento."""
+        estribo = self.estribo.currentData() or 0
+        c = cc.concreto_T(0.0, self.bw.valor(), self.h.valor(), self.bf.valor(), self.hf.valor(), 0.0,
+                          self.barra.currentData(), self.n.valor(), rec=self.rec.valor(), estribo=estribo,
+                          s_estribo=self.s_estribo.valor() if estribo else 0.0)
         return {"material": self.material.currentData(), "bw": self.bw.valor(), "h": self.h.valor(),
-                "bf": self.bf.valor(), "hf": self.hf.valor(), "d": self.d.valor(),
-                "barra": self.barra.currentData(), "n": self.n.valor(), "fy": self.fy.valor()}
+                "bf": self.bf.valor(), "hf": self.hf.valor(), "d": c.d, "barra": self.barra.currentData(),
+                "n": self.n.valor(), "fy": self.fy.valor(), "barra_sup": self.barra_sup.currentData(),
+                "n_sup": self.n_sup.valor(), "rec": self.rec.valor(), "estribo": estribo,
+                "s_estribo": c.s_estribo}
+
+    @staticmethod
+    def refuerzo(v):
+        """Los datos extra de la T (para crear_seccion_T y las demás), desde valores()."""
+        return {k: v[k] for k in ("barra_sup", "n_sup", "rec", "estribo", "s_estribo")}
 
     def concreto(self):
         v = self.valores()
         mat = self.modelo.materiales.get(v["material"])
         return cc.concreto_T(mat.fc if mat else 0.0, v["bw"], v["h"], v["bf"], v["hf"], v["d"], v["barra"],
-                             v["n"], v["fy"])
+                             v["n"], v["fy"], **self.refuerzo(v))
 
     def error(self):
         v = self.valores()
         if v["material"] is None:
             return "Primero crea un material de concreto"
         try:
-            cc.propiedades_T(v["bw"], v["h"], v["bf"], v["hf"])
+            cc._validar_T(self.modelo, v["material"], self.concreto())
         except ValueError as e:
             return str(e)
-        if not 0 < v["d"] < min(v["bw"] / 2, v["h"] - v["hf"]):
-            return "d debe ser menor que bw/2 y que la altura del alma (h − hf)"
         return None
 
     def refrescar(self):
@@ -404,16 +448,23 @@ class FormularioSeccionT(QWidget):
 
     def _actualizar(self, *_):
         v = self.valores()
-        self.nombre.setText(textos.nombre_T(v["bw"], v["h"], v["bf"], v["hf"], v["n"], v["barra"], v["fy"]))
+        self.s_estribo.setEnabled(bool(v["estribo"]))
+        self.barra_sup.setEnabled(v["n_sup"] > 0)
+        self.nombre.setText(textos.nombre_T(v["bw"], v["h"], v["bf"], v["hf"], v["n"], v["barra"], v["fy"],
+                                            v["barra_sup"] if v["n_sup"] else 0, v["n_sup"], v["estribo"],
+                                            v["s_estribo"]))
         error = self.error()
         if error is None:
+            c = self.concreto()
             a, iy, iz, j, yb = cc.propiedades_T(v["bw"], v["h"], v["bf"], v["hf"])
-            as_total = v["n"] * math.pi * diametro_barra(v["barra"]) ** 2 / 4
+            arriba = (f"<br>As arriba = {formato.cantidad(cc.area_superior(c), 'area')}  ·  d− = "
+                      f"{formato.cantidad(cc.peralte_negativo(c), 'seccion')}" if c.n_sup else "<br>Sin acero arriba")
             self.datos.setText(
                 f"A = {formato.cantidad(a, 'area')}<br>yb = {formato.cantidad(yb, 'seccion')} (centroide, desde abajo)"
                 f"<br>Iy = {formato.cantidad(iy, 'inercia')}<br>Iz = {formato.cantidad(iz, 'inercia')}"
                 f"<br>J = {formato.cantidad(j, 'inercia')} (aproximada)"
-                f"<br>As = {formato.cantidad(as_total, 'area')}  ·  h − d = {formato.cantidad(v['h'] - v['d'], 'seccion')}")
+                f"<br>As abajo = {formato.cantidad(cc.area_inferior(c), 'area')}  ·  d+ = "
+                f"{formato.cantidad(cc.peralte_positivo(c), 'seccion')}{arriba}")
         else:
             self.datos.setText(f"<span style='color:{colores.INTERFAZ_DESHABILITADO}'>{error}</span>")
         self.vista.mostrar(self.concreto())

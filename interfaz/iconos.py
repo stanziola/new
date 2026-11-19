@@ -225,20 +225,21 @@ def _reacciones(p, color):
     _punta(p, 12, 13.5, 0, -1, 3.0)
 
 
-def _transparencia(p, color):
-    """Transparencia del concreto: un prisma al que se le ven las aristas de atrás (punteadas)."""
-    p.drawRect(QRectF(4, 9, 11, 11))                                         # cara del frente
-    p.drawPolyline(_poligono([(4, 9), (9, 4), (20, 4), (15, 9)]))            # cara de arriba
-    p.drawPolyline(_poligono([(20, 4), (20, 15), (15, 20)]))                 # cara del costado
-    pluma = p.pen()
-    punteada = QPen(pluma)
-    punteada.setStyle(Qt.DotLine)
-    punteada.setWidthF(1.0)
-    p.setPen(punteada)                                                       # las aristas de atrás
-    p.drawLine(QPointF(9, 4), QPointF(9, 15))
-    p.drawLine(QPointF(9, 15), QPointF(4, 20))
-    p.drawLine(QPointF(9, 15), QPointF(20, 15))
-    p.setPen(pluma)
+def _losa(p, color):
+    """Agregar losa: la losa nervada en corte (la losa arriba y tres nervios) con el "+" de agregar."""
+    p.drawRect(QRectF(2.5, 11, 19, 3))                                       # la losa
+    for x in (4.5, 11, 17.5):                                                # los nervios
+        p.drawPolyline(_poligono([(x, 14), (x, 20), (x + 2, 20), (x + 2, 14)]))
+    _mas(p, (19, 5.5))
+
+
+def _medir(p, color):
+    """Medir: una regla inclinada con sus marcas."""
+    p.drawPolygon(_poligono([(2.5, 16), (16, 2.5), (21.5, 8), (8, 21.5)]))
+    for k in range(1, 6):                                                     # las marcas
+        x, y = 2.5 + k * 2.25, 16 - k * 2.25
+        largo = 3.0 if k % 2 else 1.8
+        p.drawLine(QPointF(x, y), QPointF(x + largo * 0.707, y + largo * 0.707))
 
 
 def _combinaciones(p, color):
@@ -382,8 +383,9 @@ _DIBUJOS = {
     "asignar_seccion": _asignar_seccion,
     "cargas": _cargas,
     "reacciones": _reacciones,
-    "transparencia": _transparencia,
     "combinaciones": _combinaciones,
+    "losa": _losa,
+    "medir": _medir,
     "rejilla": _rejilla,
     "snap": _snap,
     "etiqueta": _etiqueta,

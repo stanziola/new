@@ -6,6 +6,9 @@
   la puntual, una flecha en x = a; el momento, una flecha doble en x = a.
 - Peso propio: en el caso que lo lleva, cada barra muestra su uniforme A·γ hacia −Z global. No es
   una carga guardada: sale de modelo/analisis.cargas_de_peso_propio y se dibuja como las demás.
+- Losas: la carga de las losas de viguetas sobre sus vigas (la reacción de cada vigueta entre s) en
+  el peso propio, la carga muerta adicional y la viva de losas. Tampoco se guarda: la da la ventana
+  (modelo/analisis.cargas_de_losas) y se dibuja como una uniforme más.
 - Una uniforme paralela a la barra (el peso propio de una columna) no se puede dibujar con flechas
   que "llegan" a la barra: va sobre el eje de la barra, con las flechas a lo largo. Con la sección
   real opaca queda dentro del concreto: se ve con las barras como líneas o con transparencia.
@@ -131,15 +134,17 @@ def _uniforme(piezas, modelo, eid, pi, pj, eje, u, largo, seccion_real):
     return (pi + pj) / 2 + lado * (_media_seccion(modelo, eid, lado, seccion_real) + largo * 0.2)
 
 
-def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True, seccion_real=False):
+def dibujar_cargas(vista, modelo, caso, tamano, con_etiquetas=True, seccion_real=False, extra=None):
     """Dibuja las cargas del caso (las puestas a mano y, si el caso lo lleva, el peso propio de
     cada barra). seccion_real: las barras se ven con su sección (las flechas llegan a la cara).
-    Devuelve {"cargas": actor, "valores_cargas": actor} (si hay)."""
+    extra: otras cargas automáticas del caso que se dibujan igual (la de las losas sobre sus vigas,
+    modelo/analisis.cargas_de_losas). Devuelve {"cargas": actor, "valores_cargas": actor} (si hay)."""
     actores = {}
     piezas, etiquetas, posiciones = [], [], []
     largo = ui.TAMANO_CARGA * tamano
     cargas = [c for c in modelo.cargas.values() if c.caso == caso]
     cargas += list(cargas_de_peso_propio(modelo, caso).values())
+    cargas += list(extra or [])
     for c in cargas:
         if isinstance(c, CargaNodal):
             p = np.asarray(modelo.nodos[c.nodo].coords, dtype=float)

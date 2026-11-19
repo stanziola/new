@@ -103,20 +103,56 @@ def nodo_en(renderer, modelo, x, y, tol_px, cajas_nudo=None):
     return nid
 
 
-def elemento_en(renderer, modelo, x, y, tol_px, cajas_apoyo=None, cajas_nudo=None):
-    """Nodo, apoyo o barra bajo el clic (x, y): ("nodo", id), ("apoyo", id del nodo), ("barra", id)
-    o None.
+def _dentro(p, poligono):
+    """True si el punto p (2D) está dentro del polígono convexo (en cualquier sentido de giro)."""
+    signos = []
+    for a, b in zip(poligono, np.roll(poligono, -1, axis=0)):
+        cruz = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+        if abs(cruz) > 1e-9:
+            signos.append(cruz > 0)
+    return bool(signos) and (all(signos) or not any(signos))
+
+
+def pano_en(renderer, esquinas, x, y, con_profundidad=False):
+    """ID del paño de losa bajo el clic (x, y), o None. esquinas: {ID de paño: sus 4 esquinas 3D}
+    (las guarda dibujo.ModeloDibujado). Si el clic cae en varios, gana el más cercano a la cámara.
+    con_profundidad: devuelve (ID, profundidad de -1 a 1) o None."""
+    clic = np.array([x, y], dtype=float)
+    mejor = None
+    for pid, puntos in esquinas.items():
+        xy, profundidad, delante = proyectar(renderer, puntos)
+        if not delante.all() or not _dentro(clic, xy):
+            continue
+        if mejor is None or profundidad.mean() < mejor[0]:
+            mejor = (float(profundidad.mean()), pid)
+    if mejor is None:
+        return None
+    return (mejor[1], mejor[0]) if con_profundidad else mejor[1]
+
+
+def elemento_en(renderer, modelo, x, y, tol_px, cajas_apoyo=None, cajas_nudo=None, esquinas_pano=None):
+    """Nodo, apoyo, barra o paño de losa bajo el clic (x, y): ("nodo", id), ("apoyo", id del nodo),
+    ("barra", id), ("pano", id) o None.
 
     Prioridad: el nodo (si hay uno a menos de tol_px, o si el clic cae sobre el bloque de su nudo),
-    después el apoyo (si el clic cae sobre su dibujo; cajas_apoyo como en apoyo_en) y por último la
-    barra.
+    después el apoyo (si el clic cae sobre su dibujo; cajas_apoyo como en apoyo_en), la barra y por
+    último el paño de losa (si el clic cae dentro de él; esquinas_pano como en pano_en). Un paño que
+    tapa a un apoyo (está más cerca de la cámara) gana: la losa está delante del apoyo de abajo.
     """
     nid = nodo_en(renderer, modelo, x, y, tol_px, cajas_nudo)
     if nid is not None:
         return ("nodo", nid)
+    pano = pano_en(renderer, esquinas_pano, x, y, con_profundidad=True) if esquinas_pano else None
     if cajas_apoyo:
         aid = apoyo_en(renderer, cajas_apoyo, x, y)
         if aid is not None:
-            return ("apoyo", aid)
+            x0, x1, y0, y1, z0, z1 = cajas_apoyo[aid]
+            _xy, profundidad, _d = proyectar(renderer, [((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)])
+            if pano is None or float(profundidad[0]) < pano[1]:
+                return ("apoyo", aid)
     eid = barra_cercana(renderer, modelo, x, y, tol_px)
-    return ("barra", eid) if eid is not None else None
+    if eid is not None:
+        return ("barra", eid)
+    if pano is not None:
+        return ("pano", pano[0])
+    return None

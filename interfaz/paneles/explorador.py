@@ -6,6 +6,10 @@
   existen en los casos); en el caso de peso propio se lista el de cada barra, que es automático. Debajo, Materiales y Secciones con sus carpetas (interfaz/definir.py):
   clic los muestra en Propiedades, doble clic los edita ahí y el clic derecho da Nuevo, Editar,
   Copiar y Eliminar.
+  Losas: cada losa de viguetas con sus paños y sus franjas (los sistemas de vigueta), y en cada franja
+  sus casos de viva. Clic en una losa o un paño los selecciona (con la pestaña Comprobaciones); doble
+  clic en una franja la abre (lista Sistema); clic derecho: Nuevo caso de viva… en una franja y
+  Eliminar en un caso de viva propio, un paño o una losa.
 - Pestaña Tablas: la matriz de rigidez global de cada elemento y los diagramas de interacción de
   las secciones de concreto (agrupados por sección: todas las columnas con la misma sección tienen
   el mismo diagrama).
@@ -31,6 +35,8 @@ class Explorador(QDockWidget):
     elegido = Signal(object)                   # ("nodo", id), ("barra", id), ("material", id)...
     doble_clic = Signal(object)                # ("material", id) o ("seccion", id): editarlo
     menu_pedido = Signal(object, object)       # info de definir.info_de y posición en la pantalla
+    menu_losa = Signal(object, object)         # ("losa"|"pano"|"franja"|"patron", dato) y posición
+    franja_abierta = Signal(object)            # doble clic en una franja: (ID de losa, letra)
     vaciado = Signal()                         # clic en el vacío o sobre lo ya elegido: nada elegido
 
     def __init__(self, parent=None):
@@ -81,9 +87,10 @@ class Explorador(QDockWidget):
         if principal:
             self._items[clave] = item
 
-    def actualizar(self, modelo, caso=None):
+    def actualizar(self, modelo, caso=None, cargas_losas=None, resumenes=None):
         """Vuelve a armar los dos árboles (al cambiar el modelo o las unidades). caso: el caso activo,
-        cuyas cargas se listan (None: ninguna, como en el modo Combinaciones)."""
+        cuyas cargas se listan (None: ninguna, como en el modo Combinaciones). cargas_losas: {ID de
+        barra: CargaBarra} con la carga de las losas en ese caso; resumenes: {ID de losa: resumen}."""
         self._recordar_abiertos()
         self.arbol_modelo.clear()
         self.arbol_tablas.clear()
@@ -103,12 +110,17 @@ class Explorador(QDockWidget):
                             True)
         de_caso = [(cid, c) for cid, c in modelo.cargas.items() if c.caso == caso]
         propias = cargas_de_peso_propio(modelo, caso) if caso is not None else {}
-        titulo = f"Cargas ({len(de_caso) + len(propias)})" if caso is not None else "Cargas (se ven en los casos)"
+        de_losas = (cargas_losas or {}) if caso is not None else {}
+        total = len(de_caso) + len(propias) + len(de_losas)
+        titulo = f"Cargas ({total})" if caso is not None else "Cargas (se ven en los casos)"
         cargas = self._grupo(self.arbol_modelo, titulo, "cargas")
         for eid, c in propias.items():                 # el peso propio no se guarda: elegirlo elige su barra
             self._hoja(cargas, f"Barra {eid}: peso propio, {texto_carga(c)}", ("barra", eid))
+        for eid, c in de_losas.items():                # la de las losas tampoco: elegirla elige su viga
+            self._hoja(cargas, f"Barra {eid}: de la losa, {texto_carga(c)}", ("barra", eid))
         for cid, c in de_caso:
             self._registrar(("carga", cid), self._hoja(cargas, f"{donde(c)}: {texto_carga(c)}", ("carga", cid)), True)
+        self._losas(modelo, resumenes or {})
         abierto = lambda clave: clave in self._abiertos          # noqa: E731
         for tipo in ("material", "seccion"):                      # Materiales y Secciones, separados
             for clave, item in llenar_definiciones(self.arbol_modelo, modelo, abierto, tipo, con_raiz=True).items():
@@ -121,6 +133,35 @@ class Explorador(QDockWidget):
         for sid, sec in modelo.secciones.items():
             if sec.concreto is not None and sec.concreto.forma != "T":     # la T (vigas) no tiene diagrama
                 self._hoja(diagramas, f"{textos.nombre(sec, modelo)} ({sec.concreto.forma})", ("seccion", sid))
+
+    def _losas(self, modelo, resumenes):
+        """El grupo Losas: cada losa con sus paños y sus franjas (y los casos de viva de cada una)."""
+        losas = getattr(modelo, "losas", {})
+        if not losas:
+            return
+        from modelo import losas as ml
+        grupo = self._grupo(self.arbol_modelo, f"Losas ({len(losas)})", "losas")
+        for lid, losa in losas.items():
+            fila = self._hoja(grupo, f"{losa.nombre} ({len(losa.panos)} paño{'s' if len(losa.panos) != 1 else ''})",
+                              ("losa", lid))
+            fila.setData(0, CLAVE, f"losa {lid}")
+            fila.setExpanded(f"losa {lid}" in self._abiertos)
+            self._registrar(("losa", lid), fila, True)
+            for pid, pano in losa.panos.items():
+                texto = (f"Paño {pid}: vigas {', '.join(map(str, pano.apoyo_a))} y {', '.join(map(str, pano.apoyo_b))}"
+                         f" · D {formato.cantidad(pano.muerta, 'carga_area', False)}, L "
+                         f"{formato.cantidad(pano.viva, 'carga_area')}")
+                self._registrar(("pano", pid), self._hoja(fila, texto, ("pano", pid)), True)
+            r = resumenes.get(lid, {})
+            for f in r.get("franjas", []):
+                claros = ", ".join(formato.cantidad(c, "longitud", False) for c in f.claros)
+                rama = self._hoja(fila, f"{f.nombre}: {claros} {formato.unidades.simbolo('longitud')} (doble clic: "
+                                        "verla)", ("franja", (lid, f.letra)))
+                rama.setData(0, CLAVE, f"franja {lid} {f.letra}")
+                rama.setExpanded(f"franja {lid} {f.letra}" in self._abiertos)
+                for i, (nombre, claros_p, auto) in enumerate(ml.patrones(losa, f)):
+                    self._hoja(rama, f"{nombre}: viva en {ml.describir_claros(claros_p)}" + ("" if auto else " (tuyo)"),
+                               ("patron", (lid, f.letra, i, auto)))
 
     @staticmethod
     def _abrir_grupos(fila):
@@ -159,14 +200,29 @@ class Explorador(QDockWidget):
     def _clic(self, item, _columna):
         dato = item.data(0, Qt.UserRole)
         if dato is not None:
+            tipo = dato[0]
+            if tipo == "franja":                   # una franja o un caso de viva eligen su losa
+                dato = ("losa", dato[1][0])
+            elif tipo == "patron":
+                dato = ("losa", dato[1][0])
             self.elegido.emit(tuple(dato))
 
     def _doble(self, item, _columna):
+        dato = item.data(0, Qt.UserRole)
+        if dato is not None and dato[0] == "franja":
+            self.franja_abierta.emit(tuple(dato[1]))
+            return
         info = info_de(item)
         if info is not None and info[0] in ("material", "seccion"):
             self.doble_clic.emit(info)
 
     def _menu(self, posicion):
-        info = info_de(self.arbol_modelo.itemAt(posicion))
+        item = self.arbol_modelo.itemAt(posicion)
+        dato = item.data(0, Qt.UserRole) if item is not None else None
+        global_ = self.arbol_modelo.viewport().mapToGlobal(posicion)
+        if dato is not None and dato[0] in ("losa", "pano", "franja", "patron"):
+            self.menu_losa.emit(tuple(dato), global_)
+            return
+        info = info_de(item)
         if info is not None:
-            self.menu_pedido.emit(info, self.arbol_modelo.viewport().mapToGlobal(posicion))
+            self.menu_pedido.emit(info, global_)

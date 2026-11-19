@@ -62,8 +62,11 @@ class Concreto:
     Todo en unidades internas (m y kN/m²). Rectangular: b, h, nx (barras en las caras de arriba y
     abajo) y ny (filas). Circular: D y nbarras (siempre con aros: estribos circulares). T (vigas y
     viguetas, sin diagrama de interacción): b es el ancho del alma (bw), h la altura total, bf y hf
-    el ala, y nx las barras de abajo en el alma (ny = 1). En todas: d (del borde al centro de las
-    barras; en la T, desde abajo), f'c, el número de barra y fy del refuerzo.
+    el ala, nx las barras de abajo en el alma (ny = 1, número `barra`) y n_sup las de arriba (número
+    `barra_sup`; 0 = sin acero arriba), con el recubrimiento libre y el estribo (número y separación;
+    0 = sin estribos). En la T, d (de abajo al centro de las barras de abajo) sale del recubrimiento:
+    d = rec + d_estribo + db/2. En todas: d (del borde al centro de las barras), f'c, el número de
+    barra y fy del refuerzo.
     """
     forma: str               # "rectangular", "circular" o "T"
     fc: float                # f'c, en kN/m²
@@ -78,6 +81,11 @@ class Concreto:
     fy: float = FY_DEFECTO   # fluencia del refuerzo, en kN/m² (Grado 60 por defecto)
     bf: float = 0.0          # T: ancho del ala, en m (b es el ancho del alma, bw)
     hf: float = 0.0          # T: espesor del ala, en m
+    barra_sup: int = 0       # T: número de las barras de arriba (momento negativo); 0 = sin barras
+    n_sup: int = 0           # T: cuántas barras arriba
+    recubrimiento: float = 0.0   # T: recubrimiento libre (al estribo, o a la barra si no hay), en m
+    estribo: int = 0         # T: número del estribo (0 = sin estribos)
+    s_estribo: float = 0.0   # T: separación de los estribos, en m
 
 @dataclass
 class Seccion:
@@ -103,6 +111,7 @@ class Caso:
     nombre: str
     tipo: str = "D"
     peso_propio: float = 0.0   # multiplicador del peso propio de las barras (0 = no lo incluye)
+    viva_losas: bool = False   # el caso automático con la viva de las losas (sus cargas no se guardan)
 
 @dataclass
 class Combinacion:
@@ -161,7 +170,9 @@ class Modelo:
         self.sds, self.rho = 0.5, 1.3
         # Pórticos especiales (SMF), lo usual en Panamá (CDS D): cuantía de columnas ≤ 6 % (ACI §18.7.4.1)
         self.portico_especial = True
-        self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 3, "carga": 1, "combo": 1}
+        self.losas = {}        # id -> Losa (modelo/losas.py): losas de viguetas, con sus paños
+        self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 3, "carga": 1, "combo": 1,
+                        "losa": 1, "pano": 1}
 
     def _nuevo_id(self, tipo):
         i = self._sig_id[tipo]
@@ -292,14 +303,19 @@ class Modelo:
 
     # ---------- CARGAS ----------
     def caso_inicial(self):
-        """El caso donde van las cargas si no se dice otro: el primero que no es de peso propio
+        """El caso donde van las cargas si no se dice otro: el primero que no es automático
         (Carga muerta adicional). Si todos lo fueran, el primero."""
-        manuales = [cid for cid, c in self.casos.items() if not c.peso_propio]
+        manuales = [cid for cid, c in self.casos.items() if not c.peso_propio and not c.viva_losas]
         return min(manuales) if manuales else min(self.casos)
 
     def es_automatico(self, cid):
-        """True si el caso es de peso propio: sus cargas salen solas de A·γ de cada barra."""
-        return bool(self.casos[cid].peso_propio)
+        """True si el caso es automático: el de peso propio (sus cargas salen de A·γ de cada barra) o el
+        de la viva de las losas (sale de las losas). No reciben cargas a mano."""
+        return bool(self.casos[cid].peso_propio) or self.casos[cid].viva_losas
+
+    def caso_viva_losas(self):
+        """ID del caso automático "Viva de losas", o None si no hay."""
+        return next((cid for cid, c in self.casos.items() if c.viva_losas), None)
 
     def cargar(self, nid, fx=0.0, fy=0.0, fz=0.0, mx=0.0, my=0.0, mz=0.0, caso=None):
         """Carga nodal (ejes globales). Devuelve su ID."""
@@ -443,13 +459,91 @@ class Modelo:
         if portico_especial is not None:
             self.portico_especial = bool(portico_especial)
 
+    # ---------- LOSAS ----------
+    def agregar_losa(self, nombre, seccion, n_viguetas=1):
+        """Losa de viguetas nueva (sin paños), con la sección T de su vigueta. Crea el caso automático
+        "Viva de losas" si no existe. Devuelve su ID."""
+        from modelo.losas import NOMBRE_VIVA_LOSAS, Losa
+        sec = self.secciones.get(seccion)
+        if sec is None or sec.concreto is None or sec.concreto.forma != "T":
+            raise ValueError("La vigueta debe ser una sección T de concreto (Definir → Secciones → Nueva T…)")
+        if int(n_viguetas) < 1:
+            raise ValueError("Pon al menos una vigueta")
+        lid = self._nuevo_id("losa")
+        self.losas[lid] = Losa(nombre.strip() or f"Losa {lid}", seccion, n_viguetas=int(n_viguetas))
+        if self.caso_viva_losas() is None:
+            cid = self._nuevo_id("caso")
+            self.casos[cid] = Caso(NOMBRE_VIVA_LOSAS, "L", 0.0, True)
+        return lid
+
+    def agregar_pano(self, lid, viga_a, viga_b, muerta=0.0, viva=0.0):
+        """Paño de la losa lid entre las vigas viga_a y viga_b (dos barras paralelas, enfrentadas; si
+        una está partida, se toman las que siguen en línea). Cargas en kN/m². Devuelve su ID.
+        ValueError si el paño no sirve (y la losa queda como estaba)."""
+        from modelo import losas as ml
+        if lid not in self.losas:
+            raise KeyError(f"La losa {lid} no existe")
+        if muerta < 0 or viva < 0:
+            raise ValueError("Las cargas de la losa van positivas (hacia abajo)")
+        losa = self.losas[lid]
+        ejes = ml.ejes_losa(self, losa) if losa.panos else None
+        if ejes is not None:
+            t = ml.marco(self, viga_a)[0]
+            if abs(t @ ejes[0]) < ml.PARALELA:
+                raise ValueError("Las viguetas de una losa van todas en la misma dirección: estas vigas no son "
+                                 "paralelas a las de los otros paños (crea otra losa)")
+        geo = ml.geometria_pano(self, ml.Pano([viga_a], [viga_b]), ejes)
+        pid = self._sig_id["pano"]
+        losa.panos[pid] = ml.Pano(geo.apoyo_a, geo.apoyo_b, float(muerta), float(viva))
+        try:
+            ml.geometrias(self, losa)                 # que no se enciman con los demás
+            ml.franjas(self, losa)                    # y que las vigas no queden partidas entre franjas
+            if losa.referencia is None:
+                losa.referencia = pid
+            ml.actualizar_seccion(self, losa)
+        except ValueError:
+            del losa.panos[pid]
+            raise
+        self._sig_id["pano"] += 1
+        return pid
+
+    def losa_de_pano(self, pid):
+        """ID de la losa que tiene el paño pid, o None."""
+        return next((lid for lid, losa in self.losas.items() if pid in losa.panos), None)
+
+    def eliminar_pano(self, pid):
+        """Elimina el paño (y su losa, si se queda sin paños)."""
+        lid = self.losa_de_pano(pid)
+        if lid is None:
+            raise KeyError(f"El paño {pid} no existe")
+        losa = self.losas[lid]
+        del losa.panos[pid]
+        if not losa.panos:
+            self.eliminar_losa(lid)
+            return
+        if losa.referencia == pid:
+            losa.referencia = next(iter(losa.panos))
+
+    def eliminar_losa(self, lid):
+        """Elimina la losa. Sin losas, el caso "Viva de losas" ya no hace falta y se quita."""
+        if lid not in self.losas:
+            raise KeyError(f"La losa {lid} no existe")
+        del self.losas[lid]
+        cid = self.caso_viva_losas()
+        if not self.losas and cid is not None and not self.uso_caso(cid):
+            del self.casos[cid]
+
     # ---------- ELIMINAR ----------
     def eliminar_elemento(self, eid):
-        """Elimina la barra y sus cargas."""
+        """Elimina la barra y sus cargas, y los paños de losa que se apoyan en ella."""
         if eid not in self.elementos:
             raise KeyError(f"El elemento {eid} no existe")
         for cid in self.cargas_en("barra", eid):
             del self.cargas[cid]
+        for losa in list(self.losas.values()):
+            for pid, pano in list(losa.panos.items()):
+                if eid in pano.apoyo_a or eid in pano.apoyo_b:
+                    self.eliminar_pano(pid)
         del self.elementos[eid]
 
     def eliminar_nodo(self, nid):
@@ -481,4 +575,7 @@ class Modelo:
         en_uso = [eid for eid, el in self.elementos.items() if el.seccion == sid]
         if en_uso:
             raise ValueError(f"La sección {sid} está en uso en las barras {en_uso}")
+        losas = [losa.nombre for losa in self.losas.values() if losa.seccion == sid]
+        if losas:
+            raise ValueError(f"La sección {sid} es la vigueta de {', '.join(losas)}")
         del self.secciones[sid]

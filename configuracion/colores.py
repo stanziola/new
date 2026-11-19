@@ -21,6 +21,9 @@ INTERFAZ_SELECCION = "#b5b5b5"        # fila elegida en los árboles (explorador
 INTERFAZ_ENLAZADO = "#e3e3e3"         # filas relacionadas con lo elegido (más claras)
 ICONO = "#000000"
 ICONO_DESHABILITADO = "#b0b0b0"
+# Las dos excepciones de color de la interfaz (decisión del usuario), como el aviso rojo de Interacción:
+CUMPLE = "#1e7e34"                    # comprobaciones de la vigueta que cumplen (verde)
+NO_CUMPLE = "#c62828"                 # y las que no (rojo)
 
 # ---------- Dibujo 3D (personalización base) ----------
 FONDO_VISTA = "#ffffff"
@@ -43,6 +46,7 @@ DIAGRAMA_BORDE = "#303030"
 INTERACCION_SUPERFICIE = "#c4c4c4"    # superficie de interacción 3D (translúcida)
 INTERACCION_PUNTO = "#1f4e9c"         # puntos Pu–Mu de las combinaciones, en los diagramas de interacción
 INTERACCION_ELEGIDO = "#c0392b"       # el punto elegido en la tabla
+MEDICION = "#e67e00"                  # la cota de la herramienta Medir y sus marcas de snap
 
 # ---------- Cubo de vistas ----------
 CUBO_CARA = "#ffffff"

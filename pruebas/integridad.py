@@ -178,6 +178,30 @@ def calcular_resultados():
     # El corte de la superficie en la dirección del momento (la misma sección, tres direcciones)
     resultados["biaxial_direccion"] = [[float(x) for x in lista] for deg in (20, 45, 70)
                                        for lista in biaxial.curva_direccion(sec, math.radians(deg), 12)]
+
+    # Diseño de vigas y viguetas (calculo/diseno/viga.py): la vigueta T del SMath y una T con el
+    # bloque en el alma; flexión, Icr, Ie, cortante y límites
+    from calculo.concreto import PSI, modulos
+    from calculo.diseno import viga as v
+    fc, fy = 4000 * PSI, 60000 * PSI
+    _a, ig, _iz, _j, yb = propiedades_T(0.15, 0.45, 0.50, 0.10)
+    n = v.ES / modulos(fc, 2.4 * 9.80665)[0]
+    diseno = []
+    for As, d, b, bw, hf in ((v.area_barra(6), 0.4119, 0.50, 0.15, 0.10), (v.area_barra(5, 2), 0.4135, 0.15, None, None),
+                             (v.area_barra(8, 3), 0.40, 0.50, 0.15, 0.03)):
+        f = v.flexion(As, d, fc, fy, b, bw, hf)
+        kd, icr = v.inercia_agrietada(As, d, n, b, bw, hf)
+        diseno.append([f.a, f.c, f.et, f.phi, f.mn, kd, icr, v.as_minimo(fc, fy, 0.15, d),
+                       v.vc(fc, 0.15, d, As, True)[0], v.vc(fc, 0.15, d, As, False)[0],
+                       v.as_maximo_traccion(d, fc, fy, b, bw, hf)])
+    fr, mcr = v.momento_agrietamiento(fc, ig, yb)
+    diseno.append([fr, mcr, v.inercia_efectiva(19.19, mcr, ig, 0.0003), v.lambda_delta(2.0, 0.004),
+                   v.av_minimo_por_s(fc, fy, 0.15), v.vs(1.42e-4, fy, 0.41, 0.20), v.vn_maximo(fc, 0.15, 0.41, 50.0),
+                   v.ancho_efectivo(0.15, 0.10, 0.35, 7.15), v.ancho_efectivo(0.15, 0.10, 0.35, 7.15, un_lado=True),
+                   v.h_minima(7.60, "un_extremo", 50000 * PSI), v.momento_negativo_exterior(12.0, 7.15),
+                   v.as_requerido(43.64, 0.4119, fc, fy, 0.50, 0.15, 0.10)]
+                  + list(v.limites_vigueta(0.15, 0.45, 0.10, 0.35).values()))
+    resultados["diseno_viga"] = diseno
     return resultados
 
 

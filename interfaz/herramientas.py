@@ -7,6 +7,8 @@ herramienta nueva (apoyos, cargas...) basta otra clase con estos métodos.
 
 Los puntos llegan siempre en unidades internas (m).
 """
+import copy
+
 import numpy as np
 
 from configuracion import interfaz as ui
@@ -68,7 +70,7 @@ class Seleccionar(Herramienta):
     def clic(self, x, y, cand):
         v = self.ventana
         v.seleccionar(elemento_en(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX,
-                                  v.dibujado.cajas_apoyo, v.dibujado.cajas_nudo))
+                                  v.dibujado.cajas_apoyo, v.dibujado.cajas_nudo, v.dibujado.esquinas_pano))
 
 
 class AgregarNodo(Herramienta):
@@ -275,6 +277,77 @@ class AgregarCargaNodo(Herramienta):
                 v.modelo.eliminar_carga(cid)
         v.modelo.agregar_carga_nodal(nid, valores, caso)
         v.modelo_cambiado(f"Carga en el nodo {nid}")
+
+
+class AgregarLosa(Herramienta):
+    """Agregar losa de viguetas: un paño entre dos vigas. Clic en la primera viga de apoyo y en la de
+    enfrente (paralela, al mismo nivel); las viguetas van perpendiculares a ellas. El paño va a la losa
+    elegida en el panel (o a una nueva, con su vigueta T y las viguetas del paño de referencia), con
+    sus cargas de área. Las vigas laterales se buscan solas. Se prueba en una copia del modelo: si el
+    paño no sirve (vigas no paralelas, que no llegan de nodo a nodo…), se avisa y no cambia nada."""
+
+    def __init__(self, ventana):
+        super().__init__(ventana)
+        self._primera = None             # ID de la primera viga ya elegida
+        self.losa = None                 # losa a la que van los paños (None = una nueva)
+
+    def mostrar_panel(self):
+        v = self.ventana
+        if self.losa not in v.modelo.losas:
+            self.losa = None
+        v.propiedades.mostrar_panel_losa(v.modelo, self.losa, self._primera)
+        return True
+
+    def cancelar(self):
+        habia = self._primera is not None
+        self._primera = None
+        if habia:
+            self.ventana.marcados = []
+            self.ventana.pintar()
+            self.mostrar_panel()
+        return habia
+
+    def reiniciar(self):
+        self.cancelar()
+        self.losa = None
+
+    def clic(self, x, y, cand):
+        v = self.ventana
+        eid = barra_cercana(v.vista.renderer, v.modelo, x, y, ui.TOL_SELECCION_PX)
+        if eid is None or v.modelo.es_columna(eid):
+            v.mensaje("Haz clic sobre una viga (una barra horizontal)")
+            return
+        if self._primera is None or self._primera == eid:
+            self._primera = eid
+            v.marcados = [("barra", eid)]
+            v.pintar()
+            v.mensaje(f"Viga {eid}: ahora la viga de enfrente, paralela (Esc cancela)")
+            self.mostrar_panel()
+            return
+        a, self._primera = self._primera, None
+        v.marcados = []
+        datos = v.propiedades.panel_losa.valores()
+        lid = datos["losa"] if datos["losa"] in v.modelo.losas else None
+        if lid is None and datos["vigueta"] is None:
+            v.mensaje("Primero define la vigueta: una sección T (Definir → Secciones → Nueva T…)")
+            self.mostrar_panel()
+            return
+
+        def poner(modelo):
+            nueva = lid if lid is not None else modelo.agregar_losa("", datos["vigueta"], datos["n"])
+            return nueva, modelo.agregar_pano(nueva, a, eid, datos["muerta"], datos["viva"])
+
+        try:
+            poner(copy.deepcopy(v.modelo))                # primero en una copia: si no sirve, no cambia nada
+        except (ValueError, KeyError) as e:
+            v.mensaje(f"No se pudo poner el paño: {e}")
+            v.pintar()
+            self.mostrar_panel()
+            return
+        v.antes_de_cambiar()
+        nueva, pid = poner(v.modelo)
+        self.losa = nueva
+        v.modelo_cambiado(f"Paño {pid} agregado a {v.modelo.losas[nueva].nombre} (vigas {a} y {eid})")
 
 
 class AgregarCargaBarra(Herramienta):

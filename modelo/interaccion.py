@@ -48,19 +48,33 @@ def diametro_barra(numero):
     return math.sqrt(4 * area_barra(numero).to("m^2").magnitude / math.pi)
 
 
-def posiciones_barras(c):
+def _a_lo_ancho(n, borde, ancho):
+    """n posiciones repartidas en el ancho, a `borde` de cada cara (una sola: al centro)."""
+    return [borde + i * (ancho - 2 * borde) / (n - 1) for i in range(n)] if n > 1 else [ancho / 2]
+
+
+def posiciones_barras(c, con_numero=False):
     """Centros de las barras de una sección rectangular, en m, desde la esquina inferior izquierda:
     (a lo ancho b, a lo alto h). Nx barras en las caras de arriba y abajo y dos por cada fila
     intermedia: el mismo arreglo que usa el cálculo (calculo/interaccion/biaxial.py, _barras).
-    En una T (con "b" el alma): nx barras abajo, repartidas en el alma, a d del borde inferior."""
+    En una T (con "b" el alma): nx barras abajo, repartidas en el alma, a d del borde inferior, y
+    n_sup arriba, a d_superior del borde de arriba, también en el ancho del alma.
+    con_numero: cada posición lleva también el número de su barra, (x, y, #)."""
     if c.forma == "T":
-        xs = [c.d + i * (c.b - 2 * c.d) / (c.nx - 1) for i in range(c.nx)] if c.nx > 1 else [c.b / 2]
-        return [(x, c.d) for x in xs]
-    xs = [c.d + i * (c.b - 2 * c.d) / (c.nx - 1) for i in range(c.nx)] if c.nx > 1 else [c.b / 2]
-    ys = [c.d + j * (c.h - 2 * c.d) / (c.ny - 1) for j in range(c.ny)] if c.ny > 1 else [c.h / 2]
-    puntos = [(x, ys[0]) for x in xs] + [(x, ys[-1]) for x in xs]
-    puntos += [(x, y) for y in ys[1:-1] for x in (xs[0], xs[-1])]
-    return puntos
+        from modelo.concreto import d_superior
+        abajo = [(x, c.d, c.barra) for x in _a_lo_ancho(c.nx, min(c.d, c.b / 2), c.b)]
+        arriba = []
+        if c.n_sup:
+            borde = min(d_superior(c), c.b / 2)
+            arriba = [(x, c.h - d_superior(c), c.barra_sup) for x in _a_lo_ancho(c.n_sup, borde, c.b)]
+        puntos = abajo + arriba
+    else:
+        xs = _a_lo_ancho(c.nx, c.d, c.b)
+        ys = [c.d + j * (c.h - 2 * c.d) / (c.ny - 1) for j in range(c.ny)] if c.ny > 1 else [c.h / 2]
+        puntos = [(x, ys[0]) for x in xs] + [(x, ys[-1]) for x in xs]
+        puntos += [(x, y) for y in ys[1:-1] for x in (xs[0], xs[-1])]
+        puntos = [(x, y, c.barra) for x, y in puntos]
+    return puntos if con_numero else [(x, y) for x, y, _n in puntos]
 
 
 def direccion_momento(my, mz):

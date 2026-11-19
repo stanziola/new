@@ -20,6 +20,13 @@
   - las combinaciones de la versión 3 pasan de factores por caso a factores por tipo.
 - Versión 5: las secciones de concreto pueden ser T ("forma": "T", con "bf" y "hf" del ala). Se lee
   igual que la 4 (los campos nuevos tienen valor por defecto).
+- Versión 6: la T lleva también barras arriba ("barra_sup", "n_sup"), recubrimiento libre y estribo
+  ("estribo", "s_estribo"). Una T de la versión 5 (solo con d desde abajo) abre sin acero arriba,
+  sin estribos y con el recubrimiento que sale de su d: rec = d − db/2.
+- Versión 7: las losas de viguetas ("losas": sus paños, con las barras de sus dos apoyos y sus cargas
+  de área; la sección de la vigueta; n en el paño de referencia; ξ; si sostiene elementos frágiles; y
+  los casos de viva del usuario por franja) y el caso automático "Viva de losas" ("viva_losas" en el
+  caso). Contadores nuevos: "losa" y "pano". Los archivos anteriores abren sin losas.
 - E y G de los materiales de concreto (los que tienen f'c) se recalculan al abrir con f'c y γ
   (calculo/concreto.modulos): el E guardado no se usa. Así, los archivos guardados cuando E era
   57 000·√f'c pasan a la Ec. 19.2.2.1.a como los nuevos (decisión del usuario, noviembre de 2026).
@@ -33,12 +40,13 @@ from dataclasses import asdict
 from pathlib import Path
 
 from calculo.concreto import GAMMA_CONCRETO, modulos
+from calculo.diseno.viga import diametro_barra
 from modelo.estructura import (NOMBRE_MUERTA_ADICIONAL, NOMBRE_PESO_PROPIO, CargaBarra, CargaNodal, Caso,
                                Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
 
-VERSION_FORMATO = 5
-VERSIONES_LEIDAS = (1, 2, 3, 4, 5)
-CONTADORES = {"nodo", "elem", "mat", "sec", "caso", "carga", "combo"}
+VERSION_FORMATO = 7
+VERSIONES_LEIDAS = (1, 2, 3, 4, 5, 6, 7)
+CONTADORES = {"nodo", "elem", "mat", "sec", "caso", "carga", "combo", "losa", "pano"}
 UNIDADES_INTERNAS = {"fuerza": "kN", "longitud": "m"}
 
 
@@ -58,6 +66,9 @@ def a_diccionario(modelo, vista=None):
         "combinaciones": {str(i): {"nombre": co.nombre, "factores": dict(co.factores)}
                           for i, co in modelo.combinaciones.items()},
         "sismo": {"sds": modelo.sds, "rho": modelo.rho, "portico_especial": modelo.portico_especial},
+        "losas": {str(i): {**{k: v for k, v in asdict(losa).items() if k != "panos"},
+                           "panos": {str(p): asdict(pano) for p, pano in losa.panos.items()}}
+                  for i, losa in modelo.losas.items()},
         "siguiente_id": dict(modelo._sig_id),
         "vista": dict(vista or {}),
     }
@@ -82,7 +93,10 @@ def _seccion(d):
     if concreto:
         concreto = {k: v for k, v in concreto.items() if k != "confinamiento"}
     d.pop("acero", None)                         # sección de acero de archivos viejos: queda como "Otros"
-    return Seccion(**d, concreto=Concreto(**concreto) if concreto else None)
+    concreto = Concreto(**concreto) if concreto else None
+    if concreto is not None and concreto.forma == "T" and concreto.recubrimiento <= 0:
+        concreto.recubrimiento = concreto.d - diametro_barra(concreto.barra) / 2     # T de la versión 5
+    return Seccion(**d, concreto=concreto)
 
 
 def _material(d):
@@ -95,6 +109,18 @@ def _material(d):
     if d.get("fc") is not None:
         d["e"], d["g"] = modulos(d["fc"], d["gamma"])
     return Material(**d)
+
+
+def _losa(d):
+    """Losa desde su diccionario (versión 7)."""
+    from modelo.losas import Losa, Pano
+    d = dict(d)
+    panos = {int(p): Pano([int(e) for e in x["apoyo_a"]], [int(e) for e in x["apoyo_b"]], float(x["muerta"]),
+                          float(x["viva"])) for p, x in d.pop("panos").items()}
+    patrones = {str(f): [[str(n), [int(c) for c in claros]] for n, claros in lista]
+                for f, lista in d.pop("patrones", {}).items()}
+    referencia = d.pop("referencia", None)
+    return Losa(**d, panos=panos, patrones=patrones, referencia=int(referencia) if referencia is not None else None)
 
 
 def _carga(d):
@@ -177,6 +203,10 @@ def desde_diccionario(datos):
             m._sig_id.setdefault("combo", 1)
         if version in (2, 3):
             _separar_peso_propio(m)
+        m._sig_id.setdefault("losa", 1)
+        m._sig_id.setdefault("pano", 1)
+        if version >= 7:
+            m.losas = {int(i): _losa(d) for i, d in datos.get("losas", {}).items()}
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise ValueError(f"El archivo no tiene el formato esperado: {e!r}") from e
     _revisar(m)
@@ -209,12 +239,23 @@ def _revisar(m):
     for coid, co in m.combinaciones.items():
         if not co.factores or not all(isinstance(t, str) for t in co.factores):
             problemas.append(f"la combinación {coid} no tiene factores por tipo de caso")
+    panos = {}
+    for lid, losa in m.losas.items():
+        if losa.seccion not in m.secciones:
+            problemas.append(f"la losa {lid} usa la sección {losa.seccion}, que no existe")
+        for pid, pano in losa.panos.items():
+            panos[pid] = pano
+            for eid in pano.apoyo_a + pano.apoyo_b:
+                if eid not in m.elementos:
+                    problemas.append(f"el paño {pid} se apoya en la barra {eid}, que no existe")
+    if m.losas and m.caso_viva_losas() is None:
+        problemas.append("hay losas pero falta el caso Viva de losas")
     if set(m._sig_id) != CONTADORES:
         problemas.append(f"faltan contadores de IDs: {sorted(m._sig_id)}")
     else:
         for tipo, ids in (("nodo", m.nodos), ("elem", m.elementos), ("mat", m.materiales),
                           ("sec", m.secciones), ("caso", m.casos), ("carga", m.cargas),
-                          ("combo", m.combinaciones)):
+                          ("combo", m.combinaciones), ("losa", m.losas), ("pano", panos)):
             if ids and m._sig_id[tipo] <= max(ids):
                 problemas.append(f"el contador de '{tipo}' ({m._sig_id[tipo]}) no es mayor que "
                                  f"el ID {max(ids)}: se repetirían IDs")

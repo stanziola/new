@@ -584,6 +584,173 @@ def verificar_vigueta_continua():
               f"(a mano {medio:.2f})", np.isclose(mp[-1], medio, atol=1e-6))
 
 
+def verificar_diseno_vigueta():
+    """calculo/diseno/viga.py contra la hoja de SMath del usuario (VIGUETAS Y VIGA.sm): vigueta T de
+    bw 15, h 45, bf 50, hf 10 cm, f'c 4000 psi, γ 2.4 tonf/m³, recubrimiento 3/4 in, estribo #3, 1 #6
+    abajo y 2 #5 arriba. Y el cortante y una T con el bloque en el alma, a mano."""
+    from calculo.concreto import PSI, modulos, propiedades_T
+    from calculo.diseno import viga as v
+    print("\n===== DISEÑO DE LA VIGUETA T (contra el SMath) =====")
+    tf, in4 = 9.80665, 0.0254 ** 4                    # kN por tonf; m⁴ por in⁴
+    fc, fy = 4000 * PSI, 60000 * PSI
+    bw, h, bf, hf = 0.15, 0.45, 0.50, 0.10
+    rec, est = 0.75 * 0.0254, v.diametro_barra(3)
+    _a, ig, _iz, _j, yb = propiedades_T(bw, h, bf, hf)
+    ec = modulos(fc, 2.4 * tf)[0]
+
+    def cerca(valor, smath, tol=5e-5):
+        return abs(valor / smath - 1) < tol
+
+    fr, mcr = v.momento_agrietamiento(fc, ig, yb)
+    comprobar(f"fr = {fr / PSI:.2f} psi y Mcr+ = {mcr / tf:.4f} tonf·m (SMath 474.34 y 2.1949)",
+              cerca(fr / PSI, 474.3416) and cerca(mcr / tf, 2.1949, 1e-4))
+    dpos = h - rec - est - v.diametro_barra(6) / 2
+    fp = v.flexion(v.area_barra(6), dpos, fc, fy, bf, bw, hf)
+    comprobar(f"Positivo: d = {dpos * 100:.2f} cm, c = {fp.c * 100:.4f} cm, εt = {fp.et:.4f}, "
+              f"φMn = {fp.phi_mn / tf:.4f} tonf·m (SMath 41.19, 1.1835, 0.1014 y 4.4028)",
+              cerca(dpos * 100, 41.19, 1e-4) and cerca(fp.c * 100, 1.1835, 1e-4) and cerca(fp.et, 0.1014, 1e-3)
+              and cerca(fp.phi_mn / tf, 4.4028, 1e-4) and fp.phi == 0.9 and not fp.como_t)
+    dneg = h - rec - est - v.diametro_barra(5) / 2
+    fn = v.flexion(v.area_barra(5, 2), dneg, fc, fy, bw)
+    comprobar(f"Negativo: d = {dneg * 100:.4f} cm, c = {fn.c * 100:.4f} cm, εt = {fn.et:.4f}, "
+              f"φMn = {fn.phi_mn / tf:.4f} tonf·m (SMath 41.3488, 5.4791, 0.0196 y 5.8645)",
+              cerca(dneg * 100, 41.3488) and cerca(fn.c * 100, 5.4791, 1e-4) and cerca(fn.et, 0.0196, 5e-3)
+              and cerca(fn.phi_mn / tf, 5.8645, 1e-4))
+    comprobar("Las dos controladas por tracción (εt ≥ εty + 0.003, §9.3.3.1)",
+              fp.controlada_traccion and fn.controlada_traccion)
+    kd, icr = v.inercia_agrietada(v.area_barra(6), dpos, v.ES / ec, bf, bw, hf)
+    ie = v.inercia_efectiva(19.19, mcr, ig, icr)
+    comprobar(f"Ig = {ig / in4:.2f}, Icr = {icr / in4:.3f} e Ie = {ie / in4:.2f} in⁴ con Ma = 19.19 kN·m "
+              f"(SMath 4502.54, 727.458 y 1369.48)",
+              cerca(ig / in4, 4502.5386) and cerca(icr / in4, 727.4582) and cerca(ie / in4, 1369.4836))
+    comprobar("Ie = Ig si Ma ≤ (2/3)Mcr", v.inercia_efectiva(0.6 * mcr, mcr, ig, icr) == ig)
+    comprobar("λΔ = 2 con ξ = 2 (60 meses) y ρ' = 0", v.lambda_delta(v.XI[60]) == 2.0)
+    # As,min = 200/fy·bw·d (con 4000 psi manda 200/fy: 3√4000 = 189.7 < 200)
+    asmin = v.as_minimo(fc, fy, bw, dpos)
+    comprobar(f"As,min = {asmin * 1e4:.3f} cm² (a mano 200/60000·15·41.19 = 2.060)",
+              np.isclose(asmin * 1e4, 200 / 60000 * 15 * dpos * 100))
+    # Cortante, a mano en lb e in: bw = 5.906 in, d = 16.217 in, As = 0.4418 in², √f'c = 63.246 psi
+    bw_in, d_in, as_in = 15 / 2.54, dpos / 0.0254, v.area_barra(6) / 0.0254 ** 2
+    va_mano = 2 * 63.2456 * bw_in * d_in * 4.448222e-3                     # kN
+    rho_w = as_in / (bw_in * d_in)
+    ls = (2 / (1 + d_in / 10)) ** 0.5
+    vc_mano = 8 * ls * rho_w ** (1 / 3) * 63.2456 * bw_in * d_in * 4.448222e-3
+    va, ea = v.vc(fc, bw, dpos, v.area_barra(6), True)
+    vcc, ecc = v.vc(fc, bw, dpos, v.area_barra(6), False)
+    comprobar(f"Vc con estribos (a) = {va:.2f} kN y sin estribos (c) = {vcc:.2f} kN, λs = {ls:.4f} "
+              f"(a mano {va_mano:.2f} y {vc_mano:.2f})",
+              ea == "a" and ecc == "c" and np.isclose(va, va_mano, rtol=1e-4) and np.isclose(vcc, vc_mano, rtol=1e-4))
+    # T con el bloque en el alma (losa de 3 cm), a mano: Cf = 0.85f'c(b − bw)hf
+    k = 0.85 * fc
+    asT, d = v.area_barra(8, 3), 0.40
+    cf = k * 0.35 * 0.03
+    a = (asT * fy - cf) / (k * 0.15)
+    mn = cf * (d - 0.015) + k * 0.15 * a * (d - a / 2)
+    ft = v.flexion(asT, d, fc, fy, 0.50, 0.15, 0.03)
+    comprobar(f"T con a > hf: a = {ft.a * 100:.3f} cm y Mn = {ft.mn:.2f} kN·m (a mano {a * 100:.3f} y {mn:.2f})",
+              ft.como_t and np.isclose(ft.a, a) and np.isclose(ft.mn, mn))
+    asr = v.as_requerido(43.64, dpos, fc, fy, bf, bw, hf)
+    comprobar(f"As requerido para Mu = 43.64 kN·m: {asr * 1e4:.3f} cm², con φMn = Mu",
+              np.isclose(v.flexion(asr, dpos, fc, fy, bf, bw, hf).phi_mn, 43.64, rtol=1e-6))
+    # Icr de la T con el eje neutro en el alma, contra la suma de partes hecha aparte
+    kdt, icrt = v.inercia_agrietada(asT, d, 8.0, 0.50, 0.15, 0.03)
+    resto = 0.50 * 0.03 * (kdt - 0.015) + 0.15 * (kdt - 0.03) ** 2 / 2 - 8.0 * asT * (d - kdt)
+    comprobar(f"Icr de la T con kd = {kdt * 100:.2f} cm > hf: momentos estáticos en equilibrio",
+              kdt > 0.03 and abs(resto) < 1e-12)
+    lim = v.limites_vigueta(bw, h, hf, bf - bw)
+    comprobar("Límites de §9.8: 4 in, 3.5·bw, 30 in y max(libre/12, 2 in)",
+              np.isclose(lim["ancho_minimo"], 0.1016) and np.isclose(lim["altura_maxima"], 0.525)
+              and np.isclose(lim["separacion_maxima"], 0.762) and np.isclose(lim["losa_minima"], 0.0508))
+    comprobar("bf efectivo = 50 cm con sw = 35 cm (manda sw/2) y ℓ/18.5 de 7.60 m = 41.08 cm",
+              np.isclose(v.ancho_efectivo(bw, hf, 0.35, 7.15), 0.50)
+              and np.isclose(v.h_minima(7.60, "un_extremo", fy), 7.60 / 18.5))
+
+
+def verificar_losa_viguetas():
+    """La losa de viguetas de la planta de la tarea (ejemplos/losa_viguetas.py): franjas, casos de viva,
+    carga a las vigas (equilibrio), momentos contra la ecuación de los tres momentos, deflexión de un
+    claro simple con Ie contra 5wL⁴/384EIe y el archivo (versión 7)."""
+    import tempfile
+    from pathlib import Path
+    from ejemplos.losa_viguetas import MUERTA, VIVA_PASILLO, VIVA_SALON, crear_losa_viguetas
+    from calculo.diseno import viga as v
+    from modelo import losas as ml
+    from modelo.archivo import abrir, guardar
+    from modelo.diseno_vigueta import disenar_losa
+    print("\n===== LOSA DE VIGUETAS (planta de la tarea, en L) =====")
+    m = crear_losa_viguetas()
+    r = ml.resumen(m, 1)
+    fr = r["franjas"]
+    comprobar(f"Dos franjas: {fr[0].nombre} {fr[0].claros} y {fr[1].nombre} {fr[1].claros}",
+              len(fr) == 2 and fr[0].claros == [7.60, 7.55, 7.43] and fr[1].claros == [7.55, 7.43])
+    comprobar(f"s = 7.30/15 = {r['s'] * 100:.3f} cm y bf = s", np.isclose(r["s"], 7.30 / 15) and np.isclose(r["bf"], r["s"]))
+    comprobar("Casos de viva automáticos (§6.4.2): 5 con 3 claros y 3 con 2",
+              [c for _n, c in ml.patrones_automaticos(3)] == [(1, 2, 3), (1, 3), (2,), (1, 2), (2, 3)]
+              and [c for _n, c in ml.patrones_automaticos(2)] == [(1, 2), (1,), (2,)])
+    # Carga a las vigas: lo que llega a las vigas es q × área en cada caso
+    cargas = ml.cargas_a_vigas(m)
+    area = {pid: (g.u1 - g.u0) * g.claro for pid, g in r["geos"].items()}
+    esperado = {2: ml.peso_por_area(m, m.losas[1]) * sum(area.values()), 1: MUERTA * sum(area.values()),
+                m.caso_viva_losas(): sum(a * (VIVA_SALON if pid <= 3 else VIVA_PASILLO) for pid, a in area.items())}
+    for cid, total in esperado.items():
+        llega = sum(w * m.nodos[m.elementos[e].ni].distancia(m.nodos[m.elementos[e].nj]) for e, w in cargas[cid].items())
+        comprobar(f"{m.casos[cid].nombre}: a las vigas llegan {llega:.2f} kN = q·área {total:.2f}", np.isclose(llega, total))
+    res = analizar(m)
+    rz = sum(x[2] for x in res[m.caso_viva_losas()].res.reacciones.values())
+    comprobar(f"Viva de losas en el 3D: ΣRz = {rz:.2f} kN = {esperado[m.caso_viva_losas()]:.2f}",
+              np.isclose(rz, esperado[m.caso_viva_losas()]))
+    # La franja del pasillo con 1.2D + 1.6L: el M del apoyo del medio, con la ecuación de los tres momentos
+    sv = ml.sistemas(m, 1)[1]
+    sec = next(iter(sv.modelo.secciones.values()))
+    mat = next(iter(sv.modelo.materiales.values()))
+    wu = 1.2 * (sec.a * mat.gamma + MUERTA * sv.s) + 1.6 * VIVA_PASILLO * sv.s
+    l1, l2 = sv.franja.claros
+    rs = analizar(sv.modelo)
+    rc = combinar(sv.modelo, rs, comb.todas(sv.modelo)["C2"], sv.casos_de((1, 2)))
+    medio = fuerzas_en(sv.modelo, rc, 1)["My"][-1]
+    comprobar(f"Pasillo, 1.2D + 1.6L: M del apoyo del medio = {medio:.2f} kN·m (a mano "
+              f"{-wu * (l1 ** 3 + l2 ** 3) / (8 * (l1 + l2)):.2f})", np.isclose(medio, -wu * (l1 ** 3 + l2 ** 3) / (8 * (l1 + l2))))
+    d = disenar_losa(m, 1)
+    comprobar(f"Mu+ = {d.mu_pos.valor:.2f}, Mu− = {d.mu_neg.valor:.2f} kN·m y Vu = {d.vu.valor:.2f} kN: mandan en el "
+              f"pasillo ({d.mu_pos.franja}, {d.mu_neg.franja})", d.mu_pos.franja.startswith("Franja B")
+              and d.mu_neg.franja.startswith("Franja B") and not d.error)
+
+    # Un solo claro (paño de salón B–C solo): Δ(D) con Ie contra 5wL⁴/384EIe
+    m1 = crear_losa_viguetas()
+    for pid in list(m1.losas[1].panos)[1:]:
+        m1.eliminar_pano(pid)
+    m1.losas[1].sostenida = 0.0
+    d1 = disenar_losa(m1, 1)
+    f1 = d1.franjas[0]
+    sv1 = f1.sistema
+    w = sec.a * mat.gamma + MUERTA * sv1.s
+    largo = sv1.franja.claros[0]
+    ma = w * largo ** 2 / 8
+    ie = v.inercia_efectiva(ma, d1.mcr_pos, d1.ig, d1.icr_pos)
+    mano = 5 * w * largo ** 4 / (384 * mat.e * ie)
+    from modelo.diseno_vigueta import _deflexiones, niveles
+    calc = float(_deflexiones(sv1, f1.ie, d1.ig, niveles(m1.losas[1]))["D"][("", ())][0].max())
+    comprobar(f"Claro simple: Ma = wL²/8 = {f1.ma['D'][0]:.2f} kN·m (a mano {ma:.2f}); Δ(D) con Ie = {calc * 1000:.3f} mm "
+              f"(5wL⁴/384EIe = {mano * 1000:.3f})", np.isclose(f1.ma["D"][0], ma) and np.isclose(calc, mano, rtol=1e-4))
+    # En un claro simple todo es máximo al centro: Δ largo = λΔ·Δ(D) + ΔL, con λΔ = 2 (ξ = 2, ρ' = 0)
+    comprobar(f"Con la viva sostenida en 0: Δ largo = 2·Δ(D) + ΔL = {f1.delta_largo[0].valor * 1000:.3f} mm",
+              np.isclose(f1.delta_largo[0].valor, 2.0 * calc + f1.delta_l[0].valor, rtol=1e-3))
+    # Archivo, versión 7: se guarda y se abre igual
+    with tempfile.TemporaryDirectory() as carpeta:
+        ruta = Path(carpeta) / "losa.json"
+        guardar(m, ruta)
+        m2, _ = abrir(ruta)
+    comprobar("Archivo v7: la losa, sus paños y el caso Viva de losas vuelven iguales",
+              m2.losas == m.losas and m2.caso_viva_losas() == m.caso_viva_losas()
+              and ml.resumen(m2, 1)["s"] == r["s"])
+    # Borrar una viga de apoyo borra sus paños
+    m3 = crear_losa_viguetas()
+    apoyo = m3.losas[1].panos[4].apoyo_a[0]
+    m3.eliminar_elemento(apoyo)
+    comprobar(f"Borrar la viga {apoyo} borra los paños que se apoyan en ella (quedan {sorted(m3.losas[1].panos)})",
+              all(apoyo not in p.apoyo_a + p.apoyo_b for p in m3.losas[1].panos.values()))
+
+
 if __name__ == "__main__":
     from pruebas.integridad import revisar
     configurar()
@@ -598,5 +765,7 @@ if __name__ == "__main__":
     verificar_demandas()
     verificar_seccion_T()
     verificar_vigueta_continua()
+    verificar_diseno_vigueta()
+    verificar_losa_viguetas()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()
