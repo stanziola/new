@@ -60,7 +60,7 @@ from interfaz.paneles.explorador import Explorador
 from interfaz.historial import Historial
 from interfaz.herramientas import (AgregarApoyo, AgregarCargaBarra, AgregarCargaNodo, AgregarElemento,
                                    AgregarLosa, AgregarNodo, AsignarSeccion, Seleccionar)
-from interfaz.vista3d.losas import cortes_superiores, resumenes as resumenes_losas
+from interfaz.vista3d.losas import cargas_de_area, cortes_superiores, resumenes as resumenes_losas
 from interfaz.vista3d.medicion import Medicion
 from interfaz.iconos import icono
 from interfaz.paneles.comunes import Lista, ListaDosColumnas, MenuPersistente, poner_titulo
@@ -124,6 +124,8 @@ class Ventana(QMainWindow):
         self.resultado_visible = None              # None, "deformada", "Dx", "Dy", "Dz", "N", "Vy", "Vz", "T", "My" o "Mz"
         self._ultimo_resultado = "deformada"       # lo último que se vio: es lo que muestra ▶ al entrar
         self.factor_deformada = None               # cuánto se amplificó la deformada dibujada
+        self._escala_diagrama = 0.0                # la del diagrama dibujado (para el corte del panel Diagrama)
+        self._corte = None                         # (ID de barra, x) del corte del panel Diagrama, o None
         self._combinados = {}                      # {clave de combinación: ResultadoCaso} (caché)
         self.opacidad_concreto = 1.0               # de las cajas de la sección real (deslizador de abajo)
         self._ancho_normal = None                  # ancho de Propiedades antes de ensancharlo (pestaña Interacción)
@@ -212,6 +214,7 @@ class Ventana(QMainWindow):
         self.resizeDocks([self.explorador, self.propiedades], [260, 300], Qt.Horizontal)
         self.diagrama.setVisible(ui.DIAGRAMA_VISIBLE)                      # se cierra y se abre desde Ver
         self.diagrama.visibilityChanged.connect(lambda visible: visible and self._refrescar_diagrama())
+        self.diagrama.corte.connect(self._dibujar_corte)          # el punto verde sobre la barra
         self.explorador.elegido.connect(self._elegido_en_explorador)
         self.explorador.vaciado.connect(lambda: self.seleccionar(None))
         self.propiedades.ver_diagrama.connect(self.ver_diagrama)
@@ -234,8 +237,7 @@ class Ventana(QMainWindow):
     def _ancho_propiedades(self, interaccion):
         """Con la pestaña Interacción a la vista, el panel Propiedades se ensancha para que el
         diagrama se aprecie (ui.ANCHO_PANEL_INTERACCION, sin pasar del 60 % de la ventana); al volver
-        a la pestaña Propiedades, o al dejar de tener una columna elegida, recupera el ancho que
-        tenía."""
+        a la pestaña Datos, o al dejar de tener una columna elegida, recupera el ancho que tenía."""
         if interaccion:
             self._ancho_normal = self.propiedades.width()
             ancho = max(self._ancho_normal, min(ui.ANCHO_PANEL_INTERACCION, int(0.6 * self.width())))
@@ -373,7 +375,7 @@ class Ventana(QMainWindow):
 
     def _elegido_en_explorador(self, item):
         tipo, ident = item
-        if tipo in ("nodo", "apoyo", "barra", "carga"):
+        if tipo in ("nodo", "apoyo", "barra", "carga", "losa", "pano"):
             self.seleccionar(item)
         elif tipo == "matriz":
             self.seleccionar(("barra", ident))
@@ -538,6 +540,8 @@ class Ventana(QMainWindow):
                 for componente, descripcion in opciones:
                     accion = menu.addAction(descripcion)
                     accion.triggered.connect(lambda *_, c=componente: self.ver_resultado(c))
+                if clave == "deformada":
+                    self._opciones_escala(menu)
                 boton.setMenu(menu)
             else:
                 boton.setToolTip(texto)
@@ -559,6 +563,46 @@ class Ventana(QMainWindow):
         self._llenar_casos()
         self._llenar_combinaciones()
 
+    def _opciones_escala(self, menu):
+        """La escala de la deformada, al final del menú Deformada ▾ (es donde se usa): automática (el
+        desplazamiento mayor mide una fracción del modelo), el tamaño real (×1) u otra escala fija. Es
+        lo mismo que Configuración → Vista, y se guarda en las preferencias."""
+        menu.addSeparator()
+        self.accion_escala_automatica = menu.addAction("Escala automática")
+        self.accion_escala_automatica.setCheckable(True)
+        self.accion_escala_automatica.setChecked(ui.DEFORMADA_AUTOMATICA)
+        self.accion_escala_automatica.setToolTip("El desplazamiento mayor mide una fracción fija del modelo")
+        self.accion_escala_automatica.triggered.connect(lambda marcada: self._poner_escala(bool(marcada), None))
+        menu.addAction("Tamaño real (×1)").triggered.connect(lambda *_: self._poner_escala(False, 1.0))
+        menu.addAction("Otra escala fija…").triggered.connect(self._pedir_escala)
+        menu.setToolTipsVisible(True)
+        menu.aboutToShow.connect(lambda: self.accion_escala_automatica.setChecked(ui.DEFORMADA_AUTOMATICA))
+
+    def _pedir_escala(self, *_):
+        from PySide6.QtWidgets import QInputDialog
+        factor, ok = QInputDialog.getDouble(self, "Escala de la deformada",
+                                            "Factor que multiplica los desplazamientos reales (1 = tamaño real):",
+                                            ui.FACTOR_DEFORMADA, 0.01, 1e7, 2)
+        if ok:
+            self._poner_escala(False, factor)
+
+    def _poner_escala(self, automatica, factor):
+        """Cambia la escala de la deformada (automática o un factor fijo), la guarda en las
+        preferencias y redibuja. factor None: no cambia el factor fijo."""
+        from configuracion import preferencias
+        ui.DEFORMADA_AUTOMATICA = automatica
+        if factor is not None:
+            ui.FACTOR_DEFORMADA = float(factor)
+        try:
+            preferencias.guardar()
+        except OSError as e:
+            self.mensaje(f"No se pudieron guardar las preferencias: {e}")
+        if self.resultado_visible not in DEFORMADAS and self.modo_resultados and not self.viendo_envolvente():
+            self.ver_resultado("deformada")
+            return
+        self.redibujar()
+        self._aviso_deformada()
+
     # ---------- Casos, combinaciones, análisis y los tres estados ----------
     @property
     def modo_combinaciones(self):
@@ -572,7 +616,10 @@ class Ventana(QMainWindow):
         actual = self.selector_caso.currentData()
         self.selector_caso.blockSignals(True)
         self.selector_caso.clear()
-        for cid, caso in self.modelo.casos.items():
+        # Los fijos primero (Peso propio, Carga muerta adicional y Carga viva), y luego los del usuario
+        orden = sorted(self.modelo.casos, key=lambda c: not self.modelo.es_fijo(c))
+        for cid in orden:
+            caso = self.modelo.casos[cid]
             if self._sv is not None and self._sv.es_caso_interno(cid):
                 continue
             self.selector_caso.addItem(f"{caso.nombre} ({caso.tipo})", cid)
@@ -717,8 +764,8 @@ class Ventana(QMainWindow):
         self._refrescar_paneles()
         caso = self.modelo.casos.get(self.caso_activo())
         if not self.modo_resultados and self.sistema is None and caso is not None and caso.viva_losas:
-            self.mensaje("Viva de losas: automática (la reacción de las viguetas con todos los paños cargados). "
-                         "La viva de cada paño se escribe en el paño")
+            self.mensaje("Carga viva: la viva de las losas llega sola (todos los paños cargados; se escribe en "
+                         "cada paño). Aquí también van las vivas que pongas a mano")
         elif not self.modo_resultados and self.sistema is None and self.modelo.es_automatico(self.caso_activo()):
             self.mensaje("Peso propio: automático (A·γ de cada barra y el de las losas). Las cargas a mano van en "
                          "otro caso")
@@ -765,7 +812,7 @@ class Ventana(QMainWindow):
         self.accion_reacciones.setEnabled(resultados and not self.viendo_envolvente())   # sin envolvente
         # Herramientas: con resultados quedan todas en gris, también Seleccionar (el clic sobre un
         # nodo o una barra sigue seleccionando: es la herramienta activa, aunque su botón no se
-        # pueda tocar). En los casos automáticos (peso propio, viva de losas) no se ponen cargas a
+        # pueda tocar). En el caso automático (peso propio) no se ponen cargas a
         # mano. Un sistema de vigueta no se edita: como con resultados
         automatico = self.modelo.es_automatico(self.caso_activo())
         for nombre, (accion, _h) in self._por_nombre.items():
@@ -1126,9 +1173,27 @@ class Ventana(QMainWindow):
         self.deslizador_transparencia.valueChanged.connect(self._cambio_transparencia)
         self.deslizador_transparencia.setEnabled(ui.SECCION_REAL_VISIBLE)
         self.accion_cargas = self._accion("cargas", "Cargas",
-                                          "Cargas: muestra u oculta las cargas del caso activo (al editar)",
+                                          "Cargas: muestra u oculta las cargas del caso activo (al editar). La "
+                                          "flecha elige cuáles: en nodos y barras, de área o de las losas a las vigas",
                                           activable=True, activa=ui.CARGAS_VISIBLES)
         self.accion_cargas.toggled.connect(lambda *_: self._aplicar_visibilidad())
+        # Qué cargas se dibujan (un menú que no se cierra al marcar, como Etiquetas)
+        menu_cargas = MenuPersistente(self)
+        self.cargas_tipo = {}
+        for nombre, texto, ayuda in (
+                ("barras", "En nodos y barras", "Las puestas a mano y el peso propio de vigas y columnas"),
+                ("areas", "De área (losas)", "La muerta adicional y la viva de cada paño (y el peso de la losa en "
+                                             "el caso de peso propio), como una lámina sobre el paño"),
+                ("losas", "De las losas a las vigas", "Lo que las losas le pasan a sus vigas: las viguetas a las de "
+                                                      "apoyo y la franja de cada lateral (no se guarda)")):
+            accion = menu_cargas.addAction(texto)
+            accion.setCheckable(True)
+            accion.setChecked(True)
+            accion.setToolTip(ayuda)
+            accion.toggled.connect(lambda *_: self.redibujar())
+            self.cargas_tipo[nombre] = accion
+        menu_cargas.setToolTipsVisible(True)
+        self.accion_cargas.setMenu(menu_cargas)
         self.accion_reacciones = self._accion("reacciones", "Reacciones",
                                               "Reacciones: muestra las reacciones de los apoyos para el caso o la "
                                               "combinación que se ve (con resultados a la vista)",
@@ -1143,6 +1208,9 @@ class Ventana(QMainWindow):
         barra.addAction(self.accion_seccion_real)
         barra.addWidget(self.deslizador_transparencia)
         barra.addAction(self.accion_cargas)
+        boton_cargas = barra.widgetForAction(self.accion_cargas)
+        if isinstance(boton_cargas, QToolButton):  # clic: muestra u oculta; la flecha: cuáles
+            boton_cargas.setPopupMode(QToolButton.MenuButtonPopup)
         barra.addAction(self.accion_reacciones)
         barra.addSeparator()                       # a la izquierda, estados; a la derecha, una acción
         barra.addAction(self.accion_encuadre)
@@ -1164,7 +1232,8 @@ class Ventana(QMainWindow):
         """Rejilla, etiquetas, cargas y reacciones, según sus botones. Los valores de las cargas y de
         las reacciones se ven solo si se ven sus flechas."""
         cargas, reacciones = self.accion_cargas.isChecked(), self.accion_reacciones.isChecked()
-        visibles = {"rejilla": self.accion_rejilla.isChecked(), "cargas": cargas, "reacciones": reacciones}
+        visibles = {"rejilla": self.accion_rejilla.isChecked(), "reacciones": reacciones}
+        visibles.update({nombre: cargas for nombre in ("cargas", "cargas_relleno", "cargas_bordes", "cargas_areas")})
         for nombre, accion in self.etiquetas.items():
             visibles[nombre] = accion.isChecked()
         visibles["valores_cargas"] = visibles["valores_cargas"] and cargas
@@ -1255,24 +1324,31 @@ class Ventana(QMainWindow):
         tamano = self._tamano()
         rc = self._rc()
         self.factor_deformada = None
+        self._escala_diagrama = 0.0
         if not self.modo_resultados:
-            extra = None
+            extra = areas = None
             if self.sistema is None and getattr(self.modelo, "losas", None):
-                extra = list(cargas_de_losas(self.modelo, self.caso_activo(), self._cargas_losas()).values())
+                if self.cargas_tipo["losas"].isChecked():
+                    extra = [c for _eid, c in cargas_de_losas(self.modelo, self.caso_activo(), self._cargas_losas())]
+                if self.cargas_tipo["areas"].isChecked():
+                    areas = cargas_de_area(self.modelo, self._resumenes(), self.caso_activo())
             self.dibujado.actores.update(dibujar_cargas(self.vista, self.modelo, self.caso_activo(), tamano,
-                                                        seccion_real=real, extra=extra))
+                                                        seccion_real=real, extra=extra, areas=areas,
+                                                        con_barras=self.cargas_tipo["barras"].isChecked()))
         elif rc is not None:
             if self.resultado_visible in DEFORMADAS:
                 actores, self.factor_deformada = dibujar_deformada(self.vista, self.modelo, rc, tamano,
                                                                    self.resultado_visible)
                 self.dibujado.actores.update(actores)
             elif self.resultado_visible:
-                self.dibujado.actores.update(dibujar_diagrama(self.vista, self.modelo, rc, self.resultado_visible,
-                                                              tamano))
+                actores, self._escala_diagrama = dibujar_diagrama(self.vista, self.modelo, rc, self.resultado_visible,
+                                                                  tamano)
+                self.dibujado.actores.update(actores)
             self.dibujado.actores.update(dibujar_reacciones(self.vista, self.modelo, rc, tamano))
         elif self._env() is not None and self.resultado_visible and self.resultado_visible not in DEFORMADAS:
-            self.dibujado.actores.update(dibujar_envolvente(self.vista, self.modelo, self._env(),
-                                                            self.resultado_visible, tamano))
+            actores, self._escala_diagrama = dibujar_envolvente(self.vista, self.modelo, self._env(),
+                                                                self.resultado_visible, tamano)
+            self.dibujado.actores.update(actores)
         boton = self.botones_resultado["deformada"]
         boton.setToolTip("Deformada: total, Δx, Δy o Δz (ejes globales), con la inercia bruta Ig. Las fuerzas "
                          "internas y las reacciones van con la agrietada del concreto (0.70·Ig columnas, 0.35·Ig vigas)"
@@ -1280,6 +1356,7 @@ class Ventana(QMainWindow):
                             if self.factor_deformada is not None else ""))
         self.seleccion, self.resaltado = self._vigente(self.seleccion), self._vigente(self.resaltado)
         self._dibujar_ejes_locales()
+        self._dibujar_corte(self._corte, dibujar=False)
         self._aplicar_visibilidad(dibujar=False)
         self.marcados = [m for m in self.marcados if m[1] in self.modelo.elementos]
         self.dibujado.pintar(self.resaltado, self._en_3d(self.seleccion), self._enlazados(), self.marcados)
@@ -1289,6 +1366,60 @@ class Ventana(QMainWindow):
             self.vista.reset_camera()
         self.vista.renderer.ResetCameraClippingRange()
         self.vista.render()
+
+    def _dibujar_corte(self, dato, dibujar=True):
+        """El punto verde del corte del panel Diagrama sobre su barra (pedido del usuario): dice en qué
+        barra y en qué punto se lee. dato: (ID de barra, x desde el nodo i) o None (sin corte).
+        - Con un diagrama (o la envolvente): el punto en el eje y una línea verde hasta la curva (las dos
+          curvas en la envolvente), con la escala del dibujo.
+        - Con la deformada: el punto sobre la curva deformada, con el mismo factor.
+        Solo con resultados a la vista (al editar el panel no tiene corte)."""
+        self._corte = dato
+        for nombre in ("corte", "corte_linea"):
+            actor = self.dibujado.actores.pop(nombre, None)
+            if actor is not None:
+                self.vista.remove_actor(actor, render=False)
+        if dato is None or not self.modo_resultados or dato[0] not in self.modelo.elementos:
+            if dibujar:
+                self.vista.render()
+            return
+        import pyvista as pv
+        from interfaz.vista3d.resultados import punto_del_diagrama
+        from modelo.analisis import desplazamientos_globales, envolvente_en_x, fuerzas_en_x, geometria
+        eid, x = dato
+        x = min(max(float(x), 0.0), geometria(self.modelo, eid)[2])
+        rc, env, comp = self._rc(), self._env(), self.resultado_visible
+        base, topes = punto_del_diagrama(self.modelo, eid, x, 0.0, "My", 0.0)[0], []
+        if comp in DEFORMADAS and rc is not None and self.factor_deformada is not None:
+            d = desplazamientos_globales(self.modelo, rc, eid, x=[x])
+            delta = np.array([d["Dx"][0], d["Dy"][0], d["Dz"][0]])
+            if DEFORMADAS[comp] is not None:
+                solo = np.zeros(3)
+                solo[DEFORMADAS[comp]] = 1.0
+                delta = delta * solo
+            base = base + delta * self.factor_deformada
+        elif comp and comp not in DEFORMADAS and self._escala_diagrama:
+            if env is not None and eid in env.barras:
+                valores = envolvente_en_x(env, eid, comp, x)[:2]
+            elif rc is not None:
+                valores = (fuerzas_en_x(self.modelo, rc, eid, x)[comp],)
+            else:
+                valores = ()
+            topes = [punto_del_diagrama(self.modelo, eid, x, v, comp, self._escala_diagrama)[1] for v in valores]
+        comunes = dict(pickable=False, reset_camera=False, render=False)
+        self.dibujado.actores["corte"] = self.vista.add_points(
+            np.array([base]), color=colores.CORTE, point_size=ui.TAMANO_CORTE_PX, render_points_as_spheres=True,
+            name="corte", **comunes)
+        if topes:                                   # del eje a la curva (en la envolvente, a las dos)
+            puntos = [base, topes[0]] if len(topes) == 1 else [topes[0], base, topes[1]]
+            self.dibujado.actores["corte_linea"] = self.vista.add_mesh(
+                pv.lines_from_points(np.array(puntos)), color=colores.CORTE, line_width=3, name="corte_linea",
+                **comunes)
+        for nombre in ("corte", "corte_linea"):
+            if nombre in self.dibujado.actores:
+                self.dibujado.actores[nombre].SetUseBounds(False)
+        if dibujar:
+            self.vista.render()
 
     def _dibujar_ejes_locales(self):
         """Los ejes locales x, y, z de la barra seleccionada (o de la barra de la carga elegida). Se
@@ -1493,7 +1624,8 @@ class Ventana(QMainWindow):
         """Medidas nuevas para la sección de una barra: se usa (o crea) otra sección solo para ella."""
         if eid not in self.modelo.elementos:
             return
-        material, b, h, d, barra, nx, ny, fy = valores
+        material, b, h, d, barra, nx, ny, fy = valores[:8]
+        acero = valores[8] if len(valores) > 8 and valores[8] in self.modelo.materiales else None
         mat = self.modelo.materiales.get(material)
         error = None
         if mat is None or mat.fc is None:
@@ -1512,7 +1644,7 @@ class Ventana(QMainWindow):
             self._mostrar_propiedades(self._en_propiedades)      # vuelven los valores anteriores
             return
         self.antes_de_cambiar()
-        sid, nueva = cc.buscar_o_crear_seccion(self.modelo, material, b, h, d, barra, nx, ny, fy)
+        sid, nueva = cc.buscar_o_crear_seccion(self.modelo, material, b, h, d, barra, nx, ny, fy, acero)
         self.modelo.asignar_seccion(eid, sid)
         texto = f"Elemento {eid}: {textos.nombre(self.modelo.secciones[sid], self.modelo)}"
         self.modelo_cambiado(texto + (" (sección nueva)" if nueva else ""))
@@ -1571,6 +1703,7 @@ class Ventana(QMainWindow):
                 raise ValueError("con esa separación no queda ala: pon menos viguetas o un alma más angosta")
             sid, _nueva = cc.buscar_o_crear_seccion_T(
                 m, sec.material, v["bw"], v["h"], round(bf, 6), v["hf"], 0.0, v["barra"], v["n"], sec.concreto.fy,
+                acero=sec.concreto.acero, acero_estribo=sec.concreto.acero_estribo,
                 barra_sup=v["barra_sup"], n_sup=v["n_sup"], rec=v["rec"], estribo=v["estribo"],
                 s_estribo=v["s_estribo"])
             losa.seccion = sid
@@ -1784,7 +1917,9 @@ class Ventana(QMainWindow):
 
     def nuevo(self):
         if self._confirmar_descartar():
-            self._cargar(Modelo(), None, {})
+            m = Modelo()
+            cc.acero_por_defecto(m)                # el acero de refuerzo Grado 60 viene por defecto
+            self._cargar(m, None, {})
 
     def abrir(self, ruta=None):
         if not self._confirmar_descartar():
@@ -1831,6 +1966,7 @@ class Ventana(QMainWindow):
     def _cargar(self, modelo, ruta, vista):
         """Pone otro modelo en la ventana (Nuevo o Abrir)."""
         self.salir_de_sistema(redibujar=False)
+        self.explorador.reiniciar()                # otro modelo: el explorador empieza con todo cerrado
         self._cache = {}
         self.modelo, self.ruta, self.modificado = modelo, ruta, False
         self.ver_combinaciones = False

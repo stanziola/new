@@ -4,18 +4,30 @@ from configuracion.formato import FUERZAS
 from modelo import concreto as cc
 from modelo.estructura import FY_DEFECTO, CargaNodal, Material
 
-UNIDAD_CARGA = {"uniforme": "carga_lineal", "puntual": "fuerza", "momento": "momento"}
+UNIDAD_CARGA = {"uniforme": "carga_lineal", "puntual": "fuerza", "momento": "momento", "trapezoidal": "carga_lineal"}
 DIRECCION = {"X": "X global", "Y": "Y global", "Z": "Z global", "x": "x local", "y": "y local", "z": "z local"}
 
 
+def valor_carga(c):
+    """El valor de una carga en barra con su unidad: "-15.00 kN/m"; la trapezoidal, "-8.00 → -15.00 kN/m"
+    (o uno solo si los dos son iguales: una uniforme parcial)."""
+    unidad = UNIDAD_CARGA[c.tipo]
+    if c.tipo == "trapezoidal" and c.valor2 != c.valor:
+        return f"{formato.cantidad(c.valor, unidad, False)} → {formato.cantidad(c.valor2, unidad)}"
+    return formato.cantidad(c.valor, unidad)
+
+
 def texto_carga(c):
-    """"Fx 10.00 kN, Fz -20.00 kN" o "uniforme -15.00 kN/m (Z global)"."""
+    """"Fx 10.00 kN, Fz -20.00 kN", "uniforme -15.00 kN/m (Z global)" o
+    "trapezoidal -8.00 → -15.00 kN/m (Z global) de 1.00 m a 4.00 m"."""
     if isinstance(c, CargaNodal):
         partes = [f"{nombre} {formato.cantidad(v, 'fuerza' if nombre[0] == 'F' else 'momento')}"
                   for nombre, v in zip(FUERZAS, c.fuerzas) if v]
         return ", ".join(partes) or "sin valores"
-    texto = f"{c.tipo} {formato.cantidad(c.valor, UNIDAD_CARGA[c.tipo])} ({DIRECCION[c.direccion]})"
-    if c.tipo != "uniforme":
+    texto = f"{c.tipo} {valor_carga(c)} ({DIRECCION[c.direccion]})"
+    if c.tipo == "trapezoidal":
+        texto += f" de {formato.cantidad(c.a, 'longitud')} a {formato.cantidad(c.b, 'longitud')}"
+    elif c.tipo != "uniforme":
         texto += f" a {formato.cantidad(c.a, 'longitud')}"
     return texto
 
@@ -54,6 +66,17 @@ def fc_corto(fc):
 def nombre_concreto(fc):
     """Nombre automático de un material de concreto: "Concreto f'c 28 MPa" (o 4 ksi...)."""
     return f"Concreto {fc_corto(fc)}"
+
+
+def fy_corto(fy):
+    """"fy 414 MPa" en la unidad de esfuerzo vigente."""
+    return f"fy {formato.compacto(fy, 'esfuerzo')} {unidades.simbolo('esfuerzo')}"
+
+
+def nombre_acero(fy):
+    """Nombre automático de un acero de refuerzo: "Acero Grado 60 (fy 414 MPa)" o "Acero fy 300 MPa"."""
+    grado = cc.grado_de(fy)
+    return f"Acero Grado {grado} ({fy_corto(fy)})" if grado else f"Acero {fy_corto(fy)}"
 
 
 def nombre_rectangular(b, h, nx, ny, barra, fy=FY_DEFECTO):
@@ -99,6 +122,8 @@ def nombre(obj, modelo=None):
     if isinstance(obj, Material):
         if obj.fc is not None and obj.nombre == cc.nombre_material(obj.fc):
             return nombre_concreto(obj.fc)
+        if cc.es_acero(obj) and obj.nombre == cc.nombre_acero(obj.fy):
+            return nombre_acero(obj.fy)
         return obj.nombre
     if not _automatico(obj):
         return obj.nombre

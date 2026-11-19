@@ -77,7 +77,9 @@ def dibujar_deformada(vista, modelo, rc, tamano, componente="deformada"):
 
 
 def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
-    """Diagrama de `componente` ("N", "Vy", "Vz", "T", "My" o "Mz") en todas las barras."""
+    """Diagrama de `componente` ("N", "Vy", "Vz", "T", "My" o "Mz") en todas las barras. Devuelve
+    (actores, escala): la escala (m de dibujo por unidad de fuerza) sirve para el corte del panel
+    Diagrama; 0 si no hay nada que dibujar."""
     series = {}
     for eid in modelo.elementos:
         d = fuerzas_en(modelo, rc, eid)
@@ -88,7 +90,8 @@ def dibujar_diagrama(vista, modelo, rc, componente, tamano, con_valores=True):
 def dibujar_envolvente(vista, modelo, env, componente, tamano, con_valores=True):
     """Envolvente de `componente`: en cada barra, la curva de los máximos y la de los mínimos entre
     todas las combinaciones, cada una rellena como un diagrama (positivo y negativo con sus colores).
-    Con las etiquetas, el máximo de los máximos y el mínimo de los mínimos de cada barra."""
+    Con las etiquetas, el máximo de los máximos y el mínimo de los mínimos de cada barra. Devuelve
+    (actores, escala), como dibujar_diagrama."""
     series = {}
     for eid, d in env.barras.items():
         maximo, minimo, _imax, _imin = d[componente]
@@ -96,12 +99,23 @@ def dibujar_envolvente(vista, modelo, env, componente, tamano, con_valores=True)
     return _dibujar_series(vista, modelo, series, componente, tamano, con_valores)
 
 
+def punto_del_diagrama(modelo, eid, x, valor, componente, escala):
+    """(base, tope): el punto del eje de la barra en x y el de la curva del diagrama ahí (con la misma
+    escala y el mismo lado que el dibujo)."""
+    el = modelo.elementos[eid]
+    r, _t, _l = geometria(modelo, eid)
+    base = np.asarray(modelo.nodos[el.ni].coords, dtype=float) + r[0] * x
+    eje, signo = DIRECCION[componente]
+    return base, base + r[eje] * valor * escala * signo
+
+
 def _dibujar_series(vista, modelo, series, componente, tamano, con_valores):
     """Dibuja curvas de una fuerza a lo largo de las barras. series: {ID de barra: [(x, valores), ...]}
-    (una curva en un diagrama; dos en una envolvente). Todas con la misma escala."""
+    (una curva en un diagrama; dos en una envolvente). Todas con la misma escala. Devuelve (actores,
+    escala)."""
     mayor = max((np.abs(val).max() for curvas in series.values() for _x, val in curvas), default=0.0)
     if mayor <= 1e-12:
-        return {}
+        return {}, 0.0
     escala = ui.FACTOR_DIAGRAMA * ui.FRACCION_DIAGRAMA * tamano / mayor
     eje, signo = DIRECCION[componente]
     pos = {"puntos": [], "tri": []}
@@ -153,7 +167,7 @@ def _dibujar_series(vista, modelo, series, componente, tamano, con_valores):
         actores["valores_resultados"] = vista.add_point_labels(
             np.array(lugares), etiquetas, font_size=ui.TAMANO_LETRA - 3, text_color=colores.DIAGRAMA_BORDE,
             shape=None, show_points=False, always_visible=True, name="valores_resultados", reset_camera=False)
-    return actores
+    return actores, escala
 
 
 def dibujar_reacciones(vista, modelo, rc, tamano, con_valores=True):

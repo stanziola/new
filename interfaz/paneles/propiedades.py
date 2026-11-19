@@ -17,9 +17,9 @@
   cabe termina en "…" (el texto completo sale al pasar el mouse).
 
 PanelPropiedades es el contenido; Propiedades es el panel acoplable que lo contiene. Con una columna
-de concreto con refuerzo seleccionada aparecen dos pestañas, Propiedades e Interacción (su diagrama
-de interacción); con cualquier otra cosa no hay pestañas. La ventana Definir usa otro
-PanelPropiedades a su derecha.
+de concreto con refuerzo seleccionada aparecen dos pestañas, Datos e Interacción (su diagrama de
+interacción); con una losa, Datos y Comprobaciones; con cualquier otra cosa no hay pestañas. La
+ventana Definir usa otro PanelPropiedades a su derecha.
 """
 import numpy as np
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
@@ -48,6 +48,23 @@ from modelo.apoyos import NOMBRES, TIPOS, describir, tipo_de
 from modelo.estructura import CargaNodal
 
 
+def aviso_acero(mat, portico_especial):
+    """Aviso de la Tabla 20.2.2.4(a) del ACI 318-19 (PDF p. 378) para un acero de refuerzo, o "": fy
+    para flexión y axial hasta 80 ksi en pórticos especiales y 100 ksi en los demás; en pórticos
+    especiales, A706 (o A615 Grado 60 que cumpla §20.2.2.5(b), nota [2])."""
+    ksi = mat.fy / cc.KSI
+    avisos = []
+    tope = 80 if portico_especial else 100
+    if ksi > tope + 1e-9:
+        avisos.append(f"fy > {tope} ksi: no se permite para flexión y axial"
+                      + (" en pórticos especiales" if portico_especial else ""))
+    if portico_especial and mat.norma == "A615":
+        avisos.append("en pórticos especiales se pide A706, o A615 Grado 60 que cumpla §20.2.2.5(b)")
+    if ksi > 60 + 1e-9:
+        avisos.append("en estribos por cortante se toma fyt = 60 ksi")
+    return "; ".join(avisos)
+
+
 class PanelLosa(QWidget):
     """Herramienta Agregar losa: a qué losa va el paño (una nueva o una que ya existe), la vigueta y las
     viguetas del paño de referencia (si es nueva), y las cargas de área del paño. Después, clic en la
@@ -73,7 +90,7 @@ class PanelLosa(QWidget):
                                "propio de la losa lo pone el programa con la vigueta)")
         self.viva = CampoNumero("carga_area", 0.0, 1e5)
         self.viva.setToolTip("Carga viva del paño (ASCE 7-05 Tabla 4-1): va a los casos de viva de la vigueta y,\n"
-                             "con todos los paños cargados, al caso Viva de losas del modelo 3D")
+                             "con todos los paños cargados, al caso Carga viva del modelo 3D")
         definir = QPushButton("Definir…")
         definir.setToolTip("Definir → Secciones: crea la T de la vigueta (clic derecho en Concreto → Nueva T…)")
         definir.clicked.connect(self.definir.emit)
@@ -269,15 +286,20 @@ class PanelCargaNodo(QWidget):
 
 
 class PanelCargaBarra(QWidget):
-    """Valores de la carga en barra: tipo, valor, dirección, distancia a y sumar o reemplazar.
+    """Valores de la carga en barra: tipo, valor (dos en la trapezoidal), dirección, distancias a y b
+    y sumar o reemplazar.
 
-    El tipo se elige con tres botones a la vista (uniforme, puntual y momento concentrado), no con
-    una lista: así se ve de entrada qué cargas hay. El activo queda sombreado."""
+    El tipo se elige con cuatro botones a la vista (uniforme, trapezoidal, puntual y momento
+    concentrado), no con una lista: así se ve de entrada qué cargas hay. El activo queda sombreado."""
 
     TIPOS = (("uniforme", "Uniforme", "Carga uniforme, en toda la barra"),
+             ("trapezoidal", "Trapezoidal", "Carga que va en línea recta de w1 en a a w2 en b (con w1 = w2, "
+                                            "una uniforme parcial; con w1 = 0, una triangular)"),
              ("puntual", "Puntual", "Fuerza puntual, a una distancia a del nodo i"),
              ("momento", "Momento", "Momento concentrado, a una distancia a del nodo i"))
     NOTAS = {"uniforme": "El signo da el sentido: Z global negativo es hacia abajo.",
+             "trapezoidal": "De w1 en a a w2 en b, en línea recta (a y b desde el nodo i; b = 0 es hasta el "
+                            "nodo j). El signo da el sentido: Z global negativo es hacia abajo.",
              "puntual": "El signo da el sentido: Z global negativo es hacia abajo.",
              "momento": "Dirección: el eje alrededor del que gira el momento. El signo sigue la regla de "
                         "la mano derecha (el pulgar, hacia el lado positivo del eje)."}
@@ -310,14 +332,26 @@ class PanelCargaBarra(QWidget):
             self.direccion.addItem(DIRECCION[d], d)
         self.a = campo("longitud", 0.0, 1e4)
         self.a.poner(0.0)
+        self.b = campo("longitud", 0.0, 1e4)
+        self.b.poner(0.0)
+        self.b.setToolTip("Dónde termina la carga, desde el nodo i (0 = hasta el nodo j)")
+        self.valor2 = campo("carga_lineal", -1e9, 1e9)
+        self.valor2.poner(-10.0)
+        self.etiqueta_valor = QLabel("Valor")
+        self.etiqueta_valor2 = QLabel("w2 (en b)")
+        self.etiqueta_b = QLabel("b (desde el nodo i)")
         self.valores_por_tipo = {}
         self.valor = None
         self._tipo_actual = None
-        rejilla.addWidget(QLabel("Valor"), 0, 0)
-        rejilla.addWidget(QLabel("Dirección"), 1, 0)
-        rejilla.addWidget(self.direccion, 1, 1, Qt.AlignLeft)
-        rejilla.addWidget(QLabel("a (desde el nodo i)"), 2, 0)
-        rejilla.addWidget(self.a, 2, 1)
+        rejilla.addWidget(self.etiqueta_valor, 0, 0)
+        rejilla.addWidget(self.etiqueta_valor2, 1, 0)
+        rejilla.addWidget(self.valor2, 1, 1)
+        rejilla.addWidget(QLabel("Dirección"), 2, 0)
+        rejilla.addWidget(self.direccion, 2, 1, Qt.AlignLeft)
+        rejilla.addWidget(QLabel("a (desde el nodo i)"), 3, 0)
+        rejilla.addWidget(self.a, 3, 1)
+        rejilla.addWidget(self.etiqueta_b, 4, 0)
+        rejilla.addWidget(self.b, 4, 1)
         self._rejilla = rejilla
         diseno.addLayout(rejilla)
         self.nota = QLabel()
@@ -348,15 +382,22 @@ class PanelCargaBarra(QWidget):
         self._rejilla.addWidget(self.valor, 0, 1)
         self._tipo_actual = tipo
         self.a.setEnabled(tipo != "uniforme")
+        trapezoidal = tipo == "trapezoidal"
+        self.etiqueta_valor.setText("w1 (en a)" if trapezoidal else "Valor")
+        for w in (self.etiqueta_valor2, self.valor2, self.etiqueta_b, self.b):
+            w.setVisible(trapezoidal)
         self.nota.setText(self.NOTAS[tipo])
 
     def tipo(self):
-        """El tipo elegido: "uniforme", "puntual" o "momento"."""
+        """El tipo elegido: "uniforme", "trapezoidal", "puntual" o "momento"."""
         return self._tipo_actual
 
     def valores(self):
-        """(tipo, valor, dirección, a) en unidades internas."""
-        return self._tipo_actual, self.valor.valor(), self.direccion.currentData(), self.a.valor()
+        """(tipo, valor, dirección, a, valor2, b) en unidades internas. valor2 y b solo cuentan en la
+        trapezoidal (b = None: hasta el nodo j)."""
+        b = self.b.valor()
+        return (self._tipo_actual, self.valor.valor(), self.direccion.currentData(), self.a.valor(),
+                self.valor2.valor(), b if b > 0 else None)
 
 
 class PanelPropiedades(QWidget):
@@ -680,10 +721,16 @@ class PanelPropiedades(QWidget):
                 self._fila(g, nombre, formato.cantidad(valor, "fuerza" if k < 3 else "momento"))
         else:
             self._fila(g, "Tipo", c.tipo)
-            self._fila(g, "Valor", formato.cantidad(c.valor, UNIDAD_CARGA[c.tipo]))
+            if c.tipo == "trapezoidal":
+                self._fila(g, "w1 (en a)", formato.cantidad(c.valor, UNIDAD_CARGA[c.tipo]))
+                self._fila(g, "w2 (en b)", formato.cantidad(c.valor2, UNIDAD_CARGA[c.tipo]))
+            else:
+                self._fila(g, "Valor", formato.cantidad(c.valor, UNIDAD_CARGA[c.tipo]))
             self._fila(g, "Dirección", DIRECCION[c.direccion])
             if c.tipo != "uniforme":
                 self._fila(g, "a (desde el nodo i)", formato.cantidad(c.a, "longitud"))
+            if c.tipo == "trapezoidal":
+                self._fila(g, "b (desde el nodo i)", formato.cantidad(c.b, "longitud"))
 
     def _barra(self, modelo, eid, editable=True):
         el = modelo.elementos[eid]
@@ -752,7 +799,7 @@ class PanelPropiedades(QWidget):
             nuevos = (material, b.valor(), h.valor(), c.d, barra.currentData(), nx.valor(), ny.valor(), c.fy)
             actuales = (material, c.b, c.h, c.d, c.barra, c.nx, c.ny, c.fy)
             if any(abs(x - y) > 1e-9 if isinstance(x, float) else x != y for x, y in zip(nuevos, actuales)):
-                self._despues(self.editar_seccion, eid, nuevos)
+                self._despues(self.editar_seccion, eid, nuevos + (c.acero,))     # con el mismo acero
 
         for nombre, caja in (("b", b), ("h", h), ("Barra", barra), ("Nx", nx), ("Ny", ny)):
             caja.setEnabled(editable)
@@ -767,13 +814,22 @@ class PanelPropiedades(QWidget):
         self._ver(textos.nombre(mat))
         g = self._grupo("Material")
         self._fila(g, "Familia", cc.nombre_familia(familia))
-        if familia == "concreto":
-            self._fila(g, "f'c", formato.cantidad(mat.fc, "esfuerzo"))
-        self._fila(g, "E", formato.cantidad(mat.e, "esfuerzo"))
-        self._fila(g, "G", formato.cantidad(mat.g, "esfuerzo"))
-        if familia == "concreto":
-            self._fila(g, "ν", f"{cc.POISSON:g}")
-        self._fila(g, "γ (peso propio)", formato.cantidad(mat.gamma, "peso_unitario"))
+        if familia == "acero":                    # acero de refuerzo: fy, norma y Es (fijo)
+            grado = cc.grado_de(mat.fy)
+            self._fila(g, "fy", formato.cantidad(mat.fy, "esfuerzo") + (f" (Grado {grado})" if grado else ""))
+            self._fila(g, "Norma", f"ASTM {mat.norma}" if mat.norma else "—")
+            self._fila(g, "Es (§20.2.2.2)", formato.cantidad(cc.ES, "esfuerzo"))
+            aviso = aviso_acero(mat, modelo.portico_especial)
+            if aviso:
+                self._fila(g, "Aviso", aviso)
+        else:
+            if familia == "concreto":
+                self._fila(g, "f'c", formato.cantidad(mat.fc, "esfuerzo"))
+            self._fila(g, "E", formato.cantidad(mat.e, "esfuerzo"))
+            self._fila(g, "G", formato.cantidad(mat.g, "esfuerzo"))
+            if familia == "concreto":
+                self._fila(g, "ν", f"{cc.POISSON:g}")
+            self._fila(g, "γ (peso propio)", formato.cantidad(mat.gamma, "peso_unitario"))
         barras, secciones = cc.uso_material(modelo, mid)
         g = self._grupo("Uso")
         self._fila(g, "Barras", ", ".join(map(str, barras)) or "ninguna")
@@ -817,7 +873,9 @@ class PanelPropiedades(QWidget):
                 self._fila(g, "d− (momento negativo)", formato.cantidad(cc.peralte_negativo(c), "seccion"))
             else:
                 self._fila(g, "Barras arriba", "ninguna")
-            self._fila(g, "fy", formato.cantidad(c.fy, "esfuerzo"))
+            self._fila(g, "Acero (barras)", self._nombre_acero(modelo, c.acero, c.fy))
+            if c.estribo:
+                self._fila(g, "Acero (estribos)", self._nombre_acero(modelo, c.acero_estribo, c.fyt))
             return
         if c.forma == "circular":
             self._fila(g, "Forma", "circular")
@@ -838,9 +896,15 @@ class PanelPropiedades(QWidget):
                  if puente.usada_en_columna(modelo, sid) else "")        # la regla es de columnas
         self._fila(g, "Cuantía ρ", f"{p['cuantia']:.2f} %" + (f": {aviso}" if aviso else ""))
         self._fila(g, "β1", f"{p['beta1']:.3f}")
-        self._fila(g, "fy", formato.cantidad(p["fy"].to("kN/m^2").magnitude, "esfuerzo"))
+        self._fila(g, "Acero", self._nombre_acero(modelo, c.acero, p["fy"].to("kN/m^2").magnitude))
         self._sid = sid
         self.botones.show()
+
+    @staticmethod
+    def _nombre_acero(modelo, acero, fy):
+        """"Acero Grado 60 (fy 414 MPa)": el acero de la sección o, si no tiene (de antes), su fy."""
+        mat = modelo.materiales.get(acero)
+        return textos.nombre(mat) if cc.es_acero(mat) else f"fy {formato.cantidad(fy, 'esfuerzo')}"
 
     # ---------- Editar un material o una sección ----------
     def _crear_edicion(self):
@@ -911,13 +975,15 @@ class PanelPropiedades(QWidget):
 
 
 class Propiedades(QDockWidget):
-    """El panel acoplable de la derecha: un PanelPropiedades y, solo cuando aplica, la pestaña
-    Interacción con el diagrama de interacción de la columna elegida (barra vertical de concreto con
-    refuerzo), que se calcula al abrir la pestaña. Si no aplica, no hay pestañas a la vista.
+    """El panel acoplable de la derecha, "Propiedades": un PanelPropiedades (la pestaña "Datos") y,
+    solo cuando aplica, la pestaña Interacción con el diagrama de interacción de la columna elegida
+    (barra vertical de concreto con refuerzo), que se calcula al abrir la pestaña. Si no aplica, no hay
+    pestañas a la vista. La primera pestaña se llama "Datos" para no repetir el nombre del panel
+    (decisión del usuario, noviembre de 2026).
 
     Con la pestaña Interacción a la vista el panel necesita más ancho para que el diagrama se
     aprecie: avisa con `interaccion_a_la_vista` y la ventana lo ensancha, y lo devuelve a su ancho al
-    volver a Propiedades (o al dejar de tener una columna elegida)."""
+    volver a Datos (o al dejar de tener una columna elegida)."""
     interaccion_a_la_vista = Signal(bool)      # True: se abrió la pestaña Interacción; False: se dejó
     seccion_columna_editada = Signal(int, object)   # (ID de la columna, medidas nuevas) desde la pestaña
 
@@ -934,7 +1000,8 @@ class Propiedades(QDockWidget):
         self.comprobaciones = PestanaComprobaciones()
         self.pestanas = QTabWidget()
         self.pestanas.setDocumentMode(True)
-        self.pestanas.addTab(self.panel, "Propiedades")
+        self.pestanas.addTab(self.panel, "Datos")
+        self.pestanas.setTabToolTip(0, "Los datos de lo seleccionado")
         self.pestanas.addTab(self.interaccion, "Interacción")
         self.pestanas.addTab(self.comprobaciones, "Comprobaciones")
         self.pestanas.setTabToolTip(1, "Diagrama de interacción (flexocompresión) de la sección de la "
@@ -960,7 +1027,7 @@ class Propiedades(QDockWidget):
         self.vigueta_editada = self.comprobaciones.vigueta_editada
         p.formulario_abierto.connect(lambda: self._poner_columna(None))
 
-    # ---------- Lo que se muestra (siempre en la pestaña Propiedades, salvo una columna) ----------
+    # ---------- Lo que se muestra (siempre en la pestaña Datos, salvo una columna) ----------
     def mostrar(self, modelo, item, caso=None, rc=None, editable=True, puntos=None, activa=None, losa=None,
                 diseno=None):
         """puntos: función que da los puntos Pu–Mu de una columna (ID de barra -> lista de Demanda),

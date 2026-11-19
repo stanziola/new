@@ -16,14 +16,16 @@ propias: lo que cambia lo que se ve es siempre la barra de arriba.
 - A la derecha, solo el valor de lo que se está viendo en el corte. El máximo y el mínimo no se
   listan: se ven en la curva, y el corte se lleva hasta ahí.
 - Un deslizador (o el campo x) mueve el corte a lo largo de la barra. En una carga puntual justo en
-  el corte, el valor es el de después de la carga.
+  el corte, el valor es el de después de la carga. El corte se ve también en 3D: un punto verde
+  sobre la barra (y una línea hasta la curva del diagrama), para saber en qué barra y en qué punto se
+  lee (la señal `corte`; lo dibuja la ventana).
 Los números salen de modelo/analisis.py (fuerzas_en, fuerzas_en_x y desplazamientos_globales), que
 usa las fórmulas de calculo/rigidez/diagramas.py: aquí no hay fórmulas.
 """
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QDockWidget, QHBoxLayout, QLabel, QSlider, QVBoxLayout, QWidget
 
 from configuracion import colores, formato, unidades
@@ -60,6 +62,8 @@ class _Contenido(QWidget):
 
 
 class PanelDiagrama(QDockWidget):
+    corte = Signal(object)                     # (ID de barra, x en m) del corte, o None si no hay
+
     def __init__(self, parent=None):
         super().__init__("Diagrama", parent)
         self.setObjectName("diagrama")
@@ -152,6 +156,7 @@ class PanelDiagrama(QDockWidget):
         for w in (self.deslizador, self.x, self.etiqueta_corte):
             w.setEnabled(False)
         self.lectura.setText("")
+        self.corte.emit(None)
 
     def _x_actual(self):
         return self._largo * self.deslizador.value() / ui.PASOS_DESLIZADOR
@@ -247,6 +252,7 @@ class PanelDiagrama(QDockWidget):
             corte = x / unidades.factor("longitud")
             self._linea.set_xdata([corte, corte])
             self.lienzo.draw_idle()
+        self.corte.emit((self._eid, float(x)))
 
     def _deslizado(self, *_):
         self._leer(self._x_actual())

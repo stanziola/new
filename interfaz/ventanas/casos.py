@@ -1,9 +1,10 @@
 """Definir → Casos de carga y Definir → Combinaciones de carga: dos ventanas con una tabla.
 
-- Casos: nombre y tipo (Muerta, Viva, Viva de techo, Viento o Sismo). Los dos primeros son fijos (fondo gris, no se
-  editan ni se eliminan): "Peso propio", que es automático (A·γ de cada viga y columna), y "Carga
-  muerta adicional", donde van las cargas muertas puestas a mano. Las cargas se ponen en el caso
-  activo con las herramientas de carga.
+- Casos: nombre y tipo (Muerta, Viva, Viva de techo, Viento o Sismo). Los tres primeros son fijos (fondo gris, no se
+  editan ni se eliminan): "Peso propio", que es automático (A·γ de cada viga y columna), "Carga
+  muerta adicional", donde van las cargas muertas puestas a mano, y "Carga viva", que recibe sola la
+  viva de las losas y también la que se pone a mano. Las cargas se ponen en el caso activo con las
+  herramientas de carga.
 - Combinaciones: arriba, los datos del sismo, SDS y ρ (por ahora escritos a mano). En la tabla, un
   factor por TIPO de caso: D, L, Lr, W y E. Las predeterminadas (modelo/combinaciones.py: las de
   resistencia de ASCE 7-05 §2.3.2 y §12.4.2.3, y las de servicio de su Apéndice C) van con fondo gris
@@ -150,7 +151,8 @@ class DialogoCasos(_DialogoTabla):
         self.tabla.setHorizontalHeaderLabels(["Nombre", "Tipo"])
         self.tabla.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tabla.setColumnWidth(1, 170)
-        for cid, caso in modelo.casos.items():
+        for cid in sorted(modelo.casos, key=lambda c: not modelo.es_fijo(c)):     # los fijos primero
+            caso = modelo.casos[cid]
             if modelo.es_fijo(cid):
                 self._agregar_fijo(cid, caso, modelo.es_automatico(cid))
             else:
@@ -158,8 +160,14 @@ class DialogoCasos(_DialogoTabla):
         self._actualizar_botones()
 
     def _agregar_fijo(self, cid, caso, automatico):
-        ayuda = ("Automático: el peso de cada viga y columna (A·γ). No recibe cargas a mano" if automatico
-                 else "Aquí van las cargas muertas que pones a mano. Con el peso propio forma la carga muerta (D)")
+        if automatico:
+            ayuda = "Automático: el peso de cada viga y columna (A·γ) y el de las losas. No recibe cargas a mano"
+        elif caso.viva_losas:
+            ayuda = ("Fijo: recibe sola la viva de las losas (todos los paños cargados) y también las cargas vivas "
+                     "que pones a mano")
+        else:
+            ayuda = ("Fijo: aquí van las cargas muertas que pones a mano y la muerta adicional de las losas. Con el "
+                     "peso propio forma la carga muerta (D)")
         fila = self.tabla.rowCount()
         self.tabla.insertRow(fila)
         celda = _fijo(caso.nombre + (" (automático)" if automatico else ""), ayuda)

@@ -27,6 +27,14 @@
   de área; la sección de la vigueta; n en el paño de referencia; ξ; si sostiene elementos frágiles; y
   los casos de viva del usuario por franja) y el caso automático "Viva de losas" ("viva_losas" en el
   caso). Contadores nuevos: "losa" y "pano". Los archivos anteriores abren sin losas.
+- Versión 8 (noviembre de 2026):
+  - cargas en barra "trapezoidal" (lineal de "valor" en "a" a "valor2" en "b");
+  - el caso fijo "Carga viva" (L, con "viva_losas"), que recibe la viva de las losas y también cargas
+    a mano. Los archivos anteriores pasan su "Viva de losas" a "Carga viva" o, si no la tenían, la
+    crean con un ID nuevo;
+  - el acero de refuerzo como material (con "fy" y "norma") y, en cada sección de concreto, el acero
+    de sus barras ("acero"), el de sus estribos ("acero_estribo") y fyt. Los archivos anteriores crean
+    un acero por cada fy distinto que tengan sus secciones.
 - E y G de los materiales de concreto (los que tienen f'c) se recalculan al abrir con f'c y γ
   (calculo/concreto.modulos): el E guardado no se usa. Así, los archivos guardados cuando E era
   57 000·√f'c pasan a la Ec. 19.2.2.1.a como los nuevos (decisión del usuario, noviembre de 2026).
@@ -41,11 +49,11 @@ from pathlib import Path
 
 from calculo.concreto import GAMMA_CONCRETO, modulos
 from calculo.diseno.viga import diametro_barra
-from modelo.estructura import (NOMBRE_MUERTA_ADICIONAL, NOMBRE_PESO_PROPIO, CargaBarra, CargaNodal, Caso,
-                               Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
+from modelo.estructura import (NOMBRE_CARGA_VIVA, NOMBRE_MUERTA_ADICIONAL, NOMBRE_PESO_PROPIO, CargaBarra,
+                               CargaNodal, Caso, Combinacion, Concreto, Elemento, Material, Modelo, Nodo, Seccion)
 
-VERSION_FORMATO = 7
-VERSIONES_LEIDAS = (1, 2, 3, 4, 5, 6, 7)
+VERSION_FORMATO = 8
+VERSIONES_LEIDAS = (1, 2, 3, 4, 5, 6, 7, 8)
 CONTADORES = {"nodo", "elem", "mat", "sec", "caso", "carga", "combo", "losa", "pano"}
 UNIDADES_INTERNAS = {"fuerza": "kN", "longitud": "m"}
 
@@ -148,6 +156,35 @@ def _separar_peso_propio(m):
     m.casos = {**nuevos, **m.casos}
 
 
+def _carga_viva_v7(m):
+    """Hasta la versión 7, la viva de las losas iba a un caso automático "Viva de losas" que solo existía
+    con losas. Desde la 8 hay un caso fijo "Carga viva" que la recibe (y acepta cargas a mano): el de las
+    losas pasa a llamarse así y, si no había, se crea con un ID nuevo (los IDs no se reutilizan)."""
+    cid = m.caso_viva()
+    if cid is not None:
+        if m.casos[cid].nombre == "Viva de losas":
+            m.casos[cid].nombre = NOMBRE_CARGA_VIVA
+        return
+    m._sig_id["caso"] = max(m._sig_id.get("caso", 1), max(m.casos, default=0) + 1)
+    m.asegurar_carga_viva()
+
+
+def _aceros_v7(m):
+    """Hasta la versión 7, cada sección de concreto guardaba solo su fy. Desde la 8 el acero de refuerzo
+    es un material: se crea uno por cada fy distinto (Grado 60 si es 60 ksi) y cada sección lo usa en
+    sus barras y en sus estribos (fyt = fy, como se calculaba antes). El acero por defecto (Grado 60)
+    queda siempre, aunque no haya secciones."""
+    from modelo import concreto as cc
+    m._sig_id["mat"] = max(m._sig_id.get("mat", 1), max(m.materiales, default=0) + 1)
+    for sec in m.secciones.values():
+        c = sec.concreto
+        if c is None:
+            continue
+        c.acero = cc.acero_para(m, c.fy)
+        c.acero_estribo, c.fyt = c.acero, c.fy
+    cc.acero_por_defecto(m)
+
+
 def _combinacion_v3(m, d):
     """Versión 3: los factores iban por caso ({ID de caso: factor}). Pasan a ir por tipo. Si dos
     casos del mismo tipo tenían factores distintos no se puede representar: queda el del primero y
@@ -207,6 +244,9 @@ def desde_diccionario(datos):
         m._sig_id.setdefault("pano", 1)
         if version >= 7:
             m.losas = {int(i): _losa(d) for i, d in datos.get("losas", {}).items()}
+        if version < 8:
+            _carga_viva_v7(m)
+            _aceros_v7(m)
     except (KeyError, TypeError, ValueError, AttributeError) as e:
         raise ValueError(f"El archivo no tiene el formato esperado: {e!r}") from e
     _revisar(m)
@@ -227,6 +267,10 @@ def _revisar(m):
     for sid, sec in m.secciones.items():
         if sec.material is not None and sec.material not in m.materiales:
             problemas.append(f"la sección {sid} usa el material {sec.material}, que no existe")
+        c = sec.concreto
+        for acero in ((c.acero, c.acero_estribo) if c is not None else ()):
+            if acero is not None and acero not in m.materiales:
+                problemas.append(f"la sección {sid} usa el acero {acero}, que no existe")
     if not m.casos:
         problemas.append("no hay casos de carga")
     for cid, c in m.cargas.items():
@@ -248,8 +292,8 @@ def _revisar(m):
             for eid in pano.apoyo_a + pano.apoyo_b:
                 if eid not in m.elementos:
                     problemas.append(f"el paño {pid} se apoya en la barra {eid}, que no existe")
-    if m.losas and m.caso_viva_losas() is None:
-        problemas.append("hay losas pero falta el caso Viva de losas")
+    if m.caso_viva() is None:
+        problemas.append("falta el caso fijo Carga viva")
     if set(m._sig_id) != CONTADORES:
         problemas.append(f"faltan contadores de IDs: {sorted(m._sig_id)}")
     else:

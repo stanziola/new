@@ -159,6 +159,78 @@ class FormularioConcreto(QWidget):
         return None
 
 
+class FormularioAcero(QWidget):
+    """Acero de refuerzo: nombre, fy y norma (ASTM A615 o A706). Es es fijo (29 000 ksi, ACI 318-19
+    §20.2.2.2) y se muestra al lado. Como en el concreto, el nombre automático ("Acero Grado 60 (fy
+    414 MPa)") va en gris dentro del campo: vacío, sigue al fy. Lo usan las secciones de concreto para
+    sus barras y sus estribos; cambiarlo aquí cambia todas esas secciones."""
+
+    def __init__(self, modelo, parent=None):
+        super().__init__(parent)
+        self.modelo = modelo
+        self.nombre = QLineEdit()
+        self.fy = campo("esfuerzo", 100000, 1000000)                # 14.5 a 145 ksi
+        self.fy.poner(FY_DEFECTO)
+        self.fy.setToolTip("Fluencia especificada. Grado 60: 60 ksi = 414 MPa (lo usual en Panamá).\n"
+                           "Máximos para diseño (ACI 318-19 Tabla 20.2.2.4(a)): flexión y axial, 80 ksi en pórticos\n"
+                           "especiales y 100 ksi en los demás; estribos por cortante y torsión, 60 ksi")
+        self.norma = Lista()
+        for norma, texto in (("A615", "ASTM A615 (acero al carbono)"), ("A706", "ASTM A706 (baja aleación, soldable)")):
+            self.norma.addItem(texto, norma)
+        self.norma.setToolTip("ACI 318-19 §20.2.1.3. En pórticos especiales (SMF) se pide A706, o A615 Grado 60\n"
+                              "que cumpla §20.2.2.5(b) (Tabla 20.2.2.4(a), nota [2])")
+        self.es = QLabel()
+        self.fy.cambiado.connect(self._actualizar)
+        forma = QFormLayout(self)
+        forma.setContentsMargins(0, 0, 0, 0)
+        forma.addRow("Nombre", self.nombre)
+        forma.addRow("fy", self.fy)
+        forma.addRow("Norma", self.norma)
+        etiqueta_es = QLabel("Es (ACI 318-19 §20.2.2.2)")
+        etiqueta_es.setToolTip("Módulo de elasticidad del refuerzo: 29 000 000 psi, fijo")
+        forma.addRow(etiqueta_es, self.es)
+        self._actualizar()
+
+    def cargar(self, mat):
+        self.fy.poner(mat.fy)
+        self.norma.setCurrentIndex(max(0, self.norma.findData(mat.norma or "A615")))
+        self.nombre.setText("" if mat.nombre == cc.nombre_acero(mat.fy) else mat.nombre)
+        self._actualizar()
+
+    def _actualizar(self, *_):
+        self.es.setText(formato.cantidad(cc.ES, "esfuerzo"))
+        self.nombre.setPlaceholderText(textos.nombre_acero(self.fy.valor()))
+
+    def refrescar(self):
+        self._actualizar()
+
+    def valores(self):
+        return {"nombre": self.nombre.text(), "fy": self.fy.valor(), "norma": self.norma.currentData()}
+
+    def error(self):
+        return None
+
+
+def lista_aceros(modelo, lista):
+    """Llena una Lista con los aceros de refuerzo del modelo (con su nombre en las unidades vigentes)
+    y deja elegido el que estaba (o el primero)."""
+    actual = lista.currentData()
+    lista.blockSignals(True)
+    lista.clear()
+    for mid, m in modelo.materiales.items():
+        if cc.es_acero(m):
+            lista.addItem(textos.nombre(m), mid)
+    i = lista.findData(actual)
+    lista.setCurrentIndex(i if i >= 0 else 0)
+    lista.blockSignals(False)
+
+
+def _fy_de(modelo, acero):
+    """El fy del acero elegido (o el de Grado 60 si todavía no hay ninguno)."""
+    mat = modelo.materiales.get(acero)
+    return mat.fy if cc.es_acero(mat) else FY_DEFECTO
+
+
 class FormularioOtroMaterial(QWidget):
     """Material dado por E y G (familia "otros": los viejos, sin f'c)."""
 
@@ -193,9 +265,9 @@ class FormularioOtroMaterial(QWidget):
 
 # ---------------------------------------------------------------- Secciones
 class FormularioSeccion(QWidget):
-    """Sección rectangular de concreto: material, b, h, d, barra, Nx, Ny y fy del acero; nombre y
-    propiedades calculadas (con el aviso si la cuantía se sale de sus límites); y el dibujo debajo, que
-    se actualiza con cada cambio."""
+    """Sección rectangular de concreto: material, b, h, d, barra, Nx, Ny y el acero de sus barras (un
+    material de Definir → Materiales, que da fy); nombre y propiedades calculadas (con el aviso si la
+    cuantía se sale de sus límites); y el dibujo debajo, que se actualiza con cada cambio."""
 
     def __init__(self, modelo, parent=None):
         super().__init__(parent)
@@ -206,9 +278,8 @@ class FormularioSeccion(QWidget):
         for n in BARRAS:
             self.barra.addItem(f"#{n}", n)
         self.nx, self.ny = campo_barras(), campo_barras()
-        self.fy = campo("esfuerzo", 100000, 1000000)               # 14.5 a 145 ksi
-        self.fy.poner(FY_DEFECTO)
-        self.fy.setToolTip("Fluencia del acero de refuerzo. Grado 60: 60 ksi = 420 MPa (lo usual en Panamá)")
+        self.acero = Lista()
+        self.acero.setToolTip("El acero de refuerzo de las barras (Definir → Materiales → Acero de refuerzo): da fy")
         self.nombre = QLabel()
         self.datos = QLabel()
         self.datos.setTextFormat(Qt.RichText)
@@ -221,21 +292,22 @@ class FormularioSeccion(QWidget):
         forma.addRow("Barra", self.barra)
         forma.addRow("Nx (arriba y abajo)", self.nx)
         forma.addRow("Ny (filas)", self.ny)
-        forma.addRow("fy (acero)", self.fy)
+        forma.addRow("Acero", self.acero)
         forma.addRow("Nombre", self.nombre)
         forma.addRow(self.datos)
         diseno = QVBoxLayout(self)
         diseno.setContentsMargins(0, 0, 0, 0)
         diseno.addLayout(forma)
         diseno.addWidget(self.vista, 1)
-        for caja in (self.b, self.h, self.d, self.nx, self.ny, self.fy):
+        for caja in (self.b, self.h, self.d, self.nx, self.ny):
             caja.cambiado.connect(self._actualizar)
-        for combo in (self.material, self.barra):
+        for combo in (self.material, self.barra, self.acero):
             combo.currentIndexChanged.connect(self._actualizar)
         self.llenar_materiales()
         self.cargar_concreto(Concreto(forma="rectangular", fc=0, d=0.06, barra=6, b=0.4, h=0.4, nx=3, ny=3), None)
 
     def llenar_materiales(self):
+        """Las listas de materiales: los concretos (Material) y los aceros de refuerzo (Acero)."""
         actual = self.material.currentData()
         self.material.blockSignals(True)
         self.material.clear()
@@ -245,6 +317,14 @@ class FormularioSeccion(QWidget):
         i = self.material.findData(actual)
         self.material.setCurrentIndex(i if i >= 0 else 0)
         self.material.blockSignals(False)
+        for lista in (getattr(self, "acero", None), getattr(self, "acero_estribo", None)):
+            if lista is not None:
+                lista_aceros(self.modelo, lista)
+
+    @staticmethod
+    def _elegir_acero(lista, acero):
+        if acero is not None and lista.findData(acero) >= 0:
+            lista.setCurrentIndex(lista.findData(acero))
 
     def cargar(self, sec):
         # El aviso de cuantía es la regla de columnas: solo si alguna columna usa esta sección
@@ -253,26 +333,27 @@ class FormularioSeccion(QWidget):
         self.cargar_concreto(sec.concreto, sec.material)
 
     def cargar_concreto(self, c, material):
-        for combo in (self.barra, self.material):
+        for combo in (self.barra, self.material, self.acero):
             combo.blockSignals(True)
         self.b.poner(c.b)
         self.h.poner(c.h)
         self.d.poner(c.d)
         self.nx.poner(c.nx)
         self.ny.poner(c.ny)
-        self.fy.poner(c.fy)
+        self._elegir_acero(self.acero, c.acero)
         i = self.barra.findData(c.barra)
         self.barra.setCurrentIndex(i if i >= 0 else BARRAS.index(6))
         if material is not None and self.material.findData(material) >= 0:
             self.material.setCurrentIndex(self.material.findData(material))
-        for combo in (self.barra, self.material):
+        for combo in (self.barra, self.material, self.acero):
             combo.blockSignals(False)
         self._actualizar()
 
     def valores(self):
+        acero = self.acero.currentData()
         return {"material": self.material.currentData(), "b": self.b.valor(), "h": self.h.valor(),
                 "d": self.d.valor(), "barra": self.barra.currentData(), "nx": self.nx.valor(),
-                "ny": self.ny.valor(), "fy": self.fy.valor()}
+                "ny": self.ny.valor(), "acero": acero, "fy": _fy_de(self.modelo, acero)}
 
     def concreto(self):
         v = self.valores()
@@ -329,9 +410,10 @@ def lista_barras(con_ninguna=None):
 class FormularioSeccionT(QWidget):
     """Sección T de concreto (vigas y viguetas con su losa): material, bw, h, bf, hf, recubrimiento
     libre, estribo (número y separación, o sin estribos), barras de abajo (número y cuántas), barras
-    de arriba (número y cuántas; 0 = sin acero arriba) y fy; nombre, propiedades (con el centroide
-    yb y los peraltes d+ y d−) y el dibujo debajo. d sale del recubrimiento, como en el SMath:
-    d = rec + d_estribo + db/2. Sin diagrama de interacción ni aviso de cuantía (es de vigas)."""
+    de arriba (número y cuántas; 0 = sin acero arriba), el acero de las barras y el de los estribos
+    (materiales de Definir: dan fy y fyt); nombre, propiedades (con el centroide yb y los peraltes d+ y
+    d−) y el dibujo debajo. d sale del recubrimiento, como en el SMath: d = rec + d_estribo + db/2. Sin
+    diagrama de interacción ni aviso de cuantía (es de vigas)."""
 
     def __init__(self, modelo, parent=None):
         super().__init__(parent)
@@ -350,8 +432,11 @@ class FormularioSeccionT(QWidget):
         self.barra_sup = lista_barras()
         self.n_sup = CampoNumero(minimo=0, maximo=30, entero=True)
         self.n_sup.setToolTip("Barras de arriba (momento negativo, sobre los apoyos). 0 = sin acero arriba")
-        self.fy = campo("esfuerzo", 100000, 1000000)
-        self.fy.poner(FY_DEFECTO)
+        self.acero = Lista()
+        self.acero.setToolTip("El acero de las barras de abajo y de arriba (Definir → Materiales): da fy")
+        self.acero_estribo = Lista()
+        self.acero_estribo.setToolTip("El acero de los estribos: da fyt (para cortante se toma como máximo 60 ksi,\n"
+                                      "ACI 318-19 Tabla 20.2.2.4(a))")
         self.nombre = QLabel()
         self.datos = QLabel()
         self.datos.setTextFormat(Qt.RichText)
@@ -369,16 +454,17 @@ class FormularioSeccionT(QWidget):
         forma.addRow("Barras abajo", self.n)
         forma.addRow("Barra arriba", self.barra_sup)
         forma.addRow("Barras arriba", self.n_sup)
-        forma.addRow("fy (acero)", self.fy)
+        forma.addRow("Acero (barras)", self.acero)
+        forma.addRow("Acero (estribos)", self.acero_estribo)
         forma.addRow("Nombre", self.nombre)
         forma.addRow(self.datos)
         diseno = QVBoxLayout(self)
         diseno.setContentsMargins(0, 0, 0, 0)
         diseno.addLayout(forma)
         diseno.addWidget(self.vista, 1)
-        for caja in (self.bw, self.h, self.bf, self.hf, self.rec, self.s_estribo, self.n, self.n_sup, self.fy):
+        for caja in (self.bw, self.h, self.bf, self.hf, self.rec, self.s_estribo, self.n, self.n_sup):
             caja.cambiado.connect(self._actualizar)
-        for combo in (self.material, self.barra, self.barra_sup, self.estribo):
+        for combo in (self.material, self.barra, self.barra_sup, self.estribo, self.acero, self.acero_estribo):
             combo.currentIndexChanged.connect(self._actualizar)
         self.llenar_materiales()
         # La vigueta de la tarea: 15 × 45, ala 50 × 10, rec 3/4 in, sin estribos, 1 #6 abajo y 2 #5 arriba
@@ -386,18 +472,21 @@ class FormularioSeccionT(QWidget):
                                            rec=0.75 * 0.0254), None)
 
     llenar_materiales = FormularioSeccion.llenar_materiales
+    _elegir_acero = FormularioSeccion._elegir_acero
 
     def cargar(self, sec):
         self.cargar_concreto(sec.concreto, sec.material)
 
     def cargar_concreto(self, c, material):
-        combos = (self.barra, self.barra_sup, self.estribo, self.material)
+        combos = (self.barra, self.barra_sup, self.estribo, self.material, self.acero, self.acero_estribo)
         for combo in combos:
             combo.blockSignals(True)
         for caja, valor in ((self.bw, c.b), (self.h, c.h), (self.bf, c.bf), (self.hf, c.hf),
                             (self.rec, c.recubrimiento), (self.s_estribo, c.s_estribo or 0.20),
-                            (self.n, c.nx), (self.n_sup, c.n_sup), (self.fy, c.fy)):
+                            (self.n, c.nx), (self.n_sup, c.n_sup)):
             caja.poner(valor)
+        self._elegir_acero(self.acero, c.acero)
+        self._elegir_acero(self.acero_estribo, c.acero_estribo if c.acero_estribo is not None else c.acero)
         for combo, numero, defecto in ((self.barra, c.barra, 6), (self.barra_sup, c.barra_sup or 5, 5),
                                        (self.estribo, c.estribo, 0)):
             i = combo.findData(numero)
@@ -415,11 +504,13 @@ class FormularioSeccionT(QWidget):
         c = cc.concreto_T(0.0, self.bw.valor(), self.h.valor(), self.bf.valor(), self.hf.valor(), 0.0,
                           self.barra.currentData(), self.n.valor(), rec=self.rec.valor(), estribo=estribo,
                           s_estribo=self.s_estribo.valor() if estribo else 0.0)
+        acero, acero_estribo = self.acero.currentData(), self.acero_estribo.currentData()
         return {"material": self.material.currentData(), "bw": self.bw.valor(), "h": self.h.valor(),
                 "bf": self.bf.valor(), "hf": self.hf.valor(), "d": c.d, "barra": self.barra.currentData(),
-                "n": self.n.valor(), "fy": self.fy.valor(), "barra_sup": self.barra_sup.currentData(),
-                "n_sup": self.n_sup.valor(), "rec": self.rec.valor(), "estribo": estribo,
-                "s_estribo": c.s_estribo}
+                "n": self.n.valor(), "fy": _fy_de(self.modelo, acero), "acero": acero,
+                "acero_estribo": acero_estribo, "fyt": _fy_de(self.modelo, acero_estribo if acero_estribo else acero),
+                "barra_sup": self.barra_sup.currentData(), "n_sup": self.n_sup.valor(), "rec": self.rec.valor(),
+                "estribo": estribo, "s_estribo": c.s_estribo}
 
     @staticmethod
     def refuerzo(v):
@@ -430,7 +521,8 @@ class FormularioSeccionT(QWidget):
         v = self.valores()
         mat = self.modelo.materiales.get(v["material"])
         return cc.concreto_T(mat.fc if mat else 0.0, v["bw"], v["h"], v["bf"], v["hf"], v["d"], v["barra"],
-                             v["n"], v["fy"], **self.refuerzo(v))
+                             v["n"], v["fy"], acero=v["acero"], acero_estribo=v["acero_estribo"], fyt=v["fyt"],
+                             **self.refuerzo(v))
 
     def error(self):
         v = self.valores()
@@ -513,6 +605,7 @@ class FormularioOtraSeccion(QWidget):
 
 FORMULARIOS = {
     ("material", "concreto"): FormularioConcreto,
+    ("material", "acero"): FormularioAcero,
     ("material", "otros"): FormularioOtroMaterial,
     ("seccion", "concreto"): FormularioSeccion,
     ("seccion", "concreto", "T"): FormularioSeccionT,

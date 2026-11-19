@@ -1,6 +1,9 @@
 """Definir materiales y secciones: el árbol con carpetas, el menú de clic derecho y los cambios.
 
-Materiales y secciones van SEPARADOS, y por ahora agrupados solo en Concreto:
+Materiales y secciones van SEPARADOS. Materiales en dos carpetas, Concreto y Acero de refuerzo (el
+de las barras y los estribos de las secciones; "Acero Grado 60" viene por defecto); secciones en
+Concreto. En la ventana, abajo a la izquierda, el botón "Agregar material ▾" o "Agregar sección ▾"
+(lo mismo que el clic derecho en la carpeta, pero a la vista: pedido del usuario):
 - en el Explorador del modelo, las carpetas Materiales y Secciones, con las propiedades en el panel
   Propiedades;
 - en las ventanas Materiales y Secciones (menú Definir y barra de arriba), cada una con su árbol
@@ -25,6 +28,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QMenu, QPushButton, QSplitter, QTreeWidgetItem, QVBoxLayout
 
 from modelo import concreto as cc
+from interfaz.iconos import icono
 from interfaz.paneles.comunes import ArbolLimpio, carpeta
 from interfaz.paneles.propiedades import PanelPropiedades
 from interfaz.textos import nombre
@@ -37,17 +41,37 @@ TITULOS = {"material": "Materiales", "seccion": "Secciones"}
 
 
 # ---------------------------------------------------------------- Árbol
-def _carpeta(padre, texto, clave, info, abierto):
+def icono_familia(tipo, familia):
+    """Ícono de una carpeta (o de lo que hay en ella): el acero de refuerzo, el bloque de concreto o
+    la sección."""
+    if tipo == "material":
+        return icono("acero" if familia == "acero" else "material_simple")
+    return icono("seccion_rectangular")
+
+
+def icono_definicion(tipo, obj):
+    """Ícono de un material o una sección según lo que es (acero, concreto; rectangular o T)."""
+    if tipo == "material":
+        return icono_familia("material", cc.familia_material(obj))
+    c = obj.concreto
+    return icono("seccion_t" if c is not None and c.forma == "T" else "seccion_rectangular")
+
+
+def _carpeta(padre, texto, clave, info, abierto, simbolo=None):
     item = carpeta(QTreeWidgetItem(padre, [texto]))
     item.setData(0, CLAVE, clave)
     item.setData(0, CARPETA, info)
     item.setExpanded(abierto(clave))
+    if simbolo is not None:
+        item.setIcon(0, simbolo)
     return item
 
 
-def _hoja(padre, texto, dato):
+def _hoja(padre, texto, dato, simbolo=None):
     item = QTreeWidgetItem(padre, [texto])
     item.setData(0, DATO, dato)
+    if simbolo is not None:
+        item.setIcon(0, simbolo)
     return item
 
 
@@ -62,15 +86,17 @@ def llenar_definiciones(padre, modelo, abierto, tipo, con_raiz=False):
     familia_de = cc.familia_material if tipo == "material" else cc.familia_seccion
     if con_raiz:
         raiz = TITULOS[tipo].lower()
-        padre = _carpeta(padre, f"{TITULOS[tipo]} ({len(coleccion)})", raiz, (raiz, None), abierto)
+        padre = _carpeta(padre, f"{TITULOS[tipo]} ({len(coleccion)})", raiz, (raiz, None), abierto,
+                         icono_familia(tipo, "concreto"))
     items = {}
     hay_otros = any(familia_de(o) == "otros" for o in coleccion.values())
-    for familia in list(cc.FAMILIAS) + (["otros"] if hay_otros else []):
+    for familia in list(cc.familias(tipo)) + (["otros"] if hay_otros else []):
         clave = f"{tipo}_{familia}"
-        grupo = _carpeta(padre, cc.nombre_familia(familia), clave, ("familia", (tipo, familia)), abierto)
+        grupo = _carpeta(padre, cc.nombre_familia(familia), clave, ("familia", (tipo, familia)), abierto,
+                         icono_familia(tipo, familia))
         for ident, obj in coleccion.items():
             if familia_de(obj) == familia:
-                items[(tipo, ident)] = _hoja(grupo, nombre(obj, modelo), (tipo, ident))
+                items[(tipo, ident)] = _hoja(grupo, nombre(obj, modelo), (tipo, ident), icono_definicion(tipo, obj))
     return items
 
 
@@ -89,6 +115,25 @@ def info_de(item):
 
 
 # ---------------------------------------------------------------- Menú de clic derecho
+def agregar_opciones(menu, tipo, destino):
+    """Las opciones para crear un material ("Concreto…", "Acero de refuerzo…") o una sección
+    ("Concreto rectangular…", "Concreto T…"), en el menú dado. Las usan el clic derecho y los botones
+    Agregar de la ventana."""
+    menu.setToolTipsVisible(True)
+    for familia, nombre in cc.familias(tipo).items():
+        if tipo == "material":
+            a = menu.addAction(f"{nombre}…")
+            a.triggered.connect(lambda *_, f=familia: destino.nuevo("material", f))
+            if familia == "acero":
+                a.setToolTip("Acero de refuerzo: fy y norma (ASTM A615 o A706); lo usan las secciones")
+        else:
+            menu.addAction(f"{nombre} rectangular…").triggered.connect(
+                lambda *_, f=familia: destino.nuevo("seccion", f))
+            a = menu.addAction(f"{nombre} T…")
+            a.triggered.connect(lambda *_, f=familia: destino.nuevo("seccion", f, "T"))
+            a.setToolTip("Vigas y viguetas con su losa: alma bw, ala bf × hf")
+
+
 def menu_definir(parent, info, modelo, destino):
     """Menú de clic derecho para info (de info_de), o None si no hay nada que ofrecer."""
     if info is None:
@@ -105,16 +150,10 @@ def menu_definir(parent, info, modelo, destino):
         return a
 
     if clase in ("materiales", "secciones"):
-        tipo = "material" if clase == "materiales" else "seccion"
-        for familia, nombre in cc.FAMILIAS.items():
-            if tipo == "material":
-                accion(f"Nuevo: {nombre}…", lambda f=familia: destino.nuevo("material", f))
-            else:
-                accion(f"Nueva: {nombre} rectangular…", lambda f=familia: destino.nuevo("seccion", f))
-                accion(f"Nueva: {nombre} T…", lambda f=familia: destino.nuevo("seccion", f, "T"))
+        agregar_opciones(menu, "material" if clase == "materiales" else "seccion", destino)
     elif clase == "familia":
         tipo, familia = valor
-        if familia in cc.FAMILIAS:                       # en "Otros" no se crean nuevos
+        if familia in cc.familias(tipo):                 # en "Otros" no se crean nuevos
             if tipo == "material":
                 accion("Nuevo…", lambda: destino.nuevo(tipo, familia))
             else:
@@ -151,18 +190,23 @@ def _hacer(modelo, pedido):
     nuevo = modo in ("nuevo", "copiar")
     if tipo == "material":
         if nuevo:
-            mid = cc.crear_material(modelo, v["nombre"], fc=v.get("fc"), e=v.get("e"), g=v.get("g"),
-                                    gamma=v.get("gamma"))
+            if familia == "acero":
+                mid = cc.crear_acero(modelo, v["nombre"], v["fy"], v["norma"])
+            else:
+                mid = cc.crear_material(modelo, v["nombre"], fc=v.get("fc"), e=v.get("e"), g=v.get("g"),
+                                        gamma=v.get("gamma"))
             return ("material", mid), f"Material {mid} agregado: {nombre(modelo.materiales[mid])}"
         barras, secciones = cc.cambiar_material(modelo, ident, v["nombre"], fc=v.get("fc"), e=v.get("e"),
-                                                g=v.get("g"), gamma=v.get("gamma"))
+                                                g=v.get("g"), gamma=v.get("gamma"), fy=v.get("fy"),
+                                                norma=v.get("norma"))
         texto = f"Material cambiado: {nombre(modelo.materiales[ident])}"
         if barras or secciones:
             texto += f" (lo usan {len(barras)} barras y {len(secciones)} secciones)"
         return ("material", ident), texto
     if familia == "concreto" and pedido.get("forma") == "T":
         args = (v["material"], v["bw"], v["h"], v["bf"], v["hf"], v["d"], v["barra"], v["n"], v["fy"])
-        refuerzo = {k: v[k] for k in ("barra_sup", "n_sup", "rec", "estribo", "s_estribo") if k in v}
+        refuerzo = {k: v[k] for k in ("barra_sup", "n_sup", "rec", "estribo", "s_estribo", "acero", "acero_estribo")
+                    if k in v}
         if nuevo:
             existente = cc.buscar_seccion_T(modelo, *args, **refuerzo)
             if existente is not None:
@@ -171,7 +215,7 @@ def _hacer(modelo, pedido):
             return ("seccion", sid), f"Sección {sid} agregada: {nombre(modelo.secciones[sid], modelo)}"
         barras = cc.cambiar_seccion_T(modelo, ident, *args, **refuerzo)
     elif familia == "concreto":
-        args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"], v["fy"])
+        args = (v["material"], v["b"], v["h"], v["d"], v["barra"], v["nx"], v["ny"], v["fy"], v.get("acero"))
         if nuevo:
             existente = cc.buscar_seccion(modelo, *args)
             if existente is not None:
@@ -273,7 +317,7 @@ class DialogoDefinir(QDialog):
         self.setWindowTitle(TITULOS[tipo])
         self.resize(780, 560)
         self.actual = None                       # lo que se ve a la derecha
-        self._abiertos = {f"{tipo}_{familia}" for familia in list(cc.FAMILIAS) + ["otros"]}
+        self._abiertos = {f"{tipo}_{familia}" for familia in list(cc.familias(tipo)) + ["otros"]}
         self.arbol = ArbolLimpio()
         self.arbol.setContextMenuPolicy(Qt.CustomContextMenu)
         self.arbol.customContextMenuRequested.connect(self._menu)
@@ -288,9 +332,17 @@ class DialogoDefinir(QDialog):
         divisor.addWidget(self.arbol)
         divisor.addWidget(self.panel)
         divisor.setSizes([280, 500])
+        # Agregar, a la vista (el clic derecho en la carpeta hace lo mismo): un botón con su menú
+        self.agregar = QPushButton("Agregar material" if tipo == "material" else "Agregar sección")
+        self.agregar.setToolTip("Crea un material (concreto o acero de refuerzo)" if tipo == "material"
+                                else "Crea una sección de concreto (rectangular o T)")
+        menu = QMenu(self.agregar)
+        agregar_opciones(menu, tipo, self.destino)
+        self.agregar.setMenu(menu)
         cerrar = QPushButton("Cerrar")
         cerrar.clicked.connect(self.close)
         abajo = QHBoxLayout()
+        abajo.addWidget(self.agregar)
         abajo.addStretch(1)
         abajo.addWidget(cerrar)
         diseno = QVBoxLayout(self)
@@ -315,6 +367,7 @@ class DialogoDefinir(QDialog):
         """Vuelve a armar el árbol con el modelo vigente y muestra lo que corresponda."""
         if self.arbol.topLevelItemCount():
             self._recordar_abiertos()
+        self.arbol.ajustar_iconos()
         self.arbol.clear()
         items = llenar_definiciones(self.arbol, self.ventana.modelo, lambda clave: clave in self._abiertos,
                                     self.tipo)

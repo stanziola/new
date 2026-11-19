@@ -40,6 +40,8 @@ from modelo.estructura import nombre_combinacion
 
 PUNTOS_DEFLEXION = 41                  # puntos a lo largo de cada claro para buscar la deflexión máxima
 N_FINO = 201                           # puntos de la integración de la deflexión (diagramas.deformada)
+# fyt máximo para el diseño por cortante de estribos: 60 ksi (ACI 318-19 Tabla 20.2.2.4(a), PDF p. 378)
+FYT_MAXIMO_CORTANTE = 60 * cc.KSI
 
 
 def niveles(losa):
@@ -444,15 +446,19 @@ def comprobaciones(modelo, losa, d, geos):
         as_v, d_v = cc.area_superior(c), cc.peralte_negativo(c)
     else:
         as_v, d_v = cc.area_inferior(c), cc.peralte_positivo(c)
+    # fyt de los estribos: el de su acero, con el tope de 60 ksi para cortante (Tabla 20.2.2.4(a), p. 378)
+    fyt = min(getattr(c, "fyt", fy), FYT_MAXIMO_CORTANTE)
     av = 2 * formulas.area_barra(c.estribo) if c.estribo else 0.0
-    con_min = bool(c.estribo) and av / c.s_estribo >= formulas.av_minimo_por_s(fc, fy, c.b) - 1e-12
+    con_min = bool(c.estribo) and av / c.s_estribo >= formulas.av_minimo_por_s(fc, fyt, c.b) - 1e-12
     vc, ecuacion = formulas.vc(fc, c.b, d_v, as_v, con_min)
-    vs = formulas.vs(av, fy, d_v, c.s_estribo) if c.estribo else 0.0
+    vs = formulas.vs(av, fyt, d_v, c.s_estribo) if c.estribo else 0.0
     phi_vn = formulas.PHI_CORTANTE * (formulas.FACTOR_VC_VIGUETA * vc + vs)
     texto_vc = {"a": "(a) 2λ√f'c·bw·d", "b": "(b) 8λρw^(1/3)√f'c·bw·d",
                 "c": "(c) 8λsλρw^(1/3)√f'c·bw·d, sin Av,min"}[ecuacion]
+    tope = (f" fyt = {getattr(c, 'fyt', fy) / FYT_MAXIMO_CORTANTE * 60:.0f} ksi se toma como 60 ksi "
+            "(Tabla 20.2.2.4(a)).") if c.estribo and getattr(c, "fyt", fy) > FYT_MAXIMO_CORTANTE * (1 + 1e-9) else ""
     agregar(g, "φ(1.1·Vc + Vs) ≥ Vu (en la cara)", phi_vn, "≥", d.vu.valor, "fuerza", "22.5.5.1",
-            f"Vc con {texto_vc}; × 1.1 de viguetas (§9.8.1.5); φ = 0.75. {d.vu.detalle()}",
+            f"Vc con {texto_vc}; × 1.1 de viguetas (§9.8.1.5); φ = 0.75.{tope} {d.vu.detalle()}",
             cita="§22.5.5.1, Tabla 22.5.5.1 y §9.8.1.5 (p. 406 y 153)")
     agregar(g, "Dimensiones: Vu ≤ φ(Vc + 8√f'c·bw·d)", d.vu.valor, "≤",
             formulas.PHI_CORTANTE * formulas.vn_maximo(fc, c.b, d_v, vc), "fuerza", "22.5.1.2")

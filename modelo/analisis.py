@@ -13,9 +13,11 @@ Peso propio: no es una carga guardada. En los casos con factor de peso propio (e
 propio"), cada barra con material y sección recibe una uniforme de A·γ·factor hacia −Z global
 (peso_propio_de). La interfaz la dibuja y la lista con esa misma función.
 
-Losas: la carga de las losas de viguetas sobre sus vigas (modelo/losas.cargas_a_vigas: la reacción de
-cada vigueta entre s) tampoco se guarda. Entra como una uniforme más hacia −Z global en el peso
-propio, la carga muerta adicional y el caso "Viva de losas" (cargas_de_losas la da para dibujarla).
+Losas: la carga de las losas de viguetas sobre sus vigas (modelo/losas.cargas_a_vigas: lo que cada
+vigueta le pasa a cada apoyo entre s, y la franja de las vigas laterales) tampoco se guarda. Llega en
+pedazos (a, b, w) hacia −Z global: si cubre toda la barra entra como uniforme y, si no, como una
+trapezoidal con w1 = w2 (carga parcial). Va en el peso propio, la carga muerta adicional y la carga
+viva (cargas_de_losas la da para dibujarla y listarla).
 
 Combinaciones: no se resuelven otra vez. Como el análisis es lineal (primer orden), el resultado de
 1.2D + 1.6L es 1.2 × (resultados de los casos tipo D) + 1.6 × (resultados de los tipo L):
@@ -116,6 +118,15 @@ def _vector(r, direccion, valor):
     return r @ g
 
 
+def carga_local(r, c):
+    """La CargaBarra c como la tupla de calculo/rigidez (ejes locales): (tipo, vector, a). La
+    trapezoidal lleva sus dos vectores (en a y en b) y (a, b)."""
+    if c.tipo == "trapezoidal":
+        return ("trapezoidal", np.array([_vector(r, c.direccion, c.valor), _vector(r, c.direccion, c.valor2)]),
+                (c.a, c.b))
+    return (c.tipo, _vector(r, c.direccion, c.valor), None if c.tipo == "uniforme" else c.a)
+
+
 def peso_propio_de(modelo, eid, caso):
     """Peso propio de la barra en el caso, como carga uniforme (kN/m, positiva): A·γ·factor del caso.
     0 si el caso no lleva peso propio o a la barra le falta el material o la sección. Va hacia −Z
@@ -146,30 +157,47 @@ def cargas_de_peso_propio(modelo, caso):
 
 def cargas_locales(modelo, eid, caso, losas=None):
     """Cargas de la barra en el caso, en ejes locales, más su peso propio y la carga de las losas
-    (losas: {ID de barra: w} de este caso, kN/m hacia abajo; None = sin losas)."""
-    r, _t, _l = geometria(modelo, eid)
+    (losas: {ID de barra: [(a, b, w), ...]} de este caso, kN/m hacia abajo; None = sin losas)."""
+    r, _t, largo = geometria(modelo, eid)
     lista = []
     for c in modelo.cargas.values():
         if isinstance(c, CargaBarra) and c.barra == eid and c.caso == caso:
-            lista.append((c.tipo, _vector(r, c.direccion, c.valor), None if c.tipo == "uniforme" else c.a))
+            lista.append(carga_local(r, c))
     peso = peso_propio_de(modelo, eid, caso)
     if peso:
         lista.append(("uniforme", r @ np.array([0.0, 0.0, -peso]), None))
-    w = (losas or {}).get(eid, 0.0)
-    if w:
-        lista.append(("uniforme", r @ np.array([0.0, 0.0, -w]), None))
+    for c in _cargas_losa_de_barra(eid, (losas or {}).get(eid, []), caso, largo):
+        lista.append(carga_local(r, c))
     return lista
 
 
+def _cargas_losa_de_barra(eid, pedazos, caso, largo):
+    """Los pedazos (a, b, w) de la carga de las losas sobre una barra como CargaBarra hacia −Z global:
+    uniforme si cubre toda la barra; si no, trapezoidal con w1 = w2 (carga parcial)."""
+    cargas = []
+    for a, b, w in pedazos:
+        if abs(w) <= 1e-12 or b - a <= 1e-9:
+            continue
+        if a <= 1e-6 and b >= largo - 1e-6:
+            cargas.append(CargaBarra(caso, eid, "uniforme", -w, "Z"))
+        else:
+            cargas.append(CargaBarra(caso, eid, "trapezoidal", -w, "Z", a=a, valor2=-w, b=b))
+    return cargas
+
+
 def cargas_de_losas(modelo, caso, por_caso=None):
-    """{ID de barra: CargaBarra} con la carga de las losas sobre cada viga en el caso (uniforme, −Z
-    global), para dibujarla y listarla. No se guarda en el modelo. por_caso: el resultado de
-    losas.cargas_a_vigas, si ya se calculó (es lo que tarda)."""
+    """[(ID de barra, CargaBarra)] con la carga de las losas sobre cada viga en el caso (uniforme o
+    parcial, −Z global), para dibujarla y listarla. No se guarda en el modelo. por_caso: el resultado
+    de losas.cargas_a_vigas, si ya se calculó (es lo que tarda)."""
     if por_caso is None:
         from modelo.losas import cargas_a_vigas
         por_caso = cargas_a_vigas(modelo)
-    return {eid: CargaBarra(caso, eid, "uniforme", -w, "Z") for eid, w in por_caso.get(caso, {}).items()
-            if abs(w) > 1e-12 and eid in modelo.elementos}
+    salida = []
+    for eid, pedazos in por_caso.get(caso, {}).items():
+        if eid in modelo.elementos:
+            largo = geometria(modelo, eid)[2]
+            salida += [(eid, c) for c in _cargas_losa_de_barra(eid, pedazos, caso, largo)]
+    return salida
 
 
 def peso_propio_total(modelo, caso):
@@ -180,7 +208,7 @@ def peso_propio_total(modelo, caso):
 
 def _cargas_del_caso(modelo, caso, losas=None):
     """(F, fef, locales) del caso: el vector de cargas, las FEF de cada barra cargada y sus cargas en
-    ejes locales. losas: {ID de barra: w} de este caso (None: se calculan con cargas_a_vigas)."""
+    ejes locales. losas: {ID de barra: [(a, b, w)]} de este caso (None: se calculan con cargas_a_vigas)."""
     if caso not in modelo.casos:
         raise KeyError(f"El caso {caso} no existe")
     faltan = modelo.sin_asignar()
@@ -212,7 +240,7 @@ def analizar_caso(modelo, caso, losas=None):
     """Resuelve un caso de carga dos veces, con las mismas cargas: con la inercia agrietada de las
     barras de concreto (res: fuerzas y reacciones) y con la bruta (bruta: desplazamientos). Sin
     concreto se resuelve una vez. ValueError si falta algo (sección, apoyos) o es inestable.
-    losas: la carga de las losas de este caso ({ID de barra: w}), si ya se calculó."""
+    losas: la carga de las losas de este caso ({ID de barra: [(a, b, w)]}), si ya se calculó."""
     F, fef, locales = _cargas_del_caso(modelo, caso, losas)
     agrietado = ModeloAgrietado(modelo)
     if not agrietado.cambia:

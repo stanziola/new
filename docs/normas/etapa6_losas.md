@@ -102,7 +102,7 @@ Confirmado en el PDF (noviembre de 2026, p. 153–154): 9.8.1.2 a 9.8.1.8, 9.8.2
 - **Losa en una dirección:** espesor mínimo, momentos (6.5 o análisis), As, separaciones, As,min y retracción y temperatura. Se verifica como una viga de 1 m (o 12 in) de ancho.
 - **Losa en dos direcciones:** espesor mínimo (8.3.1.1 y 8.3.1.2), punzonamiento (22.6) y método de análisis (DDM del 318-14 o modelo de elementos o franjas).
 - **Viguetas:** límites de 9.8.1, la vigueta como viga T (ancho de ala, 6.3.2) y Vc × 1.1. **Hecho** (noviembre de 2026): `calculo/diseno/viga.py`, `modelo/losas.py` y `modelo/diseno_vigueta.py`.
-- **Carga de la losa a las vigas** (áreas tributarias) para el modelo 3D. Conecta con la etapa 2.
+- **Carga de la losa a las vigas** para el modelo 3D. **Hecho** (noviembre de 2026), en **una dirección**: la vigueta "trabaja en una dirección" (§9.8.1.1, PDF p. 153, confirmado), así que sus reacciones van a las dos vigas de apoyo (como carga parcial sobre la zona de viguetas del paño) y cada viga lateral recibe solo la franja entre su eje y la primera vigueta. La regla de las líneas a 45° (trapecios y triángulos) es de losas en dos direcciones: estaba en el método directo del ACI 318-14 (§8.10.8.1, que no está en `docs/codigos/`); en el PDF del 318-19 se buscó "45-degree" y "tributary area" y no aparece como reparto de losas. Con viguetas en una dirección, los trapecios le darían a cada viga de apoyo de un paño de 7.60 × 7.70 m ~25 % de la carga en vez de ~50 %: del lado inseguro.
 - **Verificaciones:**
   - losa de 4 m con ambos extremos continuos: h ≥ 4000/28 = 143 mm;
   - punzonamiento en una columna interior de 40×40 con d = 0.15 m: bo = 4(400 + 150) = 2200 mm, y comparar las tres expresiones de vc;

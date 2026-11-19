@@ -88,7 +88,7 @@
 ## Para el programa (qué implementar y cómo verificarlo)
 
 - **Material de concreto:** f'c (o E directo), wc y ν → Ec según 19.2.2.1 y G = Ec/(2(1+ν)).
-- **Material de acero:** fy, Es = 29 000 ksi, grado (A615 o A706).
+- **Material de acero:** fy, Es = 29 000 ksi, grado (A615 o A706). **Hecho** (noviembre de 2026): la familia "Acero de refuerzo" en Definir → Materiales, con "Acero Grado 60" (A615) por defecto; cada sección dice qué acero llevan sus barras (fy) y sus estribos (fyt). Confirmado en el PDF: §20.2.2.2 (p. 376) Es = 29 000 000 psi; Tabla 20.2.2.4(a) (p. 378), fy o fyt máximos: flexión y axial 80 000 psi en pórticos especiales y 100 000 psi en los demás; estribos por cortante 60 000 psi; nota [2]: A615 Grado 60 permitido si cumple 20.2.2.5(b). En el diseño de la vigueta, fyt ≤ 60 ksi en cortante; lo demás se avisa.
 - **Sección:** rectangular, circular y T, con A, Iy, Iz y J.
   - J de un rectángulo, por la fórmula de Saint-Venant aproximada: J ≈ [1/3 − 0.21·(b/h)·(1 − b⁴/(12h⁴))]·h·b³, con b ≤ h.
   - Modificadores de inercia por tipo de miembro según la Tabla 6.6.3.1.1(a), con opción 0.5Ig para cargas laterales y 1.4× para servicio.

@@ -23,24 +23,34 @@ Qué es una losa aquí (decisiones del usuario, noviembre de 2026):
 - Casos de viva (patrones, §6.4.2, PDF p. 75) de cada franja: los automáticos (todos los claros, los
   impares, los pares y cada par de claros vecinos) y los que agregue el usuario, que se guardan con la
   losa por la firma de la franja (sus claros).
-- Carga a las vigas del modelo 3D: la reacción de la vigueta en cada apoyo, por caso, dividida entre s,
-  como uniforme hacia −Z en las barras de ese apoyo dentro de la franja (cargas_a_vigas). El peso
-  propio de la losa va al caso de peso propio; la muerta adicional, al caso inicial (Carga muerta
-  adicional); y la viva, con todos los claros cargados, al caso automático "Viva de losas" (tipo L).
+- Carga a las vigas del modelo 3D (cargas_a_vigas), en UNA DIRECCIÓN, como trabaja la losa nervada
+  (ACI 318-19 §9.8.1.1, PDF p. 153: la losa de arriba "trabaja en una dirección"; decisión del
+  usuario, noviembre de 2026; los trapecios a 45° son de losas en dos direcciones):
+  - las viguetas llevan su zona del paño (a lo ancho, de la primera a la última vigueta, ±s/2) a las
+    dos vigas de apoyo: la fuerza que cada claro de la vigueta le pasa a cada apoyo, entre s, como
+    carga parcial (trapezoidal con w1 = w2) en las barras de ese apoyo dentro de esa zona. Una barra
+    de apoyo puede quedar entre dos franjas: cada una carga su tramo;
+  - cada viga lateral (paralela a las viguetas) recibe la franja que queda entre su eje y la zona de
+    las viguetas: su medio ancho más el borde libre sin vigueta. Ahí van la muerta adicional y la viva
+    del paño y, del peso propio, solo la losa de arriba (hf) fuera del ancho de la viga: la de encima
+    ya está en el peso propio de la viga. Si el paño no tiene viga lateral en ese lado, esa franja la
+    llevan las viguetas;
+  - el total sigue siendo q × área en la muerta adicional y en la viva.
+  El peso propio de la losa va al caso de peso propio; la muerta adicional, al caso inicial (Carga
+  muerta adicional); y la viva, con todos los claros cargados, al caso fijo "Carga viva" (tipo L).
 
 Coordenadas: t es la dirección de las vigas de apoyo (horizontal), n la de las viguetas (t girado
 90° alrededor de Z), u = p·t y v = p·n. Un paño ocupa [u0, u1] × [va, vb].
 
 Simplificaciones (van en las limitaciones de CLAUDE.md):
 - los claros de la vigueta van de eje a eje de las vigas, con la carga en todo el claro: el peso de la
-  losa sobre media viga se cuenta en la vigueta y en la viga (del lado seguro);
-- la carga sobre el ancho de una viga lateral va a los apoyos (la total no cambia);
-- las barras de apoyo deben quedar enteras dentro de una franja (sin cargas parciales: tocarían
-  calculo/); si no, se avisa dónde partir la viga;
+  losa sobre media viga de apoyo se cuenta en la vigueta y en la viga (del lado seguro);
+- la carga de cada vigueta se reparte en su ancho s como una carga continua sobre la viga de apoyo
+  (en realidad son puntuales cada s);
 - solo paños rectangulares y vigas de apoyo horizontales y paralelas.
 """
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -51,7 +61,6 @@ from calculo.tolerancias import TOL_LONGITUD
 
 TOL = 1e-3                     # m: tolerancia de las posiciones de la losa (alineación de vigas y paños)
 PARALELA = 0.999               # |coseno| desde el cual dos direcciones son paralelas
-NOMBRE_VIVA_LOSAS = "Viva de losas"
 
 
 # ---------------------------------------------------------------- Datos
@@ -437,8 +446,9 @@ def _letra(i):
 
 
 def franjas(modelo, losa, geos=None):
-    """Las franjas de la losa, de izquierda a derecha (en u). ValueError si una barra de apoyo queda
-    partida entre dos franjas distintas (habría que partir la viga en ese punto)."""
+    """Las franjas de la losa, de izquierda a derecha (en u). Cada tramo lista, por línea de apoyo,
+    las barras que se cruzan con él (una barra puede seguir más allá del tramo: la carga de la losa
+    le llega solo en su parte, como carga parcial)."""
     geos = geometrias(modelo, losa) if geos is None else geos
     if not geos:
         return []
@@ -486,10 +496,7 @@ def franjas(modelo, losa, geos=None):
                 u0, u1 = sorted(p @ t for p in _extremos(modelo, eid))
                 if u1 <= a + TOL or u0 >= b - TOL:
                     continue                           # fuera de este tramo
-                if u0 < a - TOL or u1 > b + TOL:
-                    raise ValueError(f"La viga {eid} queda partida entre dos franjas distintas (en u = "
-                                     f"{a if u0 < a - TOL else b:.3f} m): pártela en ese punto con un nodo")
-                dentro.append(eid)
+                dentro.append(eid)                     # entera o solo en parte: la carga va donde se cruzan
             apoyos.append(dentro)
         tramo = Tramo(a, b, gs[0].va, list(corrida), apoyos)
         if f not in por_firma:
@@ -585,8 +592,15 @@ def sistema(modelo, losa_id, franja, geos=None, con_patrones=False):
     c = sec.concreto
     s = separacion(geos, losa)
     m = Modelo()
+    del m.casos[m.caso_viva()]                 # la vigueta tiene sus propias vivas (por claro y por patrón)
     mid = m.agregar_material(mat.nombre, mat.e, mat.g, mat.fc, mat.gamma)
-    sid = m.agregar_seccion(sec.nombre, sec.a, sec.iy, sec.iz, sec.j, c, mid)
+    aceros = {}                                # el acero de la vigueta, copiado al modelo generado
+    for viejo in dict.fromkeys(x for x in (c.acero, c.acero_estribo) if x is not None):
+        a = modelo.materiales.get(viejo)
+        if a is not None:
+            aceros[viejo] = m.agregar_material(a.nombre, a.e, a.g, fy=a.fy, norma=a.norma)
+    c_vista = replace(c, acero=aceros.get(c.acero), acero_estribo=aceros.get(c.acero_estribo))
+    sid = m.agregar_seccion(sec.nombre, sec.a, sec.iy, sec.iz, sec.j, c_vista, mid)
     xs = [0.0]
     for claro in franja.claros:
         xs.append(xs[-1] + claro)
@@ -627,46 +641,145 @@ def sistemas(modelo, losa_id):
 
 
 # ---------------------------------------------------------------- Carga de la losa a las vigas
+def zonas(modelo, losa, geos=None):
+    """{ID de paño: (z0, z1)}: dónde llevan carga las viguetas del paño, a lo ancho (en u): de la
+    primera a la última vigueta, s/2 más allá de cada una (lo que le toca a cada vigueta). De un lado
+    sin viga lateral, la zona llega al borde del paño (esa franja la llevan las viguetas). Lo que queda
+    entre el borde (el eje de la viga lateral) y la zona va a esa viga lateral."""
+    geos = geometrias(modelo, losa) if geos is None else geos
+    if not geos:
+        return {}
+    c = concreto(modelo, losa)
+    s, u_ref = rejilla(geos, losa, c.b)
+    salida = {}
+    for pid, g in geos.items():
+        us = posiciones(g, s, u_ref, c.b)
+        if not us:
+            salida[pid] = (g.u0, g.u1)
+            continue
+        z0 = min(max(g.u0, us[0] - s / 2), g.u1) if g.lateral_0 else g.u0
+        z1 = max(min(g.u1, us[-1] + s / 2), z0) if g.lateral_1 else g.u1
+        salida[pid] = (z0, z1)
+    return salida
+
+
+def _en_barra(modelo, eid, t, u0, u1):
+    """La parte [u0, u1] (en u) de la barra eid como (a, b): distancias desde su nodo i. None si no se
+    cruzan. La barra es paralela a t, así que el largo en u es el largo en la barra."""
+    pi, pj = _extremos(modelo, eid)
+    ui, uj = float(pi @ t), float(pj @ t)
+    desde, hasta = max(u0, min(ui, uj)), min(u1, max(ui, uj))
+    if hasta - desde <= TOL:
+        return None
+    return (desde - ui, hasta - ui) if ui <= uj else (ui - hasta, ui - desde)
+
+
+def _sumar(cargas, eid, a, b, w):
+    """Agrega w (kN/m) en [a, b] a la barra eid; si ya hay un pedazo en el mismo tramo, lo suma."""
+    pedazos = cargas.setdefault(eid, [])
+    for k, (a0, b0, w0) in enumerate(pedazos):
+        if abs(a0 - a) <= TOL and abs(b0 - b) <= TOL:
+            pedazos[k] = (a0, b0, w0 + w)
+            return
+    pedazos.append((a, b, w))
+
+
 def cargas_a_vigas(modelo):
     """La carga de las losas sobre las vigas del modelo, por caso del modelo: {ID de caso: {ID de
-    barra: w}}, con w en kN/m, positiva hacia abajo (−Z global).
+    barra: [(a, b, w), ...]}}: w en kN/m, positiva hacia abajo (−Z global), entre a y b (m, desde el
+    nodo i de la barra). Un pedazo de 0 al largo de la barra es una uniforme.
 
-    Para cada franja se resuelven sus casos y la reacción de cada apoyo (por vigueta) se divide entre s:
-    - peso propio de la losa -> cada caso de peso propio del modelo (por su factor);
-    - muerta adicional -> el caso inicial (Carga muerta adicional);
-    - viva, con todos los claros cargados -> el caso "Viva de losas".
-    ValueError si una losa no se puede armar."""
+    En una dirección (ver el principio del módulo):
+    - vigas de apoyo: de cada franja se resuelven sus casos y, de cada claro de la vigueta, la fuerza
+      que le pasa a cada apoyo (inicio y fin del claro) entre s va en la zona de viguetas de su paño;
+    - vigas laterales: la franja entre su eje y la zona de viguetas (zonas), uniforme en cada barra.
+    Destinos: peso propio de la losa -> cada caso de peso propio del modelo (por su factor); muerta
+    adicional -> el caso inicial (Carga muerta adicional); viva, con todos los claros cargados -> el
+    caso fijo "Carga viva". ValueError si una losa no se puede armar."""
     from modelo.analisis import analizar
     salida = {}
     if not getattr(modelo, "losas", None):
         return salida
     pesos = {cid: caso.peso_propio for cid, caso in modelo.casos.items() if caso.peso_propio}
     muerta = modelo.caso_inicial()
-    viva = modelo.caso_viva_losas()
+    viva = modelo.caso_viva()
     for lid, losa in modelo.losas.items():
         if not losa.panos:
             continue
         try:
-            lista = sistemas(modelo, lid)
+            geos = geometrias(modelo, losa)
+            lista = [sistema(modelo, lid, f, geos) for f in franjas(modelo, losa, geos)]
+            zona = zonas(modelo, losa, geos)
         except ValueError as e:
             raise ValueError(f"{losa.nombre}: {e}") from e
+        t = ejes_losa(modelo, losa)[0]
+
+        # Vigas de apoyo: lo que cada claro de la vigueta le pasa a cada apoyo, entre s
         for sv in lista:
             res = analizar(sv.modelo)
-            nodos = sorted(sv.modelo.nodos)
+            claros = sorted(sv.modelo.elementos)          # la vigueta va en +X: z local = Z global
 
-            def reacciones(casos):
-                return [sum(float(res[c].res.reacciones[nid][2]) for c in casos) for nid in nodos]
+            def extremos(casos):
+                """Por claro, (inicio, fin): la fuerza vertical que la vigueta pasa a cada apoyo (kN, +
+                hacia abajo). Es la que los nodos le hacen a la barra (fuerzas[2] y [8]), sumada en esos
+                casos."""
+                return [(sum(float(res[c].res.fuerzas[eid][2]) for c in casos),
+                         sum(float(res[c].res.fuerzas[eid][8]) for c in casos)) for eid in claros]
 
-            por_caso = [(pesos, reacciones([sv.caso_peso])), ({muerta: 1.0}, reacciones([sv.caso_muerta])),
-                        ({viva: 1.0} if viva is not None else {}, reacciones(list(sv.casos_viva.values())))]
-            for destinos, rz in por_caso:
+            grupos = [(pesos, extremos([sv.caso_peso])), ({muerta: 1.0}, extremos([sv.caso_muerta])),
+                      ({viva: 1.0} if viva is not None else {}, extremos(list(sv.casos_viva.values())))]
+            for destinos, por_claro in grupos:
                 for cid, factor in destinos.items():
                     cargas = salida.setdefault(cid, {})
                     for tramo in sv.franja.tramos:
-                        for j, barras in enumerate(tramo.apoyos):
-                            for eid in barras:
-                                cargas[eid] = cargas.get(eid, 0.0) + factor * rz[j] / sv.s
+                        for k, pid in enumerate(tramo.panos):
+                            z0, z1 = zona[pid]
+                            u0, u1 = max(tramo.u0, z0), min(tramo.u1, z1)
+                            if u1 - u0 <= TOL:
+                                continue
+                            for linea, fuerza in ((k, por_claro[k][0]), (k + 1, por_claro[k][1])):
+                                for eid in tramo.apoyos[linea]:
+                                    parte = _en_barra(modelo, eid, t, u0, u1)
+                                    if parte is not None:
+                                        _sumar(cargas, eid, *parte, factor * fuerza / sv.s)
+
+        # Vigas laterales: la franja entre su eje y la zona de las viguetas
+        c = concreto(modelo, losa)
+        gamma = modelo.materiales[modelo.secciones[losa.seccion].material].gamma
+        for pid, g in geos.items():
+            pano = losa.panos[pid]
+            z0, z1 = zona[pid]
+            for barras, ancho, viga in ((g.lateral_0, z0 - g.u0, g.ancho_0), (g.lateral_1, g.u1 - z1, g.ancho_1)):
+                if not barras or ancho <= TOL:
+                    continue
+                losa_fuera = max(0.0, ancho - viga / 2) * c.hf * gamma      # kN/m: la losa de arriba fuera de la viga
+                destinos = [(cid, factor * losa_fuera) for cid, factor in pesos.items()]
+                destinos += [(muerta, pano.muerta * ancho)]
+                if viva is not None:
+                    destinos.append((viva, pano.viva * ancho))
+                for cid, w in destinos:
+                    if abs(w) <= 1e-12:
+                        continue
+                    for eid in barras:
+                        largo = float(np.linalg.norm(np.subtract(*_extremos(modelo, eid))))
+                        _sumar(salida.setdefault(cid, {}), eid, 0.0, largo, w)
     return salida
+
+
+def total_de_cargas(modelo, cargas):
+    """kN que suman los pedazos {ID de barra: [(a, b, w)]} (para comprobar el equilibrio)."""
+    return sum(w * (b - a) for pedazos in cargas.values() for a, b, w in pedazos)
+
+
+def carga_lateral(modelo, losa_id, pid):
+    """Por paño, para mostrarlo: [(lado, barras, ancho de la franja (m), muerta (kN/m), viva (kN/m))] de
+    sus vigas laterales (lado 0 y 1). Vacío si el paño no tiene vigas laterales."""
+    losa = modelo.losas[losa_id]
+    geos = geometrias(modelo, losa)
+    g, z0, z1 = geos[pid], *zonas(modelo, losa, geos)[pid]
+    pano = losa.panos[pid]
+    return [(lado, barras, ancho, pano.muerta * ancho, pano.viva * ancho)
+            for lado, barras, ancho in ((0, g.lateral_0, z0 - g.u0), (1, g.lateral_1, g.u1 - z1)) if barras]
 
 
 # ---------------------------------------------------------------- Resumen de la losa (para mostrar)

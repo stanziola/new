@@ -75,7 +75,7 @@ class DiagramaInteraccion(QWidget):
     con_barra: la barra de matplotlib (zoom, mover, guardar), solo en 2D.
     con_edicion: las medidas de la sección, editables (la pestaña de una columna)."""
 
-    seccion_editada = Signal(object)            # (material, b, h, d, barra, nx, ny, fy): medidas nuevas
+    seccion_editada = Signal(object)            # (material, b, h, d, barra, nx, ny, fy, acero): medidas nuevas
 
     def __init__(self, parent=None, con_modo=False, con_barra=True, con_edicion=False):
         super().__init__(parent)
@@ -219,7 +219,7 @@ class DiagramaInteraccion(QWidget):
         if all((abs(x - y) < 1e-9) if isinstance(x, float) else x == y for x, y in zip(nuevas, actuales)):
             return
         b, h, barra, nx, ny = nuevas
-        self.seccion_editada.emit((self.seccion.material, b, h, c.d, barra, nx, ny, c.fy))
+        self.seccion_editada.emit((self.seccion.material, b, h, c.d, barra, nx, ny, c.fy, c.acero))
 
     # ---------- Qué se muestra ----------
     def mostrar(self, seccion, modo=None, puntos=None, pista="", activa=None, especial=True):

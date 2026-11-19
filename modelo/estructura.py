@@ -10,8 +10,12 @@ combinaciones de ASCE 7-05 §2.3.2; por ahora D muerta, L viva, Lr viva de techo
   factor `peso_propio` del caso (modelo/analisis.py). Un caso con ese factor distinto de 0 es
   "automático": en la interfaz no recibe cargas a mano.
 - "Carga muerta adicional" (D): las cargas muertas que pone el usuario. Es el caso inicial: ahí van
-  las cargas si no se dice otro.
-- Los que agregue el usuario (Viva, Viento, Sismo u otra Muerta).
+  las cargas si no se dice otro. También recibe sola la muerta adicional de las losas.
+- "Carga viva" (L): fijo, como el anterior (decisión del usuario, noviembre de 2026): recibe sola la
+  viva de las losas y también las vivas puestas a mano. Antes había un caso automático aparte,
+  "Viva de losas"; los archivos viejos lo pasan a "Carga viva".
+- Los que agregue el usuario (otra Viva, Viva de techo, Viento, Sismo u otra Muerta).
+Los tres primeros son fijos: no se borran ni se renombran.
 La carga muerta total (D) es la suma de todos los casos tipo D: peso propio más la adicional.
 
 Combinaciones: un factor por TIPO de caso ({"D": 1.2, "L": 1.6}), que se aplica a todos los casos
@@ -23,8 +27,10 @@ predeterminadas (ASCE 7-05) salen de modelo/combinaciones.py con los datos del s
 Tipos de carga:
 - CargaNodal: fuerzas y momentos en un nodo, en ejes globales [Fx, Fy, Fz, Mx, My, Mz].
 - CargaBarra: en una barra, "uniforme" (kN/m, en toda la barra), "puntual" (kN) o "momento"
-  (kN·m) a una distancia a del nodo i. Su dirección es global ("X", "Y", "Z") o local de la barra
-  ("x", "y", "z"). El signo dice el sentido: Z con valor negativo es hacia abajo (gravedad).
+  (kN·m) a una distancia a del nodo i, o "trapezoidal" (kN/m): lineal de `valor` en a a `valor2`
+  en b, con 0 ≤ a < b ≤ L (con los dos valores iguales es una uniforme parcial; con uno en cero,
+  una triangular). Su dirección es global ("X", "Y", "Z") o local de la barra ("x", "y", "z"). El
+  signo dice el sentido: Z con valor negativo es hacia abajo (gravedad).
 """
 import math
 from dataclasses import dataclass, field
@@ -49,11 +55,16 @@ class Nodo:
 
 @dataclass
 class Material:
+    """Un material. Concreto: con f'c (E y G salen de f'c y γ). Acero de refuerzo: con fy (y su norma,
+    ASTM A615 o A706); no se asigna a barras: lo usan las secciones de concreto para sus barras y sus
+    estribos (Es = 29 000 ksi fijo, ACI 318-19 §20.2.2.2). Otros (archivos viejos): solo E y G."""
     nombre: str
     e: float
     g: float
     fc: float = None         # f'c en kN/m² si es concreto (E y G se calcularon con él); si no, None
     gamma: float = 0.0       # peso unitario en kN/m³, para el peso propio (0 = sin peso propio)
+    fy: float = None         # acero de refuerzo: fluencia en kN/m²; None si no es acero de refuerzo
+    norma: str = ""          # acero de refuerzo: "A615" o "A706"
 
 @dataclass
 class Concreto:
@@ -86,6 +97,9 @@ class Concreto:
     recubrimiento: float = 0.0   # T: recubrimiento libre (al estribo, o a la barra si no hay), en m
     estribo: int = 0         # T: número del estribo (0 = sin estribos)
     s_estribo: float = 0.0   # T: separación de los estribos, en m
+    acero: int = None        # ID del acero de refuerzo de las barras (su fy es `fy`)
+    acero_estribo: int = None    # ID del acero de los estribos (su fy es `fyt`)
+    fyt: float = FY_DEFECTO  # fluencia de los estribos, en kN/m² (la del acero de estribos)
 
 @dataclass
 class Seccion:
@@ -111,7 +125,7 @@ class Caso:
     nombre: str
     tipo: str = "D"
     peso_propio: float = 0.0   # multiplicador del peso propio de las barras (0 = no lo incluye)
-    viva_losas: bool = False   # el caso automático con la viva de las losas (sus cargas no se guardan)
+    viva_losas: bool = False   # el caso fijo "Carga viva": recibe sola la viva de las losas (no se guarda)
 
 @dataclass
 class Combinacion:
@@ -123,6 +137,7 @@ class Combinacion:
 TIPOS_CASO = {"D": "Muerta", "L": "Viva", "Lr": "Viva de techo", "W": "Viento", "E": "Sismo"}
 NOMBRE_PESO_PROPIO = "Peso propio"
 NOMBRE_MUERTA_ADICIONAL = "Carga muerta adicional"
+NOMBRE_CARGA_VIVA = "Carga viva"
 
 
 def nombre_combinacion(factores):
@@ -146,12 +161,14 @@ class CargaNodal:
 class CargaBarra:
     caso: int
     barra: int
-    tipo: str                  # "uniforme" (kN/m), "puntual" (kN) o "momento" (kN·m)
-    valor: float
+    tipo: str                  # "uniforme" (kN/m), "puntual" (kN), "momento" (kN·m) o "trapezoidal" (kN/m)
+    valor: float               # trapezoidal: el valor en a
     direccion: str             # "X", "Y", "Z" (globales) o "x", "y", "z" (locales de la barra)
-    a: float = 0.0             # puntual y momento: distancia desde el nodo i, en m
+    a: float = 0.0             # puntual, momento y trapezoidal: distancia desde el nodo i, en m
+    valor2: float = 0.0        # trapezoidal: el valor en b
+    b: float = 0.0             # trapezoidal: dónde termina, desde el nodo i, en m
 
-TIPOS_CARGA_BARRA = ("uniforme", "puntual", "momento")
+TIPOS_CARGA_BARRA = ("uniforme", "puntual", "momento", "trapezoidal")
 DIRECCIONES = ("X", "Y", "Z", "x", "y", "z")
 
 class Modelo:
@@ -161,8 +178,9 @@ class Modelo:
         self.materiales = {}   # id -> Material
         self.secciones = {}    # id -> Seccion
         # Peso propio se muestra primero (el orden del diccionario), pero lleva el ID 2: el caso 1 sigue
-        # siendo el caso inicial, donde van las cargas si no se dice otro.
-        self.casos = {2: Caso(NOMBRE_PESO_PROPIO, "D", 1.0), 1: Caso(NOMBRE_MUERTA_ADICIONAL, "D", 0.0)}
+        # siendo el caso inicial, donde van las cargas si no se dice otro. Después, la Carga viva (3).
+        self.casos = {2: Caso(NOMBRE_PESO_PROPIO, "D", 1.0), 1: Caso(NOMBRE_MUERTA_ADICIONAL, "D", 0.0),
+                      3: Caso(NOMBRE_CARGA_VIVA, "L", 0.0, viva_losas=True)}
         self.cargas = {}       # id -> CargaNodal o CargaBarra
         self.combinaciones = {}  # id -> Combinacion: las propias (las predeterminadas, modelo/combinaciones.py)
         # Datos del sismo para las combinaciones 5 y 7 (ASCE 7-05 §12.4.2.3). Provisionales, a mano: los
@@ -171,7 +189,7 @@ class Modelo:
         # Pórticos especiales (SMF), lo usual en Panamá (CDS D): cuantía de columnas ≤ 6 % (ACI §18.7.4.1)
         self.portico_especial = True
         self.losas = {}        # id -> Losa (modelo/losas.py): losas de viguetas, con sus paños
-        self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 3, "carga": 1, "combo": 1,
+        self._sig_id = {"nodo": 1, "elem": 1, "mat": 1, "sec": 1, "caso": 4, "carga": 1, "combo": 1,
                         "losa": 1, "pano": 1}
 
     def _nuevo_id(self, tipo):
@@ -184,9 +202,9 @@ class Modelo:
         self.nodos[nid] = Nodo(x, y, z)
         return nid
 
-    def agregar_material(self, nombre, e, g, fc=None, gamma=0.0):
+    def agregar_material(self, nombre, e, g, fc=None, gamma=0.0, fy=None, norma=""):
         mid = self._nuevo_id("mat")
-        self.materiales[mid] = Material(nombre, e, g, fc, gamma)
+        self.materiales[mid] = Material(nombre, e, g, fc, gamma, fy, norma)
         return mid
 
     def agregar_seccion(self, nombre, a, iy, iz, j, concreto=None, material=None):
@@ -309,12 +327,13 @@ class Modelo:
         return min(manuales) if manuales else min(self.casos)
 
     def es_automatico(self, cid):
-        """True si el caso es automático: el de peso propio (sus cargas salen de A·γ de cada barra) o el
-        de la viva de las losas (sale de las losas). No reciben cargas a mano."""
-        return bool(self.casos[cid].peso_propio) or self.casos[cid].viva_losas
+        """True si el caso es automático: el de peso propio (sus cargas salen de A·γ de cada barra). No
+        recibe cargas a mano. (La Carga viva recibe sola la viva de las losas, pero también acepta
+        cargas a mano, como la Carga muerta adicional: es fija, no automática.)"""
+        return bool(self.casos[cid].peso_propio)
 
-    def caso_viva_losas(self):
-        """ID del caso automático "Viva de losas", o None si no hay."""
+    def caso_viva(self):
+        """ID del caso fijo "Carga viva" (el que recibe la viva de las losas), o None si no hay."""
         return next((cid for cid, c in self.casos.items() if c.viva_losas), None)
 
     def cargar(self, nid, fx=0.0, fy=0.0, fz=0.0, mx=0.0, my=0.0, mz=0.0, caso=None):
@@ -333,7 +352,9 @@ class Modelo:
         self.cargas[cid] = CargaNodal(caso, nid, [float(f) for f in fuerzas])
         return cid
 
-    def agregar_carga_barra(self, eid, tipo, valor, direccion, a=0.0, caso=None):
+    def agregar_carga_barra(self, eid, tipo, valor, direccion, a=0.0, caso=None, valor2=None, b=None):
+        """Carga en la barra eid. La trapezoidal va de `valor` en a a `valor2` en b (sin valor2, igual
+        a valor: uniforme parcial; sin b, hasta el nodo j). Devuelve su ID."""
         caso = self.caso_inicial() if caso is None else caso
         if eid not in self.elementos:
             raise KeyError(f"El elemento {eid} no existe")
@@ -347,8 +368,16 @@ class Modelo:
         largo = self.nodos[el.ni].distancia(self.nodos[el.nj])
         if tipo != "uniforme" and not 0 <= a <= largo + TOL_LONGITUD:
             raise ValueError(f"La distancia a debe estar entre 0 y el largo de la barra ({largo:.3f} m)")
+        if tipo == "trapezoidal":
+            valor2 = valor if valor2 is None else valor2
+            b = largo if b is None else min(float(b), largo)
+            if b - a <= TOL_LONGITUD:
+                raise ValueError(f"La carga trapezoidal debe terminar después de empezar (a = {a:.3f} m, "
+                                 f"b = {b:.3f} m; la barra mide {largo:.3f} m)")
+        else:
+            valor2, b = 0.0, 0.0
         cid = self._nuevo_id("carga")
-        self.cargas[cid] = CargaBarra(caso, eid, tipo, float(valor), direccion, float(a))
+        self.cargas[cid] = CargaBarra(caso, eid, tipo, float(valor), direccion, float(a), float(valor2), float(b))
         return cid
 
     def cargas_en(self, tipo, ident, caso=None):
@@ -376,9 +405,12 @@ class Modelo:
         return cid
 
     def cambiar_caso(self, cid, nombre, tipo, peso_propio=None):
-        """Cambia el nombre y el tipo de un caso (y su factor de peso propio, si se da)."""
+        """Cambia el nombre y el tipo de un caso (y su factor de peso propio, si se da). Los fijos (peso
+        propio, carga muerta adicional y carga viva) no se cambian."""
         if cid not in self.casos:
             raise KeyError(f"El caso {cid} no existe")
+        if self.es_fijo(cid):
+            raise ValueError(f"El caso {self.casos[cid].nombre} es fijo: no se cambia")
         caso = self.casos[cid]
         peso_propio = caso.peso_propio if peso_propio is None else peso_propio
         self._revisar_caso(tipo, peso_propio)
@@ -395,12 +427,14 @@ class Modelo:
         return [c for c, carga in self.cargas.items() if carga.caso == cid]
 
     def es_fijo(self, cid):
-        """True si el caso no se puede eliminar ni cambiar: el de peso propio y el caso inicial (así
-        siempre hay peso propio y siempre hay dónde poner cargas)."""
-        return self.es_automatico(cid) or cid == self.caso_inicial()
+        """True si el caso no se puede eliminar ni cambiar: el de peso propio, el caso inicial (Carga
+        muerta adicional) y la Carga viva (así siempre hay peso propio, dónde poner cargas muertas y
+        vivas, y adónde llevar las de las losas)."""
+        return self.es_automatico(cid) or cid == self.caso_inicial() or self.casos[cid].viva_losas
 
     def eliminar_caso(self, cid):
-        """Elimina un caso sin cargas. Los fijos (peso propio y caso inicial) no se eliminan."""
+        """Elimina un caso sin cargas. Los fijos (peso propio, carga muerta adicional y carga viva) no
+        se eliminan."""
         if cid not in self.casos:
             raise KeyError(f"El caso {cid} no existe")
         if self.es_fijo(cid):
@@ -461,9 +495,9 @@ class Modelo:
 
     # ---------- LOSAS ----------
     def agregar_losa(self, nombre, seccion, n_viguetas=1):
-        """Losa de viguetas nueva (sin paños), con la sección T de su vigueta. Crea el caso automático
-        "Viva de losas" si no existe. Devuelve su ID."""
-        from modelo.losas import NOMBRE_VIVA_LOSAS, Losa
+        """Losa de viguetas nueva (sin paños), con la sección T de su vigueta. Su viva irá al caso fijo
+        "Carga viva" (si un modelo viejo no lo tuviera, se crea). Devuelve su ID."""
+        from modelo.losas import Losa
         sec = self.secciones.get(seccion)
         if sec is None or sec.concreto is None or sec.concreto.forma != "T":
             raise ValueError("La vigueta debe ser una sección T de concreto (Definir → Secciones → Nueva T…)")
@@ -471,10 +505,16 @@ class Modelo:
             raise ValueError("Pon al menos una vigueta")
         lid = self._nuevo_id("losa")
         self.losas[lid] = Losa(nombre.strip() or f"Losa {lid}", seccion, n_viguetas=int(n_viguetas))
-        if self.caso_viva_losas() is None:
-            cid = self._nuevo_id("caso")
-            self.casos[cid] = Caso(NOMBRE_VIVA_LOSAS, "L", 0.0, True)
+        self.asegurar_carga_viva()
         return lid
+
+    def asegurar_carga_viva(self):
+        """Crea el caso fijo "Carga viva" si falta (modelos armados antes de que existiera). Devuelve su ID."""
+        cid = self.caso_viva()
+        if cid is None:
+            cid = self._nuevo_id("caso")
+            self.casos[cid] = Caso(NOMBRE_CARGA_VIVA, "L", 0.0, viva_losas=True)
+        return cid
 
     def agregar_pano(self, lid, viga_a, viga_b, muerta=0.0, viva=0.0):
         """Paño de la losa lid entre las vigas viga_a y viga_b (dos barras paralelas, enfrentadas; si
@@ -497,7 +537,7 @@ class Modelo:
         losa.panos[pid] = ml.Pano(geo.apoyo_a, geo.apoyo_b, float(muerta), float(viva))
         try:
             ml.geometrias(self, losa)                 # que no se enciman con los demás
-            ml.franjas(self, losa)                    # y que las vigas no queden partidas entre franjas
+            ml.franjas(self, losa)                    # y que se puedan armar sus franjas
             if losa.referencia is None:
                 losa.referencia = pid
             ml.actualizar_seccion(self, losa)
@@ -525,13 +565,10 @@ class Modelo:
             losa.referencia = next(iter(losa.panos))
 
     def eliminar_losa(self, lid):
-        """Elimina la losa. Sin losas, el caso "Viva de losas" ya no hace falta y se quita."""
+        """Elimina la losa (la Carga viva queda: es fija)."""
         if lid not in self.losas:
             raise KeyError(f"La losa {lid} no existe")
         del self.losas[lid]
-        cid = self.caso_viva_losas()
-        if not self.losas and cid is not None and not self.uso_caso(cid):
-            del self.casos[cid]
 
     # ---------- ELIMINAR ----------
     def eliminar_elemento(self, eid):
@@ -567,6 +604,10 @@ class Modelo:
         secciones = [sid for sid, sec in self.secciones.items() if sec.material == mid]
         if secciones:
             raise ValueError(f"El material {mid} está en uso en las secciones {secciones}")
+        refuerzo = [sid for sid, sec in self.secciones.items() if sec.concreto is not None
+                    and mid in (sec.concreto.acero, sec.concreto.acero_estribo)]
+        if refuerzo:
+            raise ValueError(f"El acero {mid} es el refuerzo de las secciones {refuerzo}")
         del self.materiales[mid]
 
     def eliminar_seccion(self, sid):

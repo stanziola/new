@@ -351,8 +351,8 @@ class AgregarLosa(Herramienta):
 
 
 class AgregarCargaBarra(Herramienta):
-    """Carga en la barra sobre la que se hace clic (uniforme, puntual o momento), con los valores del
-    panel de Propiedades, en el caso activo. Se suma a las que tenía o las reemplaza."""
+    """Carga en la barra sobre la que se hace clic (uniforme, trapezoidal, puntual o momento), con los
+    valores del panel de Propiedades, en el caso activo. Se suma a las que tenía o las reemplaza."""
     muestra_cargas = True
 
     def mostrar_panel(self):
@@ -367,14 +367,18 @@ class AgregarCargaBarra(Herramienta):
             v.mensaje("Haz clic sobre una barra")
             return
         panel = v.propiedades.panel.panel_carga_barra
-        tipo, valor, direccion, a = panel.valores()
-        if valor == 0:
+        tipo, valor, direccion, a, valor2, b = panel.valores()
+        trapezoidal = tipo == "trapezoidal"
+        if valor == 0 and (not trapezoidal or valor2 == 0):
             v.mensaje("Escribe el valor de la carga")
             return
         el = v.modelo.elementos[eid]
         largo = v.modelo.nodos[el.ni].distancia(v.modelo.nodos[el.nj])
         if tipo != "uniforme" and a > largo + TOL_LONGITUD:
             v.mensaje(f"a es mayor que el largo de la barra {eid} ({largo:.3f} m)")
+            return
+        if trapezoidal and (b if b is not None else largo) <= a + TOL_LONGITUD:
+            v.mensaje(f"La carga debe terminar (b) después de empezar (a); la barra {eid} mide {largo:.3f} m")
             return
         caso = v.caso_activo()
         if v.modelo.es_automatico(caso):
@@ -384,5 +388,8 @@ class AgregarCargaBarra(Herramienta):
         if panel.reemplazar.isChecked():
             for cid in v.modelo.cargas_en("barra", eid, caso):
                 v.modelo.eliminar_carga(cid)
-        v.modelo.agregar_carga_barra(eid, tipo, valor, direccion, a, caso)
+        if trapezoidal:
+            v.modelo.agregar_carga_barra(eid, tipo, valor, direccion, a, caso, valor2=valor2, b=b)
+        else:
+            v.modelo.agregar_carga_barra(eid, tipo, valor, direccion, a, caso)
         v.modelo_cambiado(f"Carga en la barra {eid}")

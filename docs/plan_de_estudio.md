@@ -141,11 +141,10 @@ Las notas de normas, con cláusula y página, están en [`docs/normas/`](normas/
     - la deformada en los extremos coincide con los desplazamientos de los nodos.
 
     Las vigas de referencia quedaron en `pruebas/integridad.py`.
+  - **hecho** (noviembre de 2026): cargas parciales y trapezoidales (`calculo/rigidez/empotramiento.py` y `diagramas.py`, con Gauss exacto), contra la triangular biempotrada, la viga simple con triangular, 20 000 puntuales y la uniforme; la viva de las losas va al caso fijo Carga viva;
   - **falta:**
-    - cargas parciales y trapezoidales;
     - la viga continua contra la Tabla 6.5.2;
-    - un pórtico comparado con Ftool o PyNite;
-    - la viva de las losas (cargas de área, etapa 6). Los casos de viva, viento y sismo ya se pueden definir y cargar a mano (noviembre de 2026).
+    - un pórtico comparado con Ftool o PyNite. Los casos de viva, viento y sismo ya se pueden definir y cargar a mano (noviembre de 2026).
 
 ## Etapa 3: Combinaciones de carga
 
@@ -347,7 +346,8 @@ El **REP 1.8.3** pide que la memoria incluya cálculos a mano y los datos de ent
    - ~~SDS y ρ están fijos en el código~~: ya son datos del modelo, escritos a mano en Definir → Combinaciones; falta que salgan de la etapa de sismo;
    - no consideran X e Y ni la torsión accidental.
 8. **Análisis:**
-   - ~~solo cargas nodales~~: ya hay cargas en barras y peso propio; faltan las parciales y trapezoidales;
+   - ~~solo cargas nodales~~: ya hay cargas en barras y peso propio; ~~faltan las parciales y trapezoidales~~: hechas (noviembre de 2026);
+   - ~~los estribos de la vigueta usaban el fy de la sección sin tope~~: resuelto (noviembre de 2026): fyt sale del acero de los estribos y en cortante se toma como máximo 60 ksi (Tabla 20.2.2.4(a), PDF p. 378);
    - sin liberaciones (articulaciones) en los extremos de barra;
    - sin brazos rígidos;
    - ~~sin modificadores de inercia agrietada~~: hechos en el análisis de resistencia (ver la etapa 1); la deformada sigue con Ig;

@@ -194,6 +194,16 @@ def _carga_uniforme(p, color):
         _punta(p, x, 16, 0, 1, 2.4)
 
 
+def _carga_trapezoidal(p, color):
+    """Tipo de carga en barra: trapezoidal (flechas que crecen en línea recta, en un tramo de la barra)."""
+    p.drawLine(QPointF(3, 19), QPointF(21, 19))
+    p.drawLine(QPointF(7, 12), QPointF(20, 5))                 # la línea de la carga, inclinada
+    for x in (7, 13.5, 20):
+        arriba = 12 - (x - 7) * 7 / 13
+        p.drawLine(QPointF(x, arriba), QPointF(x, 16))
+        _punta(p, x, 16, 0, 1, 2.4)
+
+
 def _carga_puntual(p, color):
     """Tipo de carga en barra: una fuerza puntual."""
     p.drawLine(QPointF(3, 19), QPointF(21, 19))
@@ -355,6 +365,116 @@ def _encuadre(p, color):
         p.drawPolyline(_poligono([(x, y + dy * l), (x, y), (x + dx * l, y)]))
 
 
+# ---------------------------------------------------------------- Íconos del Explorador (sin "+")
+# Las filas y los grupos del árbol: lo que ES cada cosa, no una acción (por eso sin el "+" de agregar).
+def _nodo_simple(p, color):
+    """Un nodo: el punto con dos barras cortas que llegan a él."""
+    p.drawLine(QPointF(3, 12), QPointF(12, 12))
+    p.drawLine(QPointF(12, 12), QPointF(12, 21))
+    _punto(p, color, (12, 12), 3.2)
+
+
+def _barra_simple(p, color):
+    """Un elemento: la barra con sus dos nodos."""
+    p.drawLine(QPointF(4.5, 19.5), QPointF(19.5, 4.5))
+    _punto(p, color, (4.5, 19.5), 2.4)
+    _punto(p, color, (19.5, 4.5), 2.4)
+
+
+def _carga_nodo_simple(p, color):
+    """Una carga en un nodo: la flecha que llega al punto."""
+    _punto(p, color, (12, 18), 2.6)
+    p.drawLine(QPointF(12, 3.5), QPointF(12, 14.5))
+    _punta(p, 12, 14.5, 0, 1, 3.0)
+
+
+def _losa_simple(p, color):
+    """Una losa de viguetas: la losa en corte con sus nervios."""
+    p.drawRect(QRectF(2.5, 7, 19, 3.5))
+    for x in (4.5, 11, 17.5):
+        p.drawPolyline(_poligono([(x, 10.5), (x, 18), (x + 2, 18), (x + 2, 10.5)]))
+
+
+def _pano(p, color):
+    """Un paño: el rectángulo en planta entre dos vigas (las gruesas) y las viguetas que lo cruzan."""
+    p.drawRect(QRectF(4, 4, 16, 16))
+    grueso = QPen(p.pen())
+    grueso.setWidthF(p.pen().widthF() * 2)
+    fino = p.pen()
+    p.setPen(grueso)
+    p.drawLine(QPointF(4, 4), QPointF(4, 20))
+    p.drawLine(QPointF(20, 4), QPointF(20, 20))
+    p.setPen(fino)
+    for y in (8, 12, 16):
+        p.drawLine(QPointF(4, y), QPointF(20, y))
+
+
+def _franja(p, color):
+    """Una franja (sistema de vigueta): la vigueta continua sobre sus apoyos."""
+    p.drawLine(QPointF(2.5, 11), QPointF(21.5, 11))
+    for x in (3.5, 12, 20.5):
+        p.drawPolygon(_poligono([(x, 11), (x - 2.6, 16), (x + 2.6, 16)]))
+
+
+def _caso_viva(p, color):
+    """Un caso de viva: flechas solo sobre algunos claros de la vigueta."""
+    p.drawLine(QPointF(2.5, 18), QPointF(21.5, 18))
+    for x in (2.5, 12, 21.5):
+        _punto(p, color, (x, 18), 1.3)
+    p.drawLine(QPointF(3.5, 6), QPointF(11, 6))
+    for x in (4.5, 10):
+        p.drawLine(QPointF(x, 6), QPointF(x, 14.5))
+        _punta(p, x, 14.5, 0, 1, 2.4)
+
+
+def _material_simple(p, color):
+    """Un material (concreto): el bloque."""
+    p.drawPolygon(_poligono([(4, 9), (12, 5), (20, 9), (12, 13)]))
+    p.drawPolyline(_poligono([(4, 9), (4, 16), (12, 20), (20, 16), (20, 9)]))
+    p.drawLine(QPointF(12, 13), QPointF(12, 20))
+
+
+def _acero(p, color):
+    """Acero de refuerzo: una barra corrugada (dos líneas con las corrugas entre ellas)."""
+    p.drawLine(QPointF(3, 9.5), QPointF(21, 9.5))
+    p.drawLine(QPointF(3, 14.5), QPointF(21, 14.5))
+    for x in range(5, 21, 3):
+        p.drawLine(QPointF(x, 14.5), QPointF(x + 2, 9.5))
+
+
+def _seccion_rectangular(p, color):
+    """Una sección rectangular de concreto con sus barras en las esquinas."""
+    p.drawRect(QRectF(6, 3, 12, 18))
+    for x, y in ((8.6, 5.6), (15.4, 5.6), (8.6, 18.4), (15.4, 18.4)):
+        _punto(p, color, (x, y), 1.2)
+
+
+def _seccion_t(p, color):
+    """Una sección T (viga o vigueta con su losa) con su barra abajo."""
+    p.drawPolygon(_poligono([(2.5, 4), (21.5, 4), (21.5, 9), (14.5, 9), (14.5, 20.5), (9.5, 20.5), (9.5, 9),
+                             (2.5, 9)]))
+    _punto(p, color, (12, 17.5), 1.3)
+
+
+def _matriz(p, color):
+    """Una matriz: los corchetes con sus términos."""
+    p.drawPolyline(_poligono([(7, 4), (4, 4), (4, 20), (7, 20)]))
+    p.drawPolyline(_poligono([(17, 4), (20, 4), (20, 20), (17, 20)]))
+    for x in (8.5, 12, 15.5):
+        for y in (8, 12, 16):
+            _punto(p, color, (x, y), 0.9)
+
+
+def _interaccion(p, color):
+    """Un diagrama de interacción: los ejes M y P y la curva."""
+    p.drawLine(QPointF(4, 21), QPointF(4, 3))
+    p.drawLine(QPointF(4, 12), QPointF(21, 12))
+    camino = QPainterPath(QPointF(4, 3.5))
+    camino.cubicTo(QPointF(13, 4.5), QPointF(19, 9), QPointF(17, 14))
+    camino.cubicTo(QPointF(15, 18), QPointF(9, 20.5), QPointF(4, 20.5))
+    p.drawPath(camino)
+
+
 _DIBUJOS = {
     "seleccionar": _seleccionar,
     "nodo": _nodo,
@@ -367,6 +487,7 @@ _DIBUJOS = {
     "carga_nodo": _carga_nodo,
     "carga_barra": _carga_barra,
     "carga_uniforme": _carga_uniforme,
+    "carga_trapezoidal": _carga_trapezoidal,
     "carga_puntual": _carga_puntual,
     "carga_momento": _carga_momento,
     "analizar": _analizar,
@@ -390,6 +511,20 @@ _DIBUJOS = {
     "snap": _snap,
     "etiqueta": _etiqueta,
     "encuadre": _encuadre,
+    # Explorador (sin "+")
+    "nodo_simple": _nodo_simple,
+    "barra_simple": _barra_simple,
+    "carga_nodo_simple": _carga_nodo_simple,
+    "losa_simple": _losa_simple,
+    "pano": _pano,
+    "franja": _franja,
+    "caso_viva": _caso_viva,
+    "material_simple": _material_simple,
+    "acero": _acero,
+    "seccion_rectangular": _seccion_rectangular,
+    "seccion_t": _seccion_t,
+    "matriz": _matriz,
+    "interaccion": _interaccion,
 }
 
 

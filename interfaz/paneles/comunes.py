@@ -98,6 +98,7 @@ class ArbolLimpio(QTreeWidget):
         self.setIndentation(14)
         self.setUniformRowHeights(True)
         self.setExpandsOnDoubleClick(False)      # las carpetas se abren con un clic
+        self.ajustar_iconos()
 
         self._atendido = False                   # este clic lo resolvió el árbol, no Qt
 
@@ -105,6 +106,10 @@ class ArbolLimpio(QTreeWidget):
         """Nada elegido y ninguna fila actual."""
         self.clearSelection()
         self.selectionModel().clearCurrentIndex()
+
+    def ajustar_iconos(self):
+        """El tamaño de los íconos de las filas (ui.TAMANO_ICONO_ARBOL, de Configuración)."""
+        self.setIconSize(QSize(ui.TAMANO_ICONO_ARBOL, ui.TAMANO_ICONO_ARBOL))
 
     def focusInEvent(self, evento):
         """Si igual recibe el foco (por código), Qt no deja la primera fila marcada."""

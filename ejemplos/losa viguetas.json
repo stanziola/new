@@ -1,6 +1,6 @@
 {
   "programa": "Análisis estructural 3D",
-  "version_formato": 7,
+  "version_formato": 8,
   "unidades": {
     "fuerza": "kN",
     "longitud": "m"
@@ -299,7 +299,18 @@
       "e": 26390553.696026973,
       "g": 10996064.04001124,
       "fc": 27579.029172673443,
-      "gamma": 23.53596
+      "gamma": 23.53596,
+      "fy": null,
+      "norma": ""
+    },
+    "2": {
+      "nombre": "Acero Grado 60",
+      "e": 199947961.50188246,
+      "g": 76903062.11610864,
+      "fc": null,
+      "gamma": 0.0,
+      "fy": 413685.4375901016,
+      "norma": "A615"
     }
   },
   "secciones": {
@@ -327,7 +338,10 @@
         "n_sup": 0,
         "recubrimiento": 0.0,
         "estribo": 0,
-        "s_estribo": 0.0
+        "s_estribo": 0.0,
+        "acero": 2,
+        "acero_estribo": 2,
+        "fyt": 413685.4375901016
       },
       "material": 1
     },
@@ -355,7 +369,10 @@
         "n_sup": 0,
         "recubrimiento": 0.0,
         "estribo": 0,
-        "s_estribo": 0.0
+        "s_estribo": 0.0,
+        "acero": 2,
+        "acero_estribo": 2,
+        "fyt": 413685.4375901016
       },
       "material": 1
     },
@@ -383,7 +400,10 @@
         "n_sup": 2,
         "recubrimiento": 0.019049999999999997,
         "estribo": 3,
-        "s_estribo": 0.2
+        "s_estribo": 0.2,
+        "acero": 2,
+        "acero_estribo": 2,
+        "fyt": 413685.4375901016
       },
       "material": 1
     },
@@ -411,7 +431,10 @@
         "n_sup": 2,
         "recubrimiento": 0.019049999999999997,
         "estribo": 3,
-        "s_estribo": 0.2
+        "s_estribo": 0.2,
+        "acero": 2,
+        "acero_estribo": 2,
+        "fyt": 413685.4375901016
       },
       "material": 1
     }
@@ -614,7 +637,7 @@
       "viva_losas": false
     },
     "3": {
-      "nombre": "Viva de losas",
+      "nombre": "Carga viva",
       "tipo": "L",
       "peso_propio": 0.0,
       "viva_losas": true
@@ -694,7 +717,7 @@
   "siguiente_id": {
     "nodo": 23,
     "elem": 27,
-    "mat": 2,
+    "mat": 3,
     "sec": 5,
     "caso": 4,
     "carga": 1,

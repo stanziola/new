@@ -687,18 +687,41 @@ def verificar_losa_viguetas():
     comprobar("Casos de viva automáticos (§6.4.2): 5 con 3 claros y 3 con 2",
               [c for _n, c in ml.patrones_automaticos(3)] == [(1, 2, 3), (1, 3), (2,), (1, 2), (2, 3)]
               and [c for _n, c in ml.patrones_automaticos(2)] == [(1, 2), (1,), (2,)])
-    # Carga a las vigas: lo que llega a las vigas es q × área en cada caso
+    # Carga a las vigas, en una dirección (§9.8.1.1): la muerta adicional y la viva suman q × área en
+    # cada caso (las viguetas a las de apoyo; la franja entre su eje y la primera vigueta, a las laterales)
     cargas = ml.cargas_a_vigas(m)
     area = {pid: (g.u1 - g.u0) * g.claro for pid, g in r["geos"].items()}
-    esperado = {2: ml.peso_por_area(m, m.losas[1]) * sum(area.values()), 1: MUERTA * sum(area.values()),
-                m.caso_viva_losas(): sum(a * (VIVA_SALON if pid <= 3 else VIVA_PASILLO) for pid, a in area.items())}
+    viva = m.caso_viva()
+    esperado = {1: MUERTA * sum(area.values()),
+                viva: sum(a * (VIVA_SALON if pid <= 3 else VIVA_PASILLO) for pid, a in area.items())}
     for cid, total in esperado.items():
-        llega = sum(w * m.nodos[m.elementos[e].ni].distancia(m.nodos[m.elementos[e].nj]) for e, w in cargas[cid].items())
+        llega = ml.total_de_cargas(m, cargas[cid])
         comprobar(f"{m.casos[cid].nombre}: a las vigas llegan {llega:.2f} kN = q·área {total:.2f}", np.isclose(llega, total))
+    # Peso propio: la losa menos lo que queda sobre las vigas laterales (eso ya es peso de la viga)
+    zonas = ml.zonas(m, m.losas[1])
+    c = ml.concreto(m, m.losas[1])
+    gamma = m.materiales[m.secciones[m.losas[1].seccion].material].gamma
+    peso = 0.0
+    for pid, g in r["geos"].items():
+        z0, z1 = zonas[pid]
+        fuera = sum(max(0.0, w - b / 2) for w, b in ((z0 - g.u0, g.ancho_0), (g.u1 - z1, g.ancho_1)))
+        peso += ml.peso_por_area(m, m.losas[1]) * (z1 - z0) * g.claro + fuera * c.hf * gamma * g.claro
+    llega = ml.total_de_cargas(m, cargas[2])
+    comprobar(f"Peso propio de la losa: a las vigas llegan {llega:.2f} kN = losa sin lo de encima de las laterales "
+              f"{peso:.2f}", np.isclose(llega, peso))
+    # Las laterales: el salón (15 viguetas, s = 7.30/15) deja justo el medio ancho de la viga (0.20 m); el
+    # pasillo (5 viguetas en la misma rejilla) deja más, porque su ancho libre no es múltiplo de s
+    entre = 23                                      # viga en y = 7.70 entre C y D: salón de un lado, pasillo del otro
+    w_pas = zonas[4][0] - r["geos"][4].u0
+    w_entre = sum(p[2] for p in cargas[1][entre])
+    comprobar(f"Viga lateral {entre} (entre salón y pasillo): muerta adicional {w_entre:.3f} kN/m = q·(0.20 + "
+              f"{w_pas:.4f}) = {MUERTA * (0.20 + w_pas):.3f}", np.isclose(w_entre, MUERTA * (0.20 + w_pas)))
+    borde = 19                                      # viga en y = 0 entre B y C: borde del salón
+    comprobar(f"Viga lateral {borde} (borde del salón): viva {sum(p[2] for p in cargas[viva][borde]):.3f} kN/m = "
+              f"q·0.20 = {VIVA_SALON * 0.20:.3f}", np.isclose(sum(p[2] for p in cargas[viva][borde]), VIVA_SALON * 0.20))
     res = analizar(m)
-    rz = sum(x[2] for x in res[m.caso_viva_losas()].res.reacciones.values())
-    comprobar(f"Viva de losas en el 3D: ΣRz = {rz:.2f} kN = {esperado[m.caso_viva_losas()]:.2f}",
-              np.isclose(rz, esperado[m.caso_viva_losas()]))
+    rz = sum(x[2] for x in res[viva].res.reacciones.values())
+    comprobar(f"Carga viva en el 3D: ΣRz = {rz:.2f} kN = {esperado[viva]:.2f}", np.isclose(rz, esperado[viva]))
     # La franja del pasillo con 1.2D + 1.6L: el M del apoyo del medio, con la ecuación de los tres momentos
     sv = ml.sistemas(m, 1)[1]
     sec = next(iter(sv.modelo.secciones.values()))
@@ -735,20 +758,208 @@ def verificar_losa_viguetas():
     # En un claro simple todo es máximo al centro: Δ largo = λΔ·Δ(D) + ΔL, con λΔ = 2 (ξ = 2, ρ' = 0)
     comprobar(f"Con la viva sostenida en 0: Δ largo = 2·Δ(D) + ΔL = {f1.delta_largo[0].valor * 1000:.3f} mm",
               np.isclose(f1.delta_largo[0].valor, 2.0 * calc + f1.delta_l[0].valor, rtol=1e-3))
-    # Archivo, versión 7: se guarda y se abre igual
+    # Archivo (versión 8): se guarda y se abre igual
     with tempfile.TemporaryDirectory() as carpeta:
         ruta = Path(carpeta) / "losa.json"
         guardar(m, ruta)
         m2, _ = abrir(ruta)
-    comprobar("Archivo v7: la losa, sus paños y el caso Viva de losas vuelven iguales",
-              m2.losas == m.losas and m2.caso_viva_losas() == m.caso_viva_losas()
-              and ml.resumen(m2, 1)["s"] == r["s"])
+    comprobar("Archivo: la losa, sus paños y el caso Carga viva vuelven iguales",
+              m2.losas == m.losas and m2.caso_viva() == m.caso_viva() and ml.resumen(m2, 1)["s"] == r["s"])
     # Borrar una viga de apoyo borra sus paños
     m3 = crear_losa_viguetas()
     apoyo = m3.losas[1].panos[4].apoyo_a[0]
     m3.eliminar_elemento(apoyo)
     comprobar(f"Borrar la viga {apoyo} borra los paños que se apoyan en ella (quedan {sorted(m3.losas[1].panos)})",
               all(apoyo not in p.apoyo_a + p.apoyo_b for p in m3.losas[1].panos.values()))
+
+
+def verificar_reparto_parcial():
+    """Una viga de apoyo que queda entre dos franjas distintas (sin nodo donde cambia la franja): cada
+    franja carga su parte, como carga parcial. Antes había que partir la viga."""
+    from modelo import concreto as cc
+    from modelo import losas as ml
+    print("\n===== LOSA: VIGA DE APOYO ENTRE DOS FRANJAS =====")
+    m = Modelo()
+    conc = cc.crear_material(m, "", fc=4000 * 6.894757293168361, gamma=23.536)
+    vg = cc.crear_seccion(m, conc, 0.30, 0.50, 0.06, 6, 3, 2)
+    vt = cc.crear_seccion_T(m, conc, 0.15, 0.45, 0.50, 0.10, 0.0, 6, 1, rec=0.02)
+    nodo = {}
+    for x, y in ((0, 0), (0, 6), (5, 0), (5, 3), (5, 6), (10, 0), (10, 3)):
+        nodo[(x, y)] = m.agregar_nodo(x, y, 3.0)
+        m.restringir(nodo[(x, y)])
+
+    def viga(p, q):
+        return m.agregar_elemento(nodo[p], nodo[q], conc, vg)
+
+    a1 = viga((0, 0), (0, 6))          # apoyo en x = 0: una sola barra de y = 0 a 6, sin nodo en y = 3
+    a2 = viga((5, 0), (5, 3))          # apoyo en x = 5: dos barras, partida en y = 3
+    viga((5, 3), (5, 6))
+    a3 = viga((10, 0), (10, 3))        # apoyo en x = 10: solo de y = 0 a 3
+    for p, q in (((0, 0), (5, 0)), ((5, 0), (10, 0)), ((0, 6), (5, 6)), ((5, 3), (10, 3))):
+        viga(p, q)                     # las laterales
+    lid = m.agregar_losa("L", vt, 10)
+    m.agregar_pano(lid, a1, a2, 2.0, 3.0)          # de y = 0 a 6 (el apoyo en x = 5 sigue en línea)
+    m.agregar_pano(lid, a2, a3, 2.0, 3.0)          # de y = 0 a 3
+    fr = ml.franjas(m, m.losas[lid])
+    cargas = ml.cargas_a_vigas(m)
+    partes = sorted(cargas[1][a1])
+    comprobar(f"Dos franjas ({', '.join(f.nombre for f in fr)}) y la viga {a1} (de 0 a 6 m, sin nodo en 3 m) "
+              f"recibe {len(partes)} cargas parciales: {[(round(a, 3), round(b, 3)) for a, b, _w in partes]}",
+              len(fr) == 2 and len(partes) == 2 and all(b - a < 6 - 1e-6 for a, b, _w in partes))
+    area = 5 * 6 + 5 * 3
+    llega = ml.total_de_cargas(m, cargas[1])
+    comprobar(f"Muerta adicional: {llega:.2f} kN = q·área = {2.0 * area:.2f}", np.isclose(llega, 2.0 * area))
+    rz = sum(x[2] for x in analizar(m)[1].res.reacciones.values())
+    comprobar(f"El 3D con las cargas parciales: ΣRz de la muerta adicional = {rz:.2f} kN = {llega:.2f}",
+              np.isclose(rz, llega))
+
+
+def verificar_carga_trapezoidal():
+    """La carga trapezoidal (lineal de w1 en a a w2 en b) contra fórmulas de libro: la triangular en
+    una barra biempotrada y en una viga simple, la uniforme parcial contra muchas puntuales (otra
+    forma de integrar) y la equivalencia con la uniforme."""
+    from calculo.rigidez.empotramiento import empotramiento, equivalentes_puntual
+    print("\n===== CARGA TRAPEZOIDAL =====")
+    L, w = 6.0, 10.0
+    fef = empotramiento(L, [("trapezoidal", [[0, 0, 0], [0, 0, -w]], (0.0, L))])
+    comprobar(f"Triangular biempotrada (0 → {w:g} kN/m, L = {L:g} m): Vi = {fef[2]:.3f}, Vj = {fef[8]:.3f} kN "
+              f"(3wL/20 = {3 * w * L / 20:.3f}, 7wL/20 = {7 * w * L / 20:.3f}); |Mi| = {abs(fef[4]):.3f}, "
+              f"|Mj| = {abs(fef[10]):.3f} kN·m (wL²/30 = {w * L ** 2 / 30:.3f}, wL²/20 = {w * L ** 2 / 20:.3f})",
+              np.allclose([fef[2], fef[8], -fef[4], fef[10]], [3 * w * L / 20, 7 * w * L / 20, w * L ** 2 / 30,
+                                                                w * L ** 2 / 20]))
+    q = [1.5, -2.0, -7.0]
+    comprobar("Trapezoidal con w1 = w2 en toda la barra = uniforme (las 12 FEF)",
+              np.allclose(empotramiento(L, [("trapezoidal", [q, q], (0.0, L))]), empotramiento(L, [("uniforme", q, None)])))
+    a, b, n = 1.3, 4.1, 20000
+    q1, q2 = np.array([0.0, 2.0, -4.0]), np.array([1.0, -3.0, -12.0])
+    xs = a + (np.arange(n) + 0.5) * (b - a) / n
+    puntuales = -sum(equivalentes_puntual(L, x, (q1 + (q2 - q1) * (x - a) / (b - a)) * (b - a) / n, np.zeros(3))
+                     for x in xs)
+    gauss = empotramiento(L, [("trapezoidal", [q1, q2], (a, b))])
+    comprobar(f"Trapezoidal parcial (de {a} a {b} m) = la suma de {n} puntuales (dif. {np.abs(gauss - puntuales).max():.1e})",
+              np.allclose(gauss, puntuales, atol=1e-6))
+
+    # Viga simple de 6 m con triangular hacia −Z: R = wL/6 y wL/3; Mmáx = wL²/(9√3) en x = L/√3
+    m = Modelo()
+    mat = m.agregar_material("C", e=25e6, g=10e6)
+    sec = m.agregar_seccion("S", a=0.15, iy=3.125e-3, iz=1.125e-3, j=2.8e-3)
+    m.agregar_nodo(0, 0, 0)
+    m.agregar_nodo(L, 0, 0)
+    m.agregar_elemento(1, 2, mat, sec)
+    m.restringir(1, True, True, True, True, False, False)
+    m.restringir(2, True, True, True, False, False, False)
+    m.agregar_carga_barra(1, "trapezoidal", 0.0, "Z", a=0.0, valor2=-w)
+    rc = analizar_caso(m, m.caso_inicial())
+    r1, r2 = rc.res.reacciones[1][2], rc.res.reacciones[2][2]
+    xm = L / np.sqrt(3)
+    mmax = fuerzas_en_x(m, rc, 1, xm)["My"]
+    comprobar(f"Viga simple con triangular: R = {r1:.3f} y {r2:.3f} kN (wL/6 = {w * L / 6:.3f}, wL/3 = {w * L / 3:.3f}); "
+              f"Mmáx = {mmax:.3f} kN·m en x = L/√3 (wL²/(9√3) = {w * L ** 2 / (9 * np.sqrt(3)):.3f})",
+              np.isclose(r1, w * L / 6) and np.isclose(r2, w * L / 3) and np.isclose(mmax, w * L ** 2 / (9 * np.sqrt(3))))
+    # Parcial: el equilibrio vertical, ΣRz = la resultante (w1 + w2)/2·(b − a)
+    m2 = copy.deepcopy(m)
+    for cid in list(m2.cargas):
+        m2.eliminar_carga(cid)
+    m2.agregar_carga_barra(1, "trapezoidal", -4.0, "Z", a=1.0, valor2=-12.0, b=4.5)
+    rc2 = analizar_caso(m2, m2.caso_inicial())
+    rz = sum(r[2] for r in rc2.res.reacciones.values())
+    comprobar(f"Trapezoidal parcial (4 → 12 kN/m de 1.0 a 4.5 m): ΣRz = {rz:.3f} kN ((4 + 12)/2·3.5 = 28.000)",
+              np.isclose(rz, 28.0))
+    # Una uniforme puesta como trapezoidal (w1 = w2, de 0 a L) da los mismos desplazamientos
+    m3, m4 = copy.deepcopy(m2), copy.deepcopy(m2)
+    for mm in (m3, m4):
+        for cid in list(mm.cargas):
+            mm.eliminar_carga(cid)
+    m3.agregar_carga_barra(1, "trapezoidal", -7.0, "z")
+    m4.agregar_carga_barra(1, "uniforme", -7.0, "z")
+    comprobar("Trapezoidal de 0 a L con w1 = w2 = uniforme (desplazamientos y reacciones)",
+              np.allclose(analizar_caso(m3, 1).res.U, analizar_caso(m4, 1).res.U)
+              and np.allclose(analizar_caso(m3, 1).res.R, analizar_caso(m4, 1).res.R))
+
+
+def verificar_casos_y_acero():
+    """El caso fijo Carga viva, el acero de refuerzo como material y los archivos de la versión 7."""
+    from modelo import concreto as cc
+    from modelo.archivo import a_diccionario, desde_diccionario
+    from modelo.diseno_vigueta import disenar_losa
+    from ejemplos.losa_viguetas import crear_losa_viguetas
+    print("\n===== CASOS FIJOS Y ACERO DE REFUERZO =====")
+    m = Modelo()
+    viva = m.caso_viva()
+    fijos = [cid for cid in m.casos if m.es_fijo(cid)]
+    comprobar(f"Un modelo nuevo trae 3 casos fijos: {', '.join(m.casos[c].nombre for c in fijos)}",
+              len(fijos) == 3 and m.casos[viva].tipo == "L" and not m.es_automatico(viva))
+    no_se_puede = []
+    for accion in (lambda: m.eliminar_caso(viva), lambda: m.cambiar_caso(viva, "Otra", "L")):
+        try:
+            accion()
+        except ValueError:
+            no_se_puede.append(True)
+    comprobar("La Carga viva no se borra ni se renombra", len(no_se_puede) == 2)
+    m.agregar_nodo(0, 0, 0)
+    m.agregar_nodo(4, 0, 0)
+    mat = m.agregar_material("C", e=25e6, g=10e6)
+    sec = m.agregar_seccion("S", a=0.15, iy=3.125e-3, iz=1.125e-3, j=2.8e-3)
+    m.agregar_elemento(1, 2, mat, sec)
+    m.agregar_carga_barra(1, "uniforme", -5.0, "Z", caso=viva)
+    comprobar("La Carga viva acepta cargas a mano (no es automática)", len(m.uso_caso(viva)) == 1)
+
+    # Acero: las secciones lo toman de un material; cambiarlo cambia sus secciones
+    m = crear_losa_viguetas()
+    aceros = [mid for mid, x in m.materiales.items() if cc.es_acero(x)]
+    comprobar(f"El modelo trae {m.materiales[aceros[0]].nombre} (fy = 60 ksi, {m.materiales[aceros[0]].norma}) y "
+              "todas sus secciones lo usan", len(aceros) == 1 and all(s.concreto.acero == aceros[0]
+                                                                      for s in m.secciones.values()))
+    viga = next(sid for sid, s in m.secciones.items() if s.concreto.forma == "rectangular")
+    cc.cambiar_material(m, aceros[0], "", fy=40 * cc.KSI, norma="A615")
+    comprobar(f"Cambiar el acero a 40 ksi cambia el fy de sus secciones y su nombre: {m.secciones[viga].nombre}",
+              np.isclose(m.secciones[viga].concreto.fy, 40 * cc.KSI) and "fy 276 MPa" in m.secciones[viga].nombre
+              and m.materiales[aceros[0]].nombre == "Acero Grado 40")
+    try:
+        m.eliminar_material(aceros[0])
+        borrado = True
+    except ValueError:
+        borrado = False
+    comprobar("Un acero en uso no se borra", not borrado)
+
+    # Estribos de Grado 80: para cortante fyt se toma como 60 ksi (Tabla 20.2.2.4(a), PDF p. 378)
+    def phi_vn(modelo):
+        d = disenar_losa(modelo, 1)
+        return next(x.valor for x in d.comprobaciones if x.nombre.startswith("φ(1.1·Vc + Vs)"))
+    m60 = crear_losa_viguetas()
+    m80 = crear_losa_viguetas()
+    a80 = cc.crear_acero(m80, "", 80 * cc.KSI, "A706")
+    t = m80.secciones[m80.losas[1].seccion].concreto
+    t.acero_estribo, t.fyt = a80, 80 * cc.KSI
+    v60, v80 = phi_vn(m60), phi_vn(m80)
+    comprobar(f"Estribos de 80 ksi: φVn = {v80:.2f} kN, igual que con 60 ksi ({v60:.2f}): fyt ≤ 60 ksi en cortante",
+              np.isclose(v60, v80))
+
+    # Un archivo de la versión 7: sin Carga viva ni aceros (la viva de las losas en "Viva de losas")
+    m = crear_losa_viguetas()
+    datos = a_diccionario(m)
+    datos["version_formato"] = 7
+    viva = m.caso_viva()
+    datos["casos"][str(viva)]["nombre"] = "Viva de losas"
+    for mid, x in list(datos["materiales"].items()):
+        if x.get("fy") is not None:
+            del datos["materiales"][mid]
+    for x in datos["materiales"].values():
+        x.pop("fy", None)
+        x.pop("norma", None)
+    for x in datos["secciones"].values():
+        for clave in ("acero", "acero_estribo", "fyt"):
+            x["concreto"].pop(clave, None)
+    v7, _ = desde_diccionario(datos)
+    acero = cc.buscar_acero(v7, cc.FY_DEFECTO)
+    comprobar("Archivo v7: 'Viva de losas' pasa a 'Carga viva' y las secciones usan un acero Grado 60 nuevo",
+              v7.casos[v7.caso_viva()].nombre == "Carga viva" and acero is not None
+              and all(s.concreto.acero == acero for s in v7.secciones.values()))
+    datos["casos"] = {k: c for k, c in datos["casos"].items() if not c.get("viva_losas")}
+    datos["losas"] = {}
+    sin_viva, _ = desde_diccionario(datos)
+    comprobar(f"Archivo v7 sin la viva de losas: se crea la Carga viva con un ID nuevo ({sin_viva.caso_viva()}; "
+              f"el {viva} ya se había usado)", sin_viva.caso_viva() is not None and sin_viva.caso_viva() != viva)
 
 
 if __name__ == "__main__":
@@ -767,5 +978,8 @@ if __name__ == "__main__":
     verificar_vigueta_continua()
     verificar_diseno_vigueta()
     verificar_losa_viguetas()
+    verificar_reparto_parcial()
+    verificar_carga_trapezoidal()
+    verificar_casos_y_acero()
     print("\n===== INTEGRIDAD DEL CÁLCULO (calculo/) =====")
     revisar()

@@ -1,5 +1,5 @@
 {
-  "aprobado": "2026-11-18",
+  "aprobado": "2026-11-19",
   "archivos": {
     "calculo/__init__.py": "2a99706d42c56ec9e98de708d2d69f8269bbcff1065c2f24eb1da7b813b43912",
     "calculo/concreto.py": "5b8a216e435db09f6edb883996d04aaedd9e9127bd39392e74c37ec2e2cc328a",
@@ -12,8 +12,8 @@
     "calculo/interaccion/rectangular.py": "03b40aa8b679939da349ebddeb95a55c65f873291c430399288c4c72468d70d1",
     "calculo/rigidez/__init__.py": "2035a1d33ae849d0e67c811c42b455cd82cf2a36476bcd34a5da00d98de7935c",
     "calculo/rigidez/barra.py": "3d6e59e659de8e96573dc421acb59d2c8ba728a9f5eb7ebf8a4ae931b48cd0c9",
-    "calculo/rigidez/diagramas.py": "7db44931a9ff0a21099bc72d64ccdacf2ebf902b50f38cc922690eabd47953f8",
-    "calculo/rigidez/empotramiento.py": "af956982b828a63fa72511ab7a1f1c625655116d1f5144af32843c6e1e0bda19",
+    "calculo/rigidez/diagramas.py": "7865a725fab7c91bbe36424ee3b6aa78a0cc5b3d04e6ad2a8e46468bed1a2916",
+    "calculo/rigidez/empotramiento.py": "a779241715b30722d80927eb85f4a83238cfd2cd1a0c3ff8b6a017b1af62aafc",
     "calculo/rigidez/ensamble.py": "3ffc47669d0382289f542e9df813530b289baf74cb90d9a1354f93d02effc39e",
     "calculo/rigidez/resultados.py": "600e87c90d433a2a6b8f3a664e9ed5d36567f3059db56137e8cfeeedf09e1e75",
     "calculo/rigidez/solucion.py": "2e5915320c88985131cab783ac42bd31e73072ba9d2a3439a48a5b68294497d4",

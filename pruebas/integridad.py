@@ -7,9 +7,10 @@ Dos comprobaciones:
 1. Huellas: el SHA-256 de cada archivo .py de calculo/ debe coincidir con el aprobado
    (pruebas/referencias/huellas_calculo.json). Dice qué archivo cambió, cuál es nuevo y cuál se
    borró. Los saltos de línea se normalizan, para que Windows y git no den falsas alarmas.
-2. Resultados de referencia: recalcula un pórtico y puntos de los diagramas de interacción y los
-   compara con pruebas/referencias/resultados.json. Así, un cambio en los números no pasa
-   inadvertido aunque alguien apruebe las huellas.
+2. Resultados de referencia: recalcula un pórtico, vigas con cargas en la barra (también la
+   trapezoidal), puntos de los diagramas de interacción y el diseño de vigas, y los compara con
+   pruebas/referencias/resultados.json. Así, un cambio en los números no pasa inadvertido aunque
+   alguien apruebe las huellas.
 
 El pórtico de referencia está definido aquí mismo (no en ejemplos/), para que cambiar el ejemplo
 no dé una falsa alarma sobre el cálculo.
@@ -140,6 +141,22 @@ def calcular_resultados():
         vigas[nombre] = {"U": rc.res.U.tolist(), "R": rc.res.R.tolist(), "fuerzas": rc.res.fuerzas[1].tolist(),
                          "diagramas": {k: np.asarray(d[k]).tolist() for k in ("x", "N", "Vy", "Vz", "T", "My", "Mz")}}
     resultados["vigas"] = vigas
+
+    # Carga trapezoidal (lineal de q1 en a a q2 en b), directo con calculo/rigidez (sin el modelo): una
+    # barra biempotrada de 6 m con una parcial general y una triangular en toda la barra. Sin
+    # desplazamientos, las fuerzas en los extremos son las FEF; de ahí los diagramas y la deformada
+    from calculo.rigidez import diagramas
+    from calculo.rigidez.empotramiento import empotramiento
+    cargas = [("trapezoidal", [[0.5, -3.0, -4.0], [-1.0, 2.0, -12.0]], (1.3, 4.1)),
+              ("trapezoidal", [[0.0, 0.0, 0.0], [0.0, 0.0, -10.0]], (0.0, 6.0))]
+    fef = empotramiento(6.0, cargas)
+    d = diagramas.internas(6.0, fef, cargas)
+    forma = diagramas.deformada(6.0, fef, cargas, np.zeros(12), 25e6, 10e6, 0.15, 3.125e-3, 1.125e-3, 2.8e-3,
+                                x=np.linspace(0.0, 6.0, 13))
+    resultados["trapezoidal"] = {"fef": fef.tolist(),
+                                 "diagramas": {k: np.asarray(d[k]).tolist() for k in ("x", "N", "Vy", "Vz", "T",
+                                                                                      "My", "Mz")},
+                                 "deformada": {k: np.asarray(forma[k]).tolist() for k in ("u", "v", "w", "phi")}}
 
     # Propiedades de secciones de concreto: rectángulo y T (A, Iy, Iz, J y, la T, su centroide yb)
     from calculo.concreto import propiedades_rectangulo, propiedades_T

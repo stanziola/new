@@ -10,6 +10,7 @@ TAMANO_VENTANA = (1400, 860)          # ancho, alto en píxeles
 # ---------- Íconos (personalización base) ----------
 TAMANO_ICONO = 24                     # barra de herramientas (izquierda) y barra Definir, en píxeles
 TAMANO_ICONO_INFERIOR = 20            # barra inferior
+TAMANO_ICONO_ARBOL = 16               # filas y grupos del Explorador y de Definir
 ICONO_GROSOR = 1.5                    # grosor de línea, en la cuadrícula de 24 x 24 de los íconos
 
 # ---------- Vista (personalización base: solo estos dos) ----------
@@ -17,8 +18,12 @@ GROSOR_BARRA = 4                      # en píxeles; la barra seleccionada usa e
 TAMANO_NODO = 9                       # en píxeles; el nodo seleccionado usa el mismo
 
 TAMANO_APOYO = 0.06                   # cono y placa de los apoyos: fracción del tamaño del modelo
-TAMANO_CARGA = 0.08                   # largo de las flechas de carga: fracción del tamaño del modelo
-SEPARACION_CARGA = 0.5                # personalización base: flechas de una uniforme, una cada (×) largo de flecha
+TAMANO_CARGA = 0.08                   # largo de las flechas y alto de la banda mayor: fracción del tamaño del modelo
+SEPARACION_CARGA = 0.5                # personalización base: flechas de una carga a lo largo de su barra, una cada (×) largo
+OPACIDAD_CARGA = 0.35                 # personalización base: el relleno de las bandas y láminas de carga (0 a 1)
+OPACIDAD_FLECHA_CARGA = 0.7           # flechas de las cargas (puntuales, momentos y a lo largo de la barra) y bordes
+MINIMO_BANDA = 0.25                   # una carga pequeña se dibuja al menos así de alta (× el alto de la mayor)
+TAMANO_CORTE_PX = 14                  # el punto verde del corte del panel Diagrama, en píxeles
 
 # ---------- Escala de los resultados ----------
 # Deformada: el factor multiplica los desplazamientos REALES (1 = tamaño real, que casi no se ve).

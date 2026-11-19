@@ -9,6 +9,9 @@
 - Los valores sí/no ("bool") son casillas.
 - Los cambios se aplican con una pequeña espera (RETARDO_CONFIGURACION_MS): si escribes "125",
   no se redibuja con "1", "12" y "125", sino una sola vez.
+- Un parámetro que depende de una casilla (Parametro.depende) queda en gris mientras esa casilla no
+  tenga el valor que pide: por ejemplo, la escala fija de la deformada con la escala automática
+  marcada (si no, parece que escribir 1 no hace nada).
 """
 from PySide6.QtCore import Signal, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
@@ -56,6 +59,7 @@ class DialogoConfiguracion(QDialog):
         self.setWindowTitle("Configuración")
         self.resize(620, 560)
         self._controles = {}                       # Parametro -> control
+        self._etiquetas = {}                       # Parametro -> su QLabel (para dejarla en gris)
         self._reloj = QTimer(self)
         self._reloj.setSingleShot(True)
         self._reloj.setInterval(ui.RETARDO_CONFIGURACION_MS)
@@ -88,7 +92,9 @@ class DialogoConfiguracion(QDialog):
 
         for p in preferencias.PARAMETROS:
             if p.grupo != "Unidades":
-                formularios[p.grupo].addRow(p.etiqueta, self._registrar(p))
+                etiqueta = QLabel(p.etiqueta)
+                formularios[p.grupo].addRow(etiqueta, self._registrar(p))
+                self._etiquetas[p] = etiqueta
 
         # ---------- Abajo: Restablecer a la izquierda, Cerrar a la derecha ----------
         restablecer = QPushButton("Restablecer")
@@ -148,6 +154,18 @@ class DialogoConfiguracion(QDialog):
     def _mostrar_todo(self):
         for p, control in self._controles.items():
             self._mostrar(p, control)
+        self._dependencias()
+
+    def _dependencias(self):
+        """Los parámetros que dependen de una casilla, en gris si no se usan con su valor vigente."""
+        for p, control in self._controles.items():
+            if p.depende is None:
+                continue
+            usado = preferencias.activo(p)
+            control.setEnabled(usado)
+            if p in self._etiquetas:
+                self._etiquetas[p].setEnabled(usado)
+            control.setToolTip("" if usado else "No se usa con el valor actual de la casilla de la que depende")
 
     # ---------- Cambios ----------
     def _leer(self, p, control):
@@ -165,6 +183,8 @@ class DialogoConfiguracion(QDialog):
             for otro, control in self._controles.items():      # cambió una unidad o sus decimales:
                 if otro.magnitud:                              # se vuelve a mostrar lo que la usa
                     self._mostrar(otro, control)
+        if p.tipo == "bool":
+            self._dependencias()
         self._reloj.start()
 
     def _restablecer(self):

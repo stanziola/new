@@ -76,7 +76,7 @@ def crear_vigueta(claros=CLAROS_SALON, viva=VIVA_SALON, viva_en=None):
         m.restringir(nid, phix=False, phiy=False, phiz=False)       # apoyo fijo
     m.restringir(nodos[0], phix=True, phiy=False, phiz=False)       # y el giro de la línea sobre su eje
 
-    caso_viva = m.agregar_caso("Viva", "L")
+    caso_viva = m.caso_viva()                                        # el caso fijo "Carga viva"
     for claro, eid in enumerate(barras, start=1):
         m.agregar_carga_barra(eid, "uniforme", -MUERTA_ADICIONAL, "Z")      # caso inicial: muerta adicional
         if claro in viva_en:

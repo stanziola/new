@@ -18,6 +18,10 @@ Así, en una viga con z hacia arriba (α = 0), My > 0 es el momento positivo: la
 carga hacia abajo da My = wL²/8 al centro y Vz = wL/2 en el apoyo izquierdo. Y se cumple, en los
 dos planos, dM/dx = V (dMz/dx = Vy, dMy/dx = Vz) y dV/dx = q (la carga en el sentido +y o +z).
 En una carga puntual hay salto: la sección x = a se evalúa dos veces, justo antes y justo después.
+Una carga trapezoidal (lineal de q1 en a a q2 en b) no tiene salto: se evalúa también en a y en b,
+donde cambia la pendiente. Su aporte en x es la parte entre a y min(x, b): la resultante ∫q y su
+momento ∫(s − x)·e1 × q, que se integran con Gauss de 2 puntos (exacto: los integrandos son de
+grado 1 y 2, y 2 puntos integran sin error hasta grado 3).
 
 Deformada (Euler-Bernoulli), en ejes locales, integrando:
     u' = N/EA,  φ' = T/GJ,  v'' = Mz/(E·Iz),  w'' = My/(E·Iy)
@@ -27,15 +31,22 @@ v(L) = vj), así la curva es la exacta para estas fuerzas y coincide con los nod
 import numpy as np
 
 NOMBRES = ("N", "Vy", "Vz", "T", "My", "Mz")
+# Gauss–Legendre de 2 puntos en [−1, 1]: (posición, peso). Exacto hasta polinomios de grado 3
+GAUSS_2 = ((-1 / np.sqrt(3), 1.0), (1 / np.sqrt(3), 1.0))
 
 
 def secciones(L, cargas, n=41):
-    """Puntos x donde evaluar: n puntos parejos y, en cada carga puntual, dos (antes y después).
+    """Puntos x donde evaluar: n puntos parejos; en cada carga puntual o momento, dos (antes y
+    después); y en cada trapezoidal, uno en cada extremo (a y b: ahí cambia la pendiente, sin salto).
 
     Devuelve (x, lado): lado = −1 si la sección queda justo antes de una carga en ese x, +1 si no."""
     xs = [(float(x), 1) for x in np.linspace(0.0, L, n)]
     for tipo, _vector, a in cargas:
-        if tipo != "uniforme" and 0.0 < a < L:
+        if tipo == "uniforme":
+            continue
+        if tipo == "trapezoidal":
+            xs += [(float(p), 1) for p in a if 0.0 < p < L]
+        elif 0.0 < a < L:
             xs += [(float(a), -1), (float(a), 1)]
     xs = sorted(set(xs))
     return np.array([x for x, _ in xs]), np.array([lado for _, lado in xs])
@@ -60,6 +71,17 @@ def internas(L, fuerzas, cargas, x=None, lado=None):
             if tipo == "uniforme":                     # resultante q·x en el centro del tramo, x/2
                 fuerza += v * xk
                 momento += np.cross(-xk / 2 * e1, v * xk)
+                continue
+            if tipo == "trapezoidal":                  # la parte de la carga entre a1 y min(x, a2)
+                (q1, q2), (a1, a2) = v, a
+                fin = min(xk, a2)
+                if fin > a1:
+                    mitad, centro = (fin - a1) / 2, (fin + a1) / 2
+                    for t, peso in GAUSS_2:
+                        s = centro + mitad * t
+                        q = (q1 + (q2 - q1) * (s - a1) / (a2 - a1)) * peso * mitad
+                        fuerza += q
+                        momento += np.cross((s - xk) * e1, q)
                 continue
             antes = a < xk or (a == xk and lado[k] > 0)
             if not antes:

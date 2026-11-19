@@ -136,6 +136,38 @@ def cortes_superiores(franja, modelo_franja):
     return salida
 
 
+def cargas_de_area(modelo, resumenes, caso):
+    """[(esquinas, q)] de las losas en el caso, para dibujar sus cargas de área (vista3d/cargas.py): en
+    cada paño, las 4 esquinas de arriba de la losa, de cara a cara de sus vigas, y q en kN/m² (hacia
+    abajo): la muerta adicional en el caso inicial (Carga muerta adicional), la viva en la Carga viva y
+    el peso de la losa en el de peso propio (por su factor). En los demás casos, nada."""
+    from modelo.losas import peso_por_area
+    caso_obj = modelo.casos.get(caso)
+    salida = []
+    if caso_obj is None:
+        return salida
+    for lid, r in resumenes.items():
+        if "error" in r or lid not in modelo.losas:
+            continue
+        losa = modelo.losas[lid]
+        t, n = r["ejes"]
+        for pid, datos in r["panos"].items():
+            g, pano = datos["geo"], losa.panos[pid]
+            if caso_obj.peso_propio:
+                q = peso_por_area(modelo, losa, r["s"]) * caso_obj.peso_propio
+            elif caso == modelo.caso_inicial():
+                q = pano.muerta
+            elif caso_obj.viva_losas:
+                q = pano.viva
+            else:
+                continue
+            v0, v1 = g.va + g.ancho_a / 2, g.vb - g.ancho_b / 2
+            esquinas = [_punto(t, n, u, v, g.tope) for u, v in ((g.libre_0, v0), (g.libre_1, v0), (g.libre_1, v1),
+                                                                (g.libre_0, v1))]
+            salida.append((esquinas, q))
+    return salida
+
+
 def colores_base(cantidad):
     """Colores (RGB por celda) de las losas sin seleccionar: el gris de los elementos."""
     return np.tile(np.array(colores.rgb(colores.ELEMENTO), dtype=np.uint8), (cantidad, 1))

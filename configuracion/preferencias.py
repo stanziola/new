@@ -34,6 +34,8 @@ class Parametro:
     opciones: tuple = ()    # para "opcion"
     magnitud: str = None    # si tiene unidades ("longitud"...): en el diálogo se convierte
     decimales: int = 2      # para "real"
+    depende: str = None     # clave de un parámetro "bool" del que depende (None: siempre activo)
+    activo_si: bool = True  # el campo se usa (y se puede editar) solo si ese bool vale esto
 
     @property
     def clave(self):
@@ -65,15 +67,18 @@ PARAMETROS = [
     P(interfaz, "TAMANO_NODO", "Tamaño de los nodos (píxeles)", "entero", "Vista", 1, 50),
     P(interfaz, "TAMANO_APOYO", "Tamaño de los apoyos (fracción del modelo)", "real", "Vista", 0.01, 0.3),
     P(interfaz, "TAMANO_CARGA", "Tamaño de las cargas (fracción del modelo)", "real", "Vista", 0.01, 0.5),
-    P(interfaz, "SEPARACION_CARGA", "Separación de las flechas de una carga distribuida (× largo de la flecha)",
-      "real", "Vista", 0.2, 3.0),
+    P(interfaz, "SEPARACION_CARGA", "Separación de las flechas de una carga a lo largo de su barra (× largo de la "
+      "flecha)", "real", "Vista", 0.2, 3.0),
+    P(interfaz, "OPACIDAD_CARGA", "Opacidad del relleno de las cargas distribuidas y de área (0 a 1)", "real",
+      "Vista", 0.05, 1.0),
     P(interfaz, "DEFORMADA_AUTOMATICA", "Escala automática de la deformada", "bool", "Vista"),
     P(interfaz, "FACTOR_DEFORMADA", "Escala de la deformada, si no es automática (× real; 1 = real)", "real",
-      "Vista", 0.01, 1e7),
+      "Vista", 0.01, 1e7, depende="interfaz.DEFORMADA_AUTOMATICA", activo_si=False),
     P(interfaz, "FACTOR_DIAGRAMA", "Escala de los diagramas (1 = automática)", "real", "Vista", 0.05, 20),
     # ---------- Interfaz ----------
     P(interfaz, "TAMANO_ICONO", "Íconos de las barras izquierda y Definir (píxeles)", "entero", "Interfaz", 12, 64),
     P(interfaz, "TAMANO_ICONO_INFERIOR", "Íconos de la barra inferior (píxeles)", "entero", "Interfaz", 12, 64),
+    P(interfaz, "TAMANO_ICONO_ARBOL", "Íconos del Explorador y de Definir (píxeles)", "entero", "Interfaz", 10, 48),
     P(interfaz, "CUBO_TAMANO", "Tamaño del cubo (fracción del alto de la vista)", "real", "Interfaz", 0.08, 0.5),
     P(interfaz, "CUBO_ANILLO", "Cubo con anillo de giro y flechas", "bool", "Interfaz"),
     P(interfaz, "EJES_TAMANO", "Tamaño de los ejes (fracción del alto de la vista)", "real", "Interfaz", 0.06, 0.4),
@@ -89,6 +94,7 @@ PARAMETROS = [
     P(colores, "SIN_ASIGNAR", "Elementos sin material o sección", "color", "Colores"),
     P(colores, "ETIQUETA", "Etiquetas", "color", "Colores"),
     P(colores, "CARGA", "Cargas", "color", "Colores"),
+    P(colores, "CORTE", "Corte del panel Diagrama (el punto sobre la barra)", "color", "Colores"),
     P(colores, "REACCION", "Reacciones", "color", "Colores"),
     P(colores, "ACERO", "Acero de refuerzo", "color", "Colores"),
     P(colores, "DEFORMADA", "Deformada", "color", "Colores"),
@@ -125,6 +131,15 @@ _POR_CLAVE = {p.clave: p for p in PARAMETROS}
 def base(parametro):
     """Valor base (el del código) de un parámetro."""
     return _BASE[parametro.clave]
+
+
+def activo(parametro):
+    """True si el parámetro se usa con los valores vigentes: los que dependen de una casilla (por
+    ejemplo, la escala fija de la deformada solo cuenta sin la escala automática) quedan inactivos
+    mientras esa casilla no tenga el valor que piden."""
+    if parametro.depende is None:
+        return True
+    return bool(_POR_CLAVE[parametro.depende].valor()) == parametro.activo_si
 
 
 def _valido(p, v):

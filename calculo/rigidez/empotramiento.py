@@ -18,9 +18,18 @@ Resultados conocidos que salen de aquí (b = L − a):
     uniforme q:  qL/2 en cada extremo y qL²/12 de momento
     puntual P:   P·b²(3a + b)/L³ y P·a²(a + 3b)/L³;  momentos P·a·b²/L² y P·a²·b/L²
     momento M:   6·M·a·b/L³;  momentos M·b(b − 2a)/L² y M·a(a − 2b)/L²
+    triangular de 0 en i a q en j (toda la barra):  3qL/20 y 7qL/20;  momentos qL²/30 y qL²/20
+Carga trapezoidal (lineal): q1 en x = a y q2 en x = b, entre ellas varía en línea recta y fuera de
+[a, b] vale cero. Con q1 = q2 es una uniforme parcial; con q1 = 0, una triangular. Sus cargas
+equivalentes son la integral ∫ N(x)·q(x) dx de a a b, que se hace con Gauss–Legendre de 3 puntos: el
+integrando es un polinomio de grado 4 (Hermite cúbica por una recta) y 3 puntos integran sin error
+hasta grado 5, así que el resultado es exacto (no es una aproximación numérica).
 Unidades: las que se usen (kN, kN/m, kN·m y m en el programa).
 """
 import numpy as np
+
+# Gauss–Legendre de 3 puntos en [−1, 1]: (posición, peso). Exacto hasta polinomios de grado 5
+GAUSS_3 = ((-np.sqrt(3 / 5), 5 / 9), (0.0, 8 / 9), (np.sqrt(3 / 5), 5 / 9))
 
 
 def _forma(L, a):
@@ -72,14 +81,37 @@ def equivalentes_uniforme(L, q):
     return p
 
 
+def equivalentes_lineal(L, a, b, q1, q2):
+    """Cargas nodales equivalentes (12, locales) de una carga distribuida que va en línea recta de
+    q1 = [qx, qy, qz] en x = a a q2 en x = b (0 ≤ a < b ≤ L; por unidad de largo). Cero si b ≤ a.
+
+    Cada punto de Gauss es una carga puntual q(x_g)·(peso)·(b − a)/2 en x_g: se reparte con las mismas
+    funciones de forma que la puntual (equivalentes_puntual). Con 3 puntos la integral es exacta."""
+    q1, q2 = np.asarray(q1, dtype=float), np.asarray(q2, dtype=float)
+    p = np.zeros(12)
+    if b <= a:
+        return p
+    mitad, centro = (b - a) / 2, (a + b) / 2
+    for t, peso in GAUSS_3:
+        x = centro + mitad * t
+        q = q1 + (q2 - q1) * (x - a) / (b - a)
+        p += equivalentes_puntual(L, x, q * peso * mitad, np.zeros(3))
+    return p
+
+
 def empotramiento(L, cargas):
     """FEF (12, locales) de una lista de cargas locales: ("uniforme", [qx, qy, qz], None),
-    ("puntual", [Px, Py, Pz], a) o ("momento", [Mx, My, Mz], a). FEF = −(cargas equivalentes)."""
+    ("puntual", [Px, Py, Pz], a), ("momento", [Mx, My, Mz], a) o
+    ("trapezoidal", [[q1x, q1y, q1z], [q2x, q2y, q2z]], (a, b)): lineal de q1 en a a q2 en b.
+    FEF = −(cargas equivalentes)."""
     total = np.zeros(12)
     for tipo, vector, a in cargas:
         vector = np.asarray(vector, dtype=float)
         if tipo == "uniforme":
             total += equivalentes_uniforme(L, vector)
+        elif tipo == "trapezoidal":
+            (q1, q2), (inicio, fin) = vector, a
+            total += equivalentes_lineal(L, float(inicio), float(fin), q1, q2)
         elif tipo == "puntual":
             total += equivalentes_puntual(L, a, vector, np.zeros(3))
         elif tipo == "momento":
