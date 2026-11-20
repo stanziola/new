@@ -19,7 +19,7 @@ fc = 5000 * ureg.psi
 
 #CONFIGURACION DE C
 
-n1, n2, n3 = 60, 25, 15          
+n1, n2, n3 = 60, 30, 15          
 n_c = n1 + n2 + n3
 
 #FUNCIONES
@@ -116,10 +116,10 @@ if __name__ == "__main__":
             c[ang,i] = x_max*0.9999 - x_max*2*(i)/(n1-1)
             a[ang,i] = beta_1*(x_max - c[ang,i])
         for i in range(n1, n1+n2):
-            c[ang,i] = c[ang,n1-1] - x_max*4/n2*(i-(n1-1))
+            c[ang,i] = c[ang,n1-1] - x_max*1.5/n2*(i-(n1-1))
             a[ang,i] = beta_1*(x_max - c[ang,i])
         for i in range(n1+n2, n_c):
-            c[ang,i] = c[ang,n1+n2-1] - x_max*3.2/n3*(i-(n1+n2-1))
+            c[ang,i] = c[ang,n1+n2-1] - x_max*2/n3*(i-(n1+n2-1))
             a[ang,i] = beta_1*(x_max - c[ang,i])
 
         for i in range(n_c):
@@ -217,4 +217,4 @@ if __name__ == "__main__":
         phi_M_x[ang] = phi_M_nx[ang]*coseno + phi_M_ny[ang]*seno
         phi_M_y[ang] = -phi_M_nx[ang]*seno + phi_M_ny[ang]*coseno
 
-    graficar_c(seccion_girada, barras_giradas, r_barra.to(ureg.cm).magnitude, c, b_cm, h_cm, coord_comp_todas, n_comp, centroide_comp)
+    graficar_c(seccion_girada, barras_giradas, r_barra.to(ureg.cm).magnitude, c, b_cm, h_cm, coord_comp_todas, n_comp, centroide_comp, phi_P_n, phi_M_x, phi_M_y)

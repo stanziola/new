@@ -12,6 +12,7 @@ if str(RAIZ) not in sys.path:
 # PySide6 antes que matplotlib: así matplotlib usa el mismo Qt para su lienzo
 import pyvista as pv
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMainWindow, QSplitter
 from pyvistaqt import QtInteractor
 
@@ -33,12 +34,24 @@ from interfaz.vista3d.cubo import CuboVistas, viewport_esquina
 ESTILO = "dark_background"
 SIN_BOTONES = {"toolbar": "None"}
 
+# ventana: el 3D a la izquierda y la columna (2D) a la derecha, en pantalla completa
+PROPORCION_3D = 0.55       # parte del ancho para el 3D; el resto, para la columna
+
+# bloque del 2D (en píxeles): la sección, su título y los deslizadores van juntos, centrados en la altura
+MARGEN_IZQ_PX = 55         # para los números del eje y
+MARGEN_DER_PX = 25
+TITULO_PX = 60             # el título, de dos líneas
+NUMEROS_X_PX = 35          # los números del eje x, debajo de la sección
+DESLIZADOR_PX = 34         # alto de cada deslizador
+SEPARACION_PX = 18
+
 # superficie 3D (como la del programa, interfaz/vista3d/superficie.py)
 ALTO = 1.3                 # largo del eje P cuando el momento mayor mide 1 (momento y carga no comparten unidad)
 SOBRANTE = 1.14            # cuánto pasan los ejes de la superficie
 MEDIA_MARCA = 0.018        # medio largo de cada marca de los ejes
 OPACIDAD = 0.45            # de la superficie: deja ver las c del ángulo elegido
 VISTA_INICIAL = (1.0, -1.25, 0.75)     # desde dónde se mira al abrir
+TAMANO_CUBO = 0.12         # lado del cubo, fracción del alto de la vista (en el programa, 0.20)
 AMARILLO = "#e6b800"       # las c del ángulo elegido (amarillo oscuro: se ve sobre el fondo blanco)
 ROJO = "#d62728"           # la c elegida
 
@@ -97,6 +110,7 @@ class Superficie3D(QObject):
         self.vista.add_axes(xlabel="Mx", ylabel="My", zlabel="P",
                             x_color=colores.EJE_X, y_color=colores.EJE_Y, z_color=colores.EJE_Z)
         self.animador = AnimadorCamara(self.vista)
+        ui.CUBO_TAMANO = TAMANO_CUBO                   # solo mientras corre este script: no toca las preferencias del programa
         self.cubo = CuboVistas(self.vista, self.animador)
         # si se gira o hace zoom a mitad de un giro del cubo, manda el usuario
         for evento in ("LeftButtonPressEvent", "MiddleButtonPressEvent", "RightButtonPressEvent",
@@ -175,19 +189,16 @@ class Superficie3D(QObject):
             reset_camera=False, render=False)
 
     def seleccionar(self, ang, i):
-        """Todas las c del ángulo ang en amarillo (línea y puntos) y la c número i en rojo, con una línea
-        desde el eje P que muestra la dirección de su momento."""
+        """Todas las c del ángulo ang en amarillo (línea y puntos) y la c número i en rojo."""
         vista = self.vista
         meridiano = self.escena(self.mx[ang], self.my[ang], self.p[ang])
         vista.add_mesh(_segmentos(list(zip(meridiano[:-1], meridiano[1:]))), color=AMARILLO, line_width=3,
                        lighting=False, pickable=False, reset_camera=False, name="meridiano", render=False)
         vista.add_mesh(pv.PolyData(meridiano), color=AMARILLO, point_size=8, render_points_as_spheres=True,
                        lighting=False, pickable=False, reset_camera=False, name="cs", render=False)
-        q = meridiano[i]
-        vista.add_mesh(pv.PolyData(q.reshape(1, 3)), color=ROJO, point_size=16, render_points_as_spheres=True,
-                       lighting=False, pickable=False, reset_camera=False, name="c_elegida", render=False)
-        vista.add_mesh(_segmentos([((0.0, 0.0, q[2]), q)]), color=ROJO, line_width=2.5, lighting=False,
-                       pickable=False, reset_camera=False, name="radio", render=False)
+        vista.add_mesh(pv.PolyData(meridiano[i].reshape(1, 3)), color=ROJO, point_size=16,
+                       render_points_as_spheres=True, lighting=False, pickable=False, reset_camera=False,
+                       name="c_elegida", render=False)
         vista.renderer.ResetCameraClippingRange()
         vista.render()
 
@@ -215,19 +226,37 @@ class Superficie3D(QObject):
 
 
 class _Ventana(QMainWindow):
-    """La ventana: el 2D a la izquierda y el 3D a la derecha. Al cerrarla se apaga el 3D."""
+    """La ventana: el 3D a la izquierda y la columna (2D) a la derecha, en pantalla completa.
+    F11 entra y sale de la pantalla completa; Esc sale (queda maximizada). Al cerrarla se apaga el 3D."""
 
     def __init__(self, lienzo, superficie):
         super().__init__()
         self.superficie = superficie
         self.setWindowTitle("Diagrama de interacción biaxial")
-        division = QSplitter(Qt.Horizontal)
-        division.addWidget(lienzo)
+        self.division = QSplitter(Qt.Horizontal)
         if superficie is not None:
             superficie.setParent(self)
-            division.addWidget(superficie.vista)
-            division.setSizes([1, 1])
-        self.setCentralWidget(division)
+            self.division.addWidget(superficie.vista)
+        self.division.addWidget(lienzo)
+        self.setCentralWidget(self.division)
+        QShortcut(QKeySequence(Qt.Key_F11), self, self._alternar_pantalla)
+        QShortcut(QKeySequence(Qt.Key_Escape), self, self.showMaximized)
+
+    def repartir(self):
+        """PROPORCION_3D del ancho para el 3D y el resto para la columna."""
+        if self.superficie is not None:
+            ancho = self.division.width()
+            self.division.setSizes([round(ancho * PROPORCION_3D), round(ancho * (1 - PROPORCION_3D))])
+
+    def showEvent(self, evento):
+        super().showEvent(evento)
+        QTimer.singleShot(0, self.repartir)     # cuando la ventana ya tiene su tamaño
+
+    def _alternar_pantalla(self):
+        if self.isFullScreen():
+            self.showMaximized()
+        else:
+            self.showFullScreen()
 
     def closeEvent(self, evento):
         if self.superficie is not None:
@@ -253,8 +282,7 @@ def graficar_c(seccion_girada, barras_giradas, r_barra_cm, c, b_cm, h_cm,
         # --- figura y ejes ---
         fig = Figure()
         lienzo = FigureCanvasQTAgg(fig)
-        ax = fig.add_subplot()
-        fig.subplots_adjust(bottom=0.25)                 # espacio para dos deslizadores
+        ax = fig.add_subplot()                           # su lugar lo pone acomodar(), con los deslizadores
 
         r = np.hypot(b_cm, h_cm) / 2 * 1.1
 
@@ -270,7 +298,8 @@ def graficar_c(seccion_girada, barras_giradas, r_barra_cm, c, b_cm, h_cm,
         punto_comp, = ax.plot([], [], "x", ms=10, color="yellow", mew=2, animated=True)   # centroide del bloque
         titulo = ax.set_title("", animated=True)
 
-        ax.set_xlim(c.min() * 1.05, r)                    # desde la c más lejana hasta la sección
+        x_izq = c.min() * 1.05                            # desde la c más lejana hasta la sección
+        ax.set_xlim(x_izq, r)
         ax.set_ylim(-r, r)
         ax.set_aspect("equal")
         ax.grid(False)                                    # sin rejilla: solo las líneas de c
@@ -340,11 +369,35 @@ def graficar_c(seccion_girada, barras_giradas, r_barra_cm, c, b_cm, h_cm,
         if superficie is not None:
             superficie.seleccionar(ang, i)
 
+    def acomodar(_=None):
+        """La sección (con sus c), el título y los deslizadores, como un bloque centrado en la altura:
+        la sección ocupa todo el ancho del panel y los deslizadores van justo debajo."""
+        ancho, alto = fig.get_size_inches() * fig.dpi
+        if ancho < 100 or alto < 100:
+            return
+        resto = TITULO_PX + NUMEROS_X_PX + 3 * SEPARACION_PX + 2 * DESLIZADOR_PX   # lo que no es la sección
+        proporcion = 2 * r / (r - x_izq)                  # alto / ancho de la sección con sus c (aspecto 1:1)
+        w = ancho - MARGEN_IZQ_PX - MARGEN_DER_PX
+        h = w * proporcion
+        if h > alto - resto - 2 * SEPARACION_PX:          # panel bajo: manda la altura
+            h = max(alto - resto - 2 * SEPARACION_PX, 40)
+            w = h / proporcion
+        bloque = h + resto
+        y_ax = (alto + bloque) / 2 - TITULO_PX - h        # borde de abajo de la sección
+        x_ax = MARGEN_IZQ_PX + (ancho - MARGEN_IZQ_PX - MARGEN_DER_PX - w) / 2
+        ax.set_position([x_ax / ancho, y_ax / alto, w / ancho, h / alto])
+        y = y_ax - NUMEROS_X_PX - SEPARACION_PX
+        for d in (desl_ang, desl_i):
+            y -= DESLIZADOR_PX
+            d.ax.set_position([0.15, y / alto, 0.70, DESLIZADOR_PX / alto])
+            y -= SEPARACION_PX
+
+    lienzo.mpl_connect("resize_event", acomodar)      # antes de cada dibujo completo por cambio de tamaño
     lienzo.mpl_connect("draw_event", guardar_fondo)
     desl_ang.on_changed(actualizar)
     desl_i.on_changed(actualizar)
 
     ventana = _Ventana(lienzo, superficie)
     actualizar()
-    ventana.showMaximized()
+    ventana.showFullScreen()
     app.exec()
